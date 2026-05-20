@@ -4,9 +4,13 @@ import { api } from './api';
 import NavBar from './components/NavBar';
 import Login from './pages/Login';
 import Today from './pages/Today';
+import RecipeIndex from './pages/recipes/RecipeIndex';
 import FertigationRecipes from './pages/recipes/FertigationRecipes';
 import FertigationRecipeDetail from './pages/recipes/FertigationRecipeDetail';
 import FertigationRecipeEdit from './pages/recipes/FertigationRecipeEdit';
+import FoliarRecipes from './pages/recipes/FoliarRecipes';
+import FoliarRecipeDetail from './pages/recipes/FoliarRecipeDetail';
+import FoliarRecipeEdit from './pages/recipes/FoliarRecipeEdit';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -53,10 +57,15 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<Protected><Today /></Protected>} />
+              <Route path="/recipes" element={<Protected><RecipeIndex /></Protected>} />
               <Route path="/recipes/fertigation" element={<Protected><FertigationRecipes /></Protected>} />
               <Route path="/recipes/fertigation/new" element={<Protected minRole="supervisor"><FertigationRecipeEdit /></Protected>} />
               <Route path="/recipes/fertigation/:id" element={<Protected><FertigationRecipeDetail /></Protected>} />
               <Route path="/recipes/fertigation/:id/version" element={<Protected minRole="supervisor"><FertigationRecipeEdit /></Protected>} />
+              <Route path="/recipes/foliar" element={<Protected><FoliarRecipes /></Protected>} />
+              <Route path="/recipes/foliar/new" element={<Protected minRole="supervisor"><FoliarRecipeEdit /></Protected>} />
+              <Route path="/recipes/foliar/:id" element={<Protected><FoliarRecipeDetail /></Protected>} />
+              <Route path="/recipes/foliar/:id/version" element={<Protected minRole="supervisor"><FoliarRecipeEdit /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

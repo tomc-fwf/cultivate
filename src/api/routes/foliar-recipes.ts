@@ -1,0 +1,297 @@
+import { FastifyPluginAsync } from 'fastify';
+import { getDB } from '../../db/index.js';
+import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
+
+interface IdParams { id: string }
+
+interface IngredientBody {
+  input_id: number;
+  rate_value: number;
+  rate_unit: string;
+  order_index: number;
+  notes?: string | null;
+}
+
+interface RecipeBody {
+  name?: string;
+  purpose?: string | null;
+  notes?: string | null;
+  ingredients: IngredientBody[];
+}
+
+/**
+ * Increment version string: "1.0" → "1.1", "1.9" → "1.10", "2.0" → "2.1"
+ */
+function nextVersion(v: string): string {
+  const parts = v.split('.');
+  const major = parseInt(parts[0] ?? '1', 10);
+  const minor = parseInt(parts[1] ?? '0', 10);
+  return `${major}.${minor + 1}`;
+}
+
+/**
+ * Fetch item names from farmstock catalog (best-effort; returns empty map on failure).
+ */
+async function fetchItemNames(inputIds: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (inputIds.length === 0) return map;
+
+  const farmstockUrl = process.env.FARMSTOCK_URL;
+  const serviceKey = process.env.FARMSTOCK_SERVICE_KEY;
+  if (!farmstockUrl || !serviceKey) return map;
+
+  try {
+    const res = await fetch(`${farmstockUrl}/api/items/catalog`, {
+      headers: { Authorization: `Service ${serviceKey}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return map;
+    const items = (await res.json()) as Array<{ id: number; name: string }>;
+    for (const item of items) {
+      map.set(item.id, item.name);
+    }
+  } catch {
+    // Farmstock unavailable — continue without names
+  }
+  return map;
+}
+
+const foliarRecipesRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * GET / — list all active foliar recipes.
+   * Returns array of active recipes with ingredient_count and version_count.
+   * Unlike fertigation, there are no fixed name slots — only what exists.
+   */
+  app.get('/', { preHandler: requireAuth }, async (_request, reply) => {
+    const db = getDB();
+
+    const activeRecipes = db
+      .prepare(
+        `SELECT r.*,
+                (SELECT COUNT(*) FROM cv_foliar_recipe_ingredients i WHERE i.foliar_recipe_id = r.foliar_recipe_id) AS ingredient_count,
+                (SELECT COUNT(*) FROM cv_foliar_recipes r2 WHERE r2.name = r.name) AS version_count
+         FROM cv_foliar_recipes r
+         WHERE r.active = 1
+         ORDER BY r.name`,
+      )
+      .all() as Record<string, unknown>[];
+
+    return reply.send(activeRecipes);
+  });
+
+  /**
+   * GET /:id — single recipe with ingredients (enriched with item_name) and version history.
+   */
+  app.get<{ Params: IdParams }>(
+    '/:id',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const db = getDB();
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid recipe id' });
+
+      const recipe = db
+        .prepare('SELECT * FROM cv_foliar_recipes WHERE foliar_recipe_id=?')
+        .get(id) as Record<string, unknown> | undefined;
+
+      if (!recipe) return reply.code(404).send({ error: 'Recipe not found' });
+
+      const ingredients = db
+        .prepare(
+          'SELECT * FROM cv_foliar_recipe_ingredients WHERE foliar_recipe_id=? ORDER BY order_index',
+        )
+        .all(id) as Array<Record<string, unknown>>;
+
+      const nameMap = await fetchItemNames(ingredients.map((i) => i['input_id'] as number));
+      const enriched = ingredients.map((i) => ({
+        ...i,
+        item_name: nameMap.get(i['input_id'] as number) ?? null,
+      }));
+
+      const versionHistory = db
+        .prepare(
+          `SELECT r.foliar_recipe_id, r.version, r.active, r.created_at, r.approved_at, r.superseded_at,
+                  u.name as created_by_name
+           FROM cv_foliar_recipes r
+           LEFT JOIN cv_users u ON u.id = r.created_by
+           WHERE r.name = ?
+           ORDER BY r.created_at DESC`,
+        )
+        .all(recipe['name'] as string) as Array<Record<string, unknown>>;
+
+      return reply.send({ ...recipe, ingredients: enriched, version_history: versionHistory });
+    },
+  );
+
+  /**
+   * POST / — create first version of a foliar recipe.
+   * Returns 409 if an active recipe with the same name already exists (use /version instead).
+   */
+  app.post<{ Body: RecipeBody }>(
+    '/',
+    { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const body = request.body as RecipeBody;
+      const { name, purpose, notes, ingredients } = body;
+
+      if (!name || name.trim().length === 0) {
+        return reply.code(400).send({ error: 'name is required and must be a non-empty string' });
+      }
+      if (!ingredients || ingredients.length === 0) {
+        return reply.code(400).send({ error: 'At least one ingredient is required' });
+      }
+
+      const db = getDB();
+      const existing = db
+        .prepare('SELECT foliar_recipe_id FROM cv_foliar_recipes WHERE name=? AND active=1')
+        .get(name.trim());
+      if (existing) {
+        return reply.code(409).send({
+          error: `An active recipe named "${name.trim()}" already exists. Use POST /:id/version to create a new version.`,
+        });
+      }
+
+      const now = new Date().toISOString();
+      const userId = request.user.id;
+
+      const r = db
+        .prepare(
+          `INSERT INTO cv_foliar_recipes
+             (name, version, active, purpose, notes, approved_by, approved_at, created_by, created_at)
+           VALUES (?, '1.0', 1, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          name.trim(),
+          purpose ?? null,
+          notes ?? null,
+          userId,
+          now,
+          userId,
+          now,
+        );
+
+      const recipeId = Number(r.lastInsertRowid);
+
+      const insertIngredient = db.prepare(
+        `INSERT INTO cv_foliar_recipe_ingredients
+           (foliar_recipe_id, input_id, rate_value, rate_unit, order_index, notes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const ing of ingredients) {
+        insertIngredient.run(recipeId, ing.input_id, ing.rate_value, ing.rate_unit, ing.order_index, ing.notes ?? null, now);
+      }
+
+      return reply.code(201).send({ foliar_recipe_id: recipeId });
+    },
+  );
+
+  /**
+   * POST /:id/version — create new version, superseding the given foliar_recipe_id.
+   */
+  app.post<{ Params: IdParams; Body: RecipeBody }>(
+    '/:id/version',
+    { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const db = getDB();
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid recipe id' });
+
+      const body = request.body as RecipeBody;
+      const { purpose, notes, ingredients } = body;
+
+      if (!ingredients || ingredients.length === 0) {
+        return reply.code(400).send({ error: 'At least one ingredient is required' });
+      }
+
+      const existing = db
+        .prepare('SELECT * FROM cv_foliar_recipes WHERE foliar_recipe_id=? AND active=1')
+        .get(id) as Record<string, unknown> | undefined;
+
+      if (!existing) {
+        return reply.code(404).send({ error: 'Active recipe not found with that id' });
+      }
+
+      const newVersion = nextVersion(existing['version'] as string);
+      const now = new Date().toISOString();
+      const userId = request.user.id;
+
+      const insertAndSupersede = db.transaction(() => {
+        // Supersede the existing recipe
+        db.prepare(
+          'UPDATE cv_foliar_recipes SET active=0, superseded_at=? WHERE foliar_recipe_id=?',
+        ).run(now, id);
+
+        // Insert the new version
+        const r = db
+          .prepare(
+            `INSERT INTO cv_foliar_recipes
+               (name, version, active, purpose, notes, approved_by, approved_at, created_by, created_at)
+             VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            existing['name'] as string,
+            newVersion,
+            purpose ?? null,
+            notes ?? null,
+            userId,
+            now,
+            userId,
+            now,
+          );
+
+        const newId = Number(r.lastInsertRowid);
+
+        const insertIngredient = db.prepare(
+          `INSERT INTO cv_foliar_recipe_ingredients
+             (foliar_recipe_id, input_id, rate_value, rate_unit, order_index, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        );
+        for (const ing of ingredients) {
+          insertIngredient.run(newId, ing.input_id, ing.rate_value, ing.rate_unit, ing.order_index, ing.notes ?? null, now);
+        }
+
+        return newId;
+      });
+
+      const newId = insertAndSupersede();
+      return reply.code(201).send({ foliar_recipe_id: newId });
+    },
+  );
+
+  /**
+   * DELETE /:id — hard delete only if recipe has never been used in foliar applications.
+   * Requires admin role.
+   */
+  app.delete<{ Params: IdParams }>(
+    '/:id',
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      const db = getDB();
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid recipe id' });
+
+      const recipe = db
+        .prepare('SELECT * FROM cv_foliar_recipes WHERE foliar_recipe_id=?')
+        .get(id);
+      if (!recipe) return reply.code(404).send({ error: 'Recipe not found' });
+
+      const usedInApplications = (
+        db
+          .prepare('SELECT COUNT(*) as n FROM cv_applications_foliar WHERE foliar_recipe_id=?')
+          .get(id) as { n: number }
+      ).n;
+      if (usedInApplications > 0) {
+        return reply.code(409).send({
+          error: 'Cannot delete recipe: it has been used in foliar applications. Immutability is required for compliance.',
+        });
+      }
+
+      db.prepare('DELETE FROM cv_foliar_recipe_ingredients WHERE foliar_recipe_id=?').run(id);
+      db.prepare('DELETE FROM cv_foliar_recipes WHERE foliar_recipe_id=?').run(id);
+
+      return reply.send({ success: true });
+    },
+  );
+};
+
+export default foliarRecipesRoutes;

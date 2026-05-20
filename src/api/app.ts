@@ -7,6 +7,7 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyStatic from '@fastify/static';
 import authRoutes from './routes/auth.js';
 import fertigationRecipesRoutes from './routes/fertigation-recipes.js';
+import foliarRecipesRoutes from './routes/foliar-recipes.js';
 import catalogRoutes from './routes/catalog.js';
 
 export async function buildApp() {
@@ -36,6 +37,7 @@ export async function buildApp() {
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(fertigationRecipesRoutes, { prefix: '/api/recipes/fertigation' });
+  await app.register(foliarRecipesRoutes, { prefix: '/api/recipes/foliar' });
   await app.register(catalogRoutes, { prefix: '/api/catalog' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));

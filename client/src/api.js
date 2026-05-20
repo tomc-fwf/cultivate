@@ -34,4 +34,11 @@ export const api = {
   createFertigationRecipe: (data) => req('POST', '/recipes/fertigation', data),
   createFertigationRecipeVersion: (id, data) => req('POST', `/recipes/fertigation/${id}/version`, data),
   deleteFertigationRecipe: (id) => req('DELETE', `/recipes/fertigation/${id}`),
+
+  // Foliar recipes
+  getFoliarRecipes: () => req('GET', '/recipes/foliar'),
+  getFoliarRecipe: (id) => req('GET', `/recipes/foliar/${id}`),
+  createFoliarRecipe: (data) => req('POST', '/recipes/foliar', data),
+  createFoliarRecipeVersion: (id, data) => req('POST', `/recipes/foliar/${id}/version`, data),
+  deleteFoliarRecipe: (id) => req('DELETE', `/recipes/foliar/${id}`),
 };
