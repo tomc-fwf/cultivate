@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Autoflower Seedling Feeding Chart — Days 9–21</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --leaf:        #3a5a3a;
+    --leaf-dark:   #1f3320;
+    --leaf-light:  #6b8e63;
+    --bark:        #4a3a2a;
+    --cream:       #f5f0e6;
+    --paper:       #faf6ed;
+    --rust:        #a04727;
+    --amber:       #c98a2c;
+    --ink:         #1a1a17;
+    --rule:        #2a2a25;
+    --soft:        #d9d2c2;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'Inter', sans-serif;
+    font-size: 11pt;
+    line-height: 1.4;
+  }
+
+  .sheet {
+    width: 11in;
+    min-height: 17in;
+    margin: 0 auto;
+    padding: 0.5in 0.55in;
+    background: var(--paper);
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(74,58,42,0.04) 0%, transparent 40%),
+      radial-gradient(circle at 90% 80%, rgba(58,90,58,0.05) 0%, transparent 50%);
+    position: relative;
+  }
+
+  .sheet::before {
+    content: "";
+    position: absolute;
+    inset: 0.35in;
+    border: 1px solid var(--rule);
+    pointer-events: none;
+  }
+  .sheet::after {
+    content: "";
+    position: absolute;
+    inset: 0.4in;
+    border: 1px solid var(--rule);
+    pointer-events: none;
+  }
+
+  /* ---------- HEADER ---------- */
+  header {
+    text-align: center;
+    padding: 0.15in 0 0.2in 0;
+    border-bottom: 2px solid var(--rule);
+    margin-bottom: 0.2in;
+    position: relative;
+  }
+
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5pt;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+    color: var(--leaf);
+    margin-bottom: 6px;
+  }
+
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 900;
+    font-size: 38pt;
+    line-height: 0.95;
+    margin: 0 0 6px 0;
+    color: var(--leaf-dark);
+    font-style: italic;
+    letter-spacing: -0.01em;
+  }
+
+  .sub {
+    font-family: 'Fraunces', serif;
+    font-size: 13pt;
+    color: var(--bark);
+    font-weight: 400;
+    margin-top: 6px;
+  }
+
+  .meta {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    color: var(--bark);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .meta span::before {
+    content: "•";
+    margin-right: 8px;
+    color: var(--amber);
+  }
+  .meta span:first-child::before { content: ""; margin: 0; }
+
+  /* ---------- LAYOUT ---------- */
+  .grid {
+    display: grid;
+    grid-template-columns: 1.05fr 1.4fr;
+    gap: 0.25in;
+  }
+
+  section {
+    margin-bottom: 0.18in;
+  }
+
+  h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 14pt;
+    margin: 0 0 8px 0;
+    color: var(--leaf-dark);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--rule);
+  }
+  h2 .num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    color: var(--rust);
+    letter-spacing: 0.1em;
+  }
+
+  /* ---------- BASE RECIPE ---------- */
+  .recipe {
+    background: var(--cream);
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--leaf);
+  }
+  .recipe-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5pt;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--bark);
+    margin-bottom: 8px;
+  }
+  .recipe table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+  .recipe td {
+    padding: 5px 0;
+    border-bottom: 1px dotted var(--soft);
+  }
+  .recipe td:first-child {
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .recipe td:last-child {
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5pt;
+    color: var(--leaf-dark);
+  }
+  .recipe tr:last-child td { border-bottom: none; }
+
+  .mixing-order {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--soft);
+    font-size: 9pt;
+    color: var(--bark);
+  }
+  .mixing-order strong {
+    color: var(--rust);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  /* ---------- DAILY TABLE ---------- */
+  .daily {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+  }
+  .daily th {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7.5pt;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-align: left;
+    padding: 6px 6px;
+    background: var(--leaf-dark);
+    color: var(--cream);
+    border-right: 1px solid var(--leaf);
+  }
+  .daily th:last-child { border-right: none; }
+  .daily td {
+    padding: 6px 6px;
+    border-bottom: 1px solid var(--soft);
+    vertical-align: top;
+  }
+  .daily tr:nth-child(even) td { background: rgba(217, 210, 194, 0.25); }
+  .daily .day {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 13pt;
+    color: var(--rust);
+    text-align: center;
+    width: 36px;
+  }
+  .daily .ec {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    color: var(--leaf-dark);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .daily .ph {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    color: var(--bark);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .daily .fish {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9pt;
+    white-space: nowrap;
+  }
+  .phase-marker td {
+    background: var(--cream) !important;
+    border-top: 2px solid var(--leaf);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7.5pt;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--leaf-dark);
+    text-align: center;
+    padding: 5px !important;
+    font-weight: 700;
+  }
+
+  /* ---------- INDICATORS ---------- */
+  .indicators {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 6px;
+  }
+  .ind-box {
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+    background: var(--cream);
+  }
+  .ind-box.good { border-left: 4px solid var(--leaf); }
+  .ind-box.warn { border-left: 4px solid var(--rust); }
+  .ind-box h3 {
+    margin: 0 0 6px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+  .ind-box.good h3 { color: var(--leaf-dark); }
+  .ind-box.warn h3 { color: var(--rust); }
+  .ind-box ul {
+    margin: 0;
+    padding-left: 14px;
+    font-size: 8.5pt;
+    line-height: 1.5;
+  }
+  .ind-box li { margin-bottom: 2px; }
+
+  /* ---------- ENV TARGETS ---------- */
+  .env {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 6px;
+    margin-top: 4px;
+  }
+  .env-cell {
+    text-align: center;
+    padding: 8px 4px;
+    background: var(--leaf-dark);
+    color: var(--cream);
+  }
+  .env-cell .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    letter-spacing: 0.15em;
+    opacity: 0.7;
+    margin-bottom: 3px;
+  }
+  .env-cell .val {
+    font-family: 'Fraunces', serif;
+    font-weight: 700;
+    font-size: 13pt;
+    line-height: 1;
+  }
+  .env-cell .unit {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    opacity: 0.6;
+    margin-top: 2px;
+  }
+
+  /* ---------- WATERING ---------- */
+  .watering {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .water-col {
+    padding: 10px 12px;
+    border: 1px solid var(--rule);
+  }
+  .water-col.do { background: rgba(58, 90, 58, 0.08); }
+  .water-col.dont { background: rgba(160, 71, 39, 0.08); }
+  .water-col h3 {
+    margin: 0 0 6px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8pt;
+    letter-spacing: 0.2em;
+  }
+  .water-col.do h3 { color: var(--leaf); }
+  .water-col.dont h3 { color: var(--rust); }
+  .water-col ul {
+    margin: 0;
+    padding-left: 14px;
+    font-size: 8.5pt;
+    line-height: 1.5;
+  }
+
+  /* ---------- FOOTER ---------- */
+  .footer-banner {
+    margin-top: 0.18in;
+    padding: 12px 18px;
+    background: var(--leaf-dark);
+    color: var(--cream);
+    text-align: center;
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 12pt;
+    line-height: 1.4;
+    position: relative;
+  }
+  .footer-banner::before,
+  .footer-banner::after {
+    content: "❦";
+    margin: 0 12px;
+    color: var(--amber);
+    font-style: normal;
+    vertical-align: middle;
+  }
+
+  .by-day-21 {
+    margin-top: 0.15in;
+    padding: 12px 14px;
+    border: 1px solid var(--rule);
+    background: var(--cream);
+  }
+  .by-day-21 h3 {
+    margin: 0 0 6px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5pt;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--leaf-dark);
+  }
+  .by-day-21 .check-list {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    font-size: 9pt;
+  }
+  .check-list div::before {
+    content: "✓ ";
+    color: var(--leaf);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+
+  .footnote {
+    text-align: center;
+    margin-top: 0.15in;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7pt;
+    letter-spacing: 0.25em;
+    color: var(--bark);
+    text-transform: uppercase;
+    opacity: 0.7;
+  }
+
+  /* ---------- PRINT ---------- */
+  @page {
+    size: 11in 17in;
+    margin: 0;
+  }
+  @media print {
+    body { background: white; }
+    .sheet { box-shadow: none; }
+  }
+  @media screen {
+    body {
+      padding: 24px 0;
+    }
+    .sheet {
+      box-shadow: 0 8px 40px rgba(0,0,0,0.15);
+    }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <header>
+    <div class="eyebrow">Cultivation Reference Chart</div>
+    <h1>Autoflower Seedling<br>Feed &amp; Water Protocol</h1>
+    <div class="sub">Pro-Mix HP · RO Water · Organic Gem · Organics Alive</div>
+    <div class="meta">
+      <span>Days 9–21</span>
+      <span>4" Pots</span>
+      <span>First True Leaves → Pre-Transplant</span>
+    </div>
+  </header>
+
+  <div class="grid">
+
+    <!-- LEFT COLUMN -->
+    <div>
+      <section>
+        <h2><span class="num">I.</span> Base Recipe — Per Gallon RO</h2>
+        <div class="recipe">
+          <div class="recipe-title">Daily Foundation (Every Feed)</div>
+          <table>
+            <tr><td>Armor Si</td><td>⅛ tsp</td></tr>
+            <tr><td>Cal-Mag</td><td>¼ tsp <span style="color:var(--rust); font-size:8pt;">↑ revised</span></td></tr>
+            <tr><td>Superthrive</td><td>2–3 drops <span style="color:var(--rust); font-size:8pt;">↓ revised</span></td></tr>
+            <tr><td>Dynomyco Spark</td><td>Day 9 only <span style="color:var(--rust); font-size:8pt;">once</span></td></tr>
+          </table>
+          <div class="mixing-order">
+            <strong>Mixing Order</strong>
+            1. Armor Si into RO, stir 30 sec &nbsp;→&nbsp; 2. Cal-Mag &nbsp;→&nbsp; 3. Fish &nbsp;→&nbsp; 4. Organics Alive &nbsp;→&nbsp; 5. Superthrive &nbsp;→&nbsp; 6. pH adjust last
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="num">II.</span> Environmental Targets</h2>
+        <div class="env">
+          <div class="env-cell"><div class="label">TEMP</div><div class="val">74–80</div><div class="unit">°F</div></div>
+          <div class="env-cell"><div class="label">RH</div><div class="val">65–75</div><div class="unit">%</div></div>
+          <div class="env-cell"><div class="label">VPD</div><div class="val">0.6–0.9</div><div class="unit">kPa</div></div>
+          <div class="env-cell"><div class="label">PPFD</div><div class="val">200–350</div><div class="unit">µmol</div></div>
+          <div class="env-cell"><div class="label">DLI</div><div class="val">15–25</div><div class="unit">mol/day</div></div>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="num">III.</span> Watering Discipline</h2>
+        <div class="watering">
+          <div class="water-col do">
+            <h3>DO</h3>
+            <ul>
+              <li>Small rings around root zone</li>
+              <li>Wait until pot is <strong>light</strong>, not bone-dry (~30% of saturated weight)</li>
+              <li>Encourage oxygen exchange in peat</li>
+              <li>Lift pot before watering — judge by weight</li>
+            </ul>
+          </div>
+          <div class="water-col dont">
+            <h3>DON'T</h3>
+            <ul>
+              <li>Saturate the entire pot every feed</li>
+              <li>Chase runoff at this stage</li>
+              <li>Let Pro-Mix HP fully dry out (becomes hydrophobic)</li>
+              <li>Water on a fixed schedule — read the plant</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2><span class="num">IV.</span> Plant Reading</h2>
+        <div class="indicators">
+          <div class="ind-box good">
+            <h3>Healthy Signs</h3>
+            <ul>
+              <li>Moderate matte green</li>
+              <li>Leaves praying upward</li>
+              <li>Fast node development</li>
+              <li>Tight internodes</li>
+              <li>Rapid root expansion</li>
+            </ul>
+          </div>
+          <div class="ind-box warn">
+            <h3>Warning Signs</h3>
+            <ul>
+              <li>Dark shiny / waxy leaves</li>
+              <li>Clawing leaf tips</li>
+              <li>Burnt tips → back off N</li>
+              <li>Slow / stalled growth</li>
+              <li>Wet droopy appearance</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- RIGHT COLUMN: DAILY CHART -->
+    <div>
+      <section>
+        <h2><span class="num">V.</span> Daily Progression</h2>
+        <table class="daily">
+          <thead>
+            <tr>
+              <th style="text-align:center;">Day</th>
+              <th>Fish</th>
+              <th>Adjustments</th>
+              <th>Target EC*</th>
+              <th>pH</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="phase-marker"><td colspan="5">Phase 1 — First True Leaves · Days 9–13</td></tr>
+            <tr>
+              <td class="day">9</td>
+              <td class="fish">½ tsp</td>
+              <td>Base recipe + Dynomyco</td>
+              <td class="ec">0.40–0.50</td>
+              <td class="ph">6.0–6.2</td>
+            </tr>
+            <tr>
+              <td class="day">10</td>
+              <td class="fish">½ tsp</td>
+              <td>Hold — observe response</td>
+              <td class="ec">0.40–0.50</td>
+              <td class="ph">6.0–6.2</td>
+            </tr>
+            <tr>
+              <td class="day">11</td>
+              <td class="fish">1 tsp</td>
+              <td>Early vegetative push</td>
+              <td class="ec">0.50–0.60</td>
+              <td class="ph">6.0–6.2</td>
+            </tr>
+            <tr>
+              <td class="day">12</td>
+              <td class="fish">1 tsp</td>
+              <td>Maintain steady moisture</td>
+              <td class="ec">0.55–0.65</td>
+              <td class="ph">6.0–6.2</td>
+            </tr>
+            <tr>
+              <td class="day">13</td>
+              <td class="fish">1.5 tsp</td>
+              <td>Roots expanding rapidly</td>
+              <td class="ec">0.60–0.70</td>
+              <td class="ph">6.0–6.3</td>
+            </tr>
+
+            <tr class="phase-marker"><td colspan="5">Phase 2 — Biology Ramp · Days 14–17</td></tr>
+            <tr>
+              <td class="day">14</td>
+              <td class="fish">1.5 tsp</td>
+              <td>+ Organics Alive (25% label)</td>
+              <td class="ec">0.65–0.75</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">15</td>
+              <td class="fish">2 tsp</td>
+              <td>Drop Superthrive (optional)</td>
+              <td class="ec">0.70–0.80</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">16</td>
+              <td class="fish">2 tsp</td>
+              <td>Watch leaf tips closely</td>
+              <td class="ec">0.75–0.85</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">17</td>
+              <td class="fish">2 tsp</td>
+              <td>Maintain — plants accelerating</td>
+              <td class="ec">0.75–0.85</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+
+            <tr class="phase-marker"><td colspan="5">Phase 3 — Pre-Transplant Vigor · Days 18–21</td></tr>
+            <tr>
+              <td class="day">18</td>
+              <td class="fish">2–2.5 tsp</td>
+              <td>OA → 33% label if vigorous</td>
+              <td class="ec">0.80–0.90</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">19</td>
+              <td class="fish">2.5 tsp</td>
+              <td>Maintain — avoid overwatering</td>
+              <td class="ec">0.80–0.90</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">20</td>
+              <td class="fish">2.5–3 tsp</td>
+              <td>Only if dark healthy green</td>
+              <td class="ec">0.85–1.00</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+            <tr>
+              <td class="day">21</td>
+              <td class="fish">2.5 tsp</td>
+              <td>Hold stable — transplant prep</td>
+              <td class="ec">0.85–1.00</td>
+              <td class="ph">6.2–6.5</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="font-size:8pt; color:var(--bark); margin-top:6px; font-style:italic; line-height:1.4;">
+          * EC readings on organic feeds are advisory only. Much of the nitrogen in fish &amp; OA is protein-bound and doesn't read on a meter — these are <strong>ceiling sanity-check values</strong>, not targets to chase. Read the plant first.
+        </p>
+      </section>
+
+      <section>
+        <h2><span class="num">VI.</span> Organics Alive Notes</h2>
+        <div style="padding:10px 12px; border:1px solid var(--rule); background:var(--cream); font-size:9pt; line-height:1.5;">
+          <strong>Days 14–21:</strong> Run at <strong>25–33% of label strength</strong>. Introduce on day 14 at the low end and only step up if plants look vigorous and unstressed. Biology &gt; EC at this stage — you're feeding the microbes, the microbes feed the plant.
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <section class="by-day-21">
+    <h3>By Day 21 You Want</h3>
+    <div class="check-list">
+      <div>Fully rooted 4" pots</div>
+      <div>Tight internodes</div>
+      <div>4–6+ nodes developing</div>
+      <div>No major stress events</div>
+      <div>Strong transplant readiness</div>
+    </div>
+  </section>
+
+  <div class="footer-banner">
+    The goal is uninterrupted momentum, not maximum feed strength.
+  </div>
+
+  <div class="footnote">
+    Autoflower Seedling Protocol · Pro-Mix HP · Revised May 2026
+  </div>
+
+</div>
+</body>
+</html>
