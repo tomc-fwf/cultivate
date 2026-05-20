@@ -4,7 +4,7 @@ import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import { knex as createKnex } from 'knex';
 
-const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'farmstock.db');
+const DB_PATH = process.env.DB_PATH || path.join(process.cwd(), 'data', 'cultivate.db');
 let db: Database.Database | null = null;
 
 export function getDB(): Database.Database {

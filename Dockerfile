@@ -24,7 +24,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/client/dist ./client/dist
 
 ENV NODE_ENV=production
-ENV DB_PATH=/data/farmstock.db
+ENV DB_PATH=/data/cultivate.db
 EXPOSE 3002
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
