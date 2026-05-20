@@ -4,6 +4,9 @@ import { api } from './api';
 import NavBar from './components/NavBar';
 import Login from './pages/Login';
 import Today from './pages/Today';
+import FertigationRecipes from './pages/recipes/FertigationRecipes';
+import FertigationRecipeDetail from './pages/recipes/FertigationRecipeDetail';
+import FertigationRecipeEdit from './pages/recipes/FertigationRecipeEdit';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -50,6 +53,10 @@ export default function App() {
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<Protected><Today /></Protected>} />
+              <Route path="/recipes/fertigation" element={<Protected><FertigationRecipes /></Protected>} />
+              <Route path="/recipes/fertigation/new" element={<Protected minRole="supervisor"><FertigationRecipeEdit /></Protected>} />
+              <Route path="/recipes/fertigation/:id" element={<Protected><FertigationRecipeDetail /></Protected>} />
+              <Route path="/recipes/fertigation/:id/version" element={<Protected minRole="supervisor"><FertigationRecipeEdit /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

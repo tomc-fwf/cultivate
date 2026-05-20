@@ -23,4 +23,15 @@ export const api = {
     const q = new URLSearchParams(params).toString();
     return req('GET', `/items${q ? '?' + q : ''}`);
   },
+
+  // Catalog (farmstock items proxy — ingredient picker source)
+  getCatalogItems: () => req('GET', '/catalog/items'),
+
+  // Fertigation recipes
+  getFertigationRecipes: () => req('GET', '/recipes/fertigation'),
+  getFertigationRecipe: (id) => req('GET', `/recipes/fertigation/${id}`),
+  getFertigationRecipeByName: (name) => req('GET', `/recipes/fertigation/by-name/${encodeURIComponent(name)}`),
+  createFertigationRecipe: (data) => req('POST', '/recipes/fertigation', data),
+  createFertigationRecipeVersion: (id, data) => req('POST', `/recipes/fertigation/${id}/version`, data),
+  deleteFertigationRecipe: (id) => req('DELETE', `/recipes/fertigation/${id}`),
 };
