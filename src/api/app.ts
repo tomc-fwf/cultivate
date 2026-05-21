@@ -18,6 +18,7 @@ import containerAmendmentsRoutes from './routes/container-amendments.js';
 import pesticideApplicationsRoutes from './routes/pesticide-applications.js';
 import observationsRoutes from './routes/observations.js';
 import plantingPlansRoutes from './routes/planting-plans.js';
+import tagAssignmentsRoutes from './routes/tag-assignments.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -69,6 +70,7 @@ export async function buildApp() {
   await app.register(pesticideApplicationsRoutes, { prefix: '/api/applications/pesticide' });
   await app.register(observationsRoutes, { prefix: '/api/observations' });
   await app.register(plantingPlansRoutes, { prefix: '/api/planting-plans' });
+  await app.register(tagAssignmentsRoutes, { prefix: '/api/tag-assignments' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 
