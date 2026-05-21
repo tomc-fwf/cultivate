@@ -365,19 +365,6 @@ export default function ContainerDashboard() {
           ))}
         </div>
 
-        {/* Admin: bulk reset */}
-        {isAdmin && (
-          <div className="mt-6 border-t border-gray-100 pt-4 flex items-center gap-3 flex-wrap">
-            <button
-              onClick={handleBulkReset}
-              disabled={resetting}
-              className="text-sm px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
-            >
-              {resetting ? 'Resetting…' : 'Reset unoccupied → Ready'}
-            </button>
-            {resetMsg && <span className="text-sm text-gray-600">{resetMsg}</span>}
-          </div>
-        )}
       </div>
 
       {/* Bulk state sheet */}
@@ -479,24 +466,12 @@ export default function ContainerDashboard() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
+      <div className="flex items-center justify-between mb-5">
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
           Containers
         </h1>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-500">{grandTotal} total</span>
-          {isAdmin && (
-            <button
-              onClick={handleBulkReset}
-              disabled={resetting}
-              className="text-xs px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
-            >
-              {resetting ? 'Resetting…' : 'Reset unoccupied → Ready'}
-            </button>
-          )}
-        </div>
+        <span className="text-sm text-gray-500">{grandTotal} total</span>
       </div>
-      {resetMsg && <div className="mb-4 text-sm text-gray-600 bg-gray-50 rounded-xl px-3 py-2">{resetMsg}</div>}
 
       {/* Global state counts summary bar */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-6">
