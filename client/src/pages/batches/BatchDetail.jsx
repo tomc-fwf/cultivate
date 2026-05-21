@@ -264,16 +264,53 @@ export default function BatchDetail() {
         )}
       </div>
 
-      {/* Primary field action */}
-      {batch.status !== 'closed' && batch.status !== 'harvesting' && (
-        <Link
-          to={`/applications/fertigation/new?batch_id=${batch.batch_id}`}
-          className="flex items-center justify-between w-full bg-green-800 text-white font-semibold rounded-2xl px-5 mb-4 hover:bg-green-900 transition-colors shadow-sm"
-          style={{ minHeight: '56px', textDecoration: 'none' }}
-        >
-          <span className="flex items-center gap-2"><span className="text-lg">💧</span>Log Fertigation</span>
-          <span className="text-green-300">→</span>
-        </Link>
+      {/* ── Quick actions for this batch ──────────────────────────────── */}
+      {batch.status !== 'closed' && (
+        <div className="mb-4">
+          <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Log for this batch</h2>
+          <div className="flex flex-col gap-2">
+            {batch.status !== 'harvesting' && (
+              <Link
+                to={`/applications/fertigation/new?batch_id=${batch.batch_id}`}
+                className="flex items-center justify-between w-full bg-green-800 text-white font-semibold rounded-2xl px-5 hover:bg-green-900 transition-colors shadow-sm"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="flex items-center gap-2"><span className="text-lg">💧</span>Log Fertigation</span>
+                <span className="text-green-300">→</span>
+              </Link>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <Link
+                to={`/applications/foliar/new?batch_id=${batch.batch_id}`}
+                className="flex items-center gap-2 px-4 py-3 bg-green-50 border-2 border-green-200 text-green-900 font-semibold text-sm rounded-2xl hover:border-green-400 transition-colors"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="text-lg">🌿</span>Foliar
+              </Link>
+              <Link
+                to={`/applications/amendments/new`}
+                className="flex items-center gap-2 px-4 py-3 bg-amber-50 border-2 border-amber-200 text-amber-900 font-semibold text-sm rounded-2xl hover:border-amber-400 transition-colors"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="text-lg">🪱</span>Amendment
+              </Link>
+              <Link
+                to={`/applications/pesticide/new?batch_id=${batch.batch_id}`}
+                className="flex items-center gap-2 px-4 py-3 bg-red-50 border-2 border-red-200 text-red-900 font-semibold text-sm rounded-2xl hover:border-red-400 transition-colors"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="text-lg">⚗️</span>Pesticide
+              </Link>
+              <Link
+                to={`/observations/new?batch_id=${batch.batch_id}`}
+                className="flex items-center gap-2 px-4 py-3 bg-blue-50 border-2 border-blue-200 text-blue-900 font-semibold text-sm rounded-2xl hover:border-blue-400 transition-colors"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="text-lg">🔍</span>Observe
+              </Link>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Lifecycle & Location ── */}

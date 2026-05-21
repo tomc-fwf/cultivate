@@ -30,6 +30,7 @@ import PesticideNew from './pages/applications/PesticideNew';
 import REIDashboard from './pages/applications/REIDashboard';
 import ObservationLog from './pages/observations/ObservationLog';
 import ObservationNew from './pages/observations/ObservationNew';
+import ApplicationsHub from './pages/applications/ApplicationsHub';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -93,6 +94,7 @@ export default function App() {
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
               <Route path="/containers/:containerId" element={<Protected><ContainerDetail /></Protected>} />
+              <Route path="/applications" element={<Protected><ApplicationsHub /></Protected>} />
               <Route path="/applications/fertigation" element={<Protected><FertigationLog /></Protected>} />
               <Route path="/applications/fertigation/new" element={<Protected><FertigationNew /></Protected>} />
               <Route path="/applications/foliar" element={<Protected><FoliarLog /></Protected>} />
