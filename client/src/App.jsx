@@ -45,6 +45,8 @@ import StartupReadyForm from './pages/containers/StartupReadyForm';
 import MetrcExport from './pages/exports/MetrcExport';
 import MdaReport from './pages/exports/MdaReport';
 import CultivationRecord from './pages/exports/CultivationRecord';
+import ContainerScanner from './pages/containers/ContainerScanner';
+import ContainerLabels from './pages/admin/ContainerLabels';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -135,6 +137,8 @@ export default function App() {
               <Route path="/exports/metrc" element={<Protected><MetrcExport /></Protected>} />
               <Route path="/exports/mda-pesticide" element={<Protected><MdaReport /></Protected>} />
               <Route path="/exports/cultivation-record" element={<Protected><CultivationRecord /></Protected>} />
+              <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
+              <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

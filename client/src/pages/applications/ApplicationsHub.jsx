@@ -188,6 +188,23 @@ export default function ApplicationsHub() {
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
       </div>
+
+      {/* ── Admin ──────────────────────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 mt-6">Admin</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+        <button
+          onClick={() => navigate('/admin/container-labels')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🏷️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Container QR Labels</div>
+            <div className="text-xs text-gray-500">Print Avery 5160 label sheets for containers</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+      </div>
     </div>
   );
 }
