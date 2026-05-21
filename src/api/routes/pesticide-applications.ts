@@ -1,0 +1,482 @@
+import { FastifyPluginAsync } from 'fastify';
+import { getDB } from '../../db/index.js';
+import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+
+interface IdParams { id: string }
+
+interface PesticideCreateBody {
+  batch_id: number;
+  row_id?: string | null;
+  container_id?: string | null;
+  applied_at: string;
+  input_id: number;
+  input_lot_id: number;
+  rate_value: number;
+  rate_unit: string;
+  volume_applied: number;
+  volume_unit: string;
+  application_method: string;
+  target_pest: string;
+  pest_pressure?: string | null;
+  ambient_temp_f: number;
+  ambient_rh?: number | null;
+  wind_speed_mph: number;
+  wind_direction?: string | null;
+  expected_harvest_date?: string | null;
+  applicator_license?: string | null;
+  phi_override_notes?: string | null;
+  notes?: string | null;
+}
+
+interface PesticideUpdateBody {
+  applied_at?: string;
+  target_pest?: string;
+  pest_pressure?: string | null;
+  ambient_temp_f?: number;
+  ambient_rh?: number | null;
+  wind_speed_mph?: number;
+  wind_direction?: string | null;
+  applicator_license?: string | null;
+  notes?: string | null;
+}
+
+const VALID_APPLICATION_METHODS = new Set([
+  'foliar_spray', 'soil_drench', 'granular', 'other',
+]);
+
+const VALID_PEST_PRESSURES = new Set(['incidental', 'threshold', 'outbreak']);
+
+function isEditable(appliedAt: string): boolean {
+  return Date.now() - new Date(appliedAt).getTime() < 24 * 60 * 60 * 1000;
+}
+
+function dateClause(date: string): { sql: string; params: unknown[] } {
+  const now = new Date();
+  if (!date || date === 'today') {
+    const today = now.toISOString().slice(0, 10);
+    return { sql: "date(a.applied_at) = date(?)", params: [today] };
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { sql: "date(a.applied_at) = date(?)", params: [date] };
+  }
+  if (date === '7d') return { sql: "a.applied_at >= datetime('now', '-7 days')", params: [] };
+  if (date === '30d') return { sql: "a.applied_at >= datetime('now', '-30 days')", params: [] };
+  const today = now.toISOString().slice(0, 10);
+  return { sql: "date(a.applied_at) = date(?)", params: [today] };
+}
+
+async function fetchFarmstockItem(itemId: number): Promise<Record<string, unknown> | null> {
+  const url = process.env.FARMSTOCK_URL;
+  const key = process.env.FARMSTOCK_SERVICE_KEY;
+  if (!url || !key) return null;
+  try {
+    const res = await fetch(`${url}/api/items/inventory/${itemId}`, {
+      headers: { Authorization: `Service ${key}` },
+    });
+    if (!res.ok) return null;
+    return await res.json() as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function getBatchStageKey(status: string, currentStageSince: string | null): string | null {
+  switch (status) {
+    case 'germ': return 'germ';
+    case 'seedling': return 'seedling';
+    case 'cult-hoop': return 'cult_hoop';
+    case 'field-veg': return 'field_veg';
+    case 'field-flower': {
+      if (!currentStageSince) return 'field_flower_w1';
+      const days = Math.floor((Date.now() - new Date(currentStageSince).getTime()) / 86400000);
+      if (days < 7) return 'field_flower_w1';
+      if (days < 14) return 'field_flower_w2';
+      if (days < 21) return 'field_flower_w3';
+      return 'field_flower_w4plus';
+    }
+    case 'flush': return 'flush';
+    default: return null;
+  }
+}
+
+const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
+
+  /**
+   * GET / — list pesticide applications.
+   * Query: ?batch_id, ?date=today|YYYY-MM-DD|7d|30d, ?rei_active=1, ?limit
+   */
+  app.get('/', { preHandler: requireAuth }, async (request, reply) => {
+    const { batch_id, date = 'today', rei_active, limit = '50' } = request.query as {
+      batch_id?: string; date?: string; rei_active?: string; limit?: string;
+    };
+
+    const db = getDB();
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 50), 500);
+
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+
+    if (rei_active === '1') {
+      // REI active = expires_at is set and has not passed and not yet cleared
+      whereClauses.push("a.rei_expires_at IS NOT NULL AND a.rei_expires_at > datetime('now') AND a.rei_cleared_at IS NULL");
+    } else {
+      const { sql: dateSql, params: dateParams } = dateClause(date);
+      whereClauses.push(dateSql);
+      params.push(...dateParams);
+    }
+
+    if (batch_id) {
+      whereClauses.push('a.batch_id = ?');
+      params.push(Number(batch_id));
+    }
+
+    const rows = db.prepare(`
+      SELECT
+        a.*,
+        s.name AS batch_strain_name,
+        b.sub_zone_id AS batch_sub_zone_id,
+        u.name AS applicator_name
+      FROM cv_applications_pesticide a
+      JOIN cv_batches b ON b.batch_id = a.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_users u ON u.id = a.applicator
+      WHERE ${whereClauses.join(' AND ')}
+      ORDER BY a.applied_at DESC
+      LIMIT ?
+    `).all(...params, limitNum) as Array<Record<string, unknown>>;
+
+    return reply.send(rows.map(r => ({
+      ...r,
+      editable: isEditable(String(r['applied_at'])),
+      rei_active: r['rei_expires_at'] && !r['rei_cleared_at']
+        ? new Date(String(r['rei_expires_at'])) > new Date()
+        : false,
+    })));
+  });
+
+  /**
+   * POST / — create a pesticide application.
+   *
+   * Business rules enforced:
+   *   Rule 16 — input_lot_id required
+   *   Rule 17 — target_pest, ambient_temp_f, wind_speed_mph required
+   *   Rule 18 — PHI checked against phi_days_operational; non-compliant
+   *             allowed only with phi_override_notes
+   *   Rule 19 — stage block is a hard reject (no override)
+   *   Rule 20 — rei_expires_at computed from applied_at + rei_hours
+   *   Rule 21 — applicator_license required for restricted-use products
+   */
+  app.post<{ Body: PesticideCreateBody }>(
+    '/',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const body = request.body as PesticideCreateBody;
+      const {
+        batch_id,
+        row_id = null,
+        container_id = null,
+        applied_at,
+        input_id,
+        input_lot_id,
+        rate_value,
+        rate_unit,
+        volume_applied,
+        volume_unit,
+        application_method,
+        target_pest,
+        pest_pressure = null,
+        ambient_temp_f,
+        ambient_rh = null,
+        wind_speed_mph,
+        wind_direction = null,
+        expected_harvest_date = null,
+        applicator_license = null,
+        phi_override_notes = null,
+        notes = null,
+      } = body;
+
+      // ── Required field validation (rules 16, 17) ──────────────────────────
+      if (!batch_id || isNaN(Number(batch_id))) return reply.code(400).send({ error: 'batch_id is required' });
+      if (!input_id || isNaN(Number(input_id))) return reply.code(400).send({ error: 'input_id is required' });
+      if (!input_lot_id || isNaN(Number(input_lot_id))) return reply.code(400).send({ error: 'input_lot_id is required — lot tracking is mandatory for pesticide applications' });
+      if (rate_value == null || isNaN(Number(rate_value)) || Number(rate_value) <= 0) return reply.code(400).send({ error: 'rate_value is required and must be > 0' });
+      if (!rate_unit) return reply.code(400).send({ error: 'rate_unit is required' });
+      if (volume_applied == null || isNaN(Number(volume_applied)) || Number(volume_applied) <= 0) return reply.code(400).send({ error: 'volume_applied is required and must be > 0' });
+      if (!volume_unit) return reply.code(400).send({ error: 'volume_unit is required' });
+      if (!application_method || !VALID_APPLICATION_METHODS.has(application_method)) {
+        return reply.code(400).send({ error: `application_method is required. Valid values: ${[...VALID_APPLICATION_METHODS].join(', ')}` });
+      }
+      if (!target_pest || String(target_pest).trim() === '') return reply.code(400).send({ error: 'target_pest is required' });
+      if (ambient_temp_f == null || isNaN(Number(ambient_temp_f))) return reply.code(400).send({ error: 'ambient_temp_f is required (MN MDA field)' });
+      if (wind_speed_mph == null || isNaN(Number(wind_speed_mph))) return reply.code(400).send({ error: 'wind_speed_mph is required (MN MDA field)' });
+      if (!applied_at || isNaN(Date.parse(applied_at))) return reply.code(400).send({ error: 'applied_at is required and must be a valid ISO datetime' });
+      if (pest_pressure && !VALID_PEST_PRESSURES.has(pest_pressure)) {
+        return reply.code(400).send({ error: `Invalid pest_pressure. Valid values: ${[...VALID_PEST_PRESSURES].join(', ')}` });
+      }
+
+      const db = getDB();
+
+      // ── Batch validation ───────────────────────────────────────────────────
+      const batch = db.prepare(
+        'SELECT batch_id, status, current_stage_since, strain_id, harvest_date FROM cv_batches WHERE batch_id = ?'
+      ).get(Number(batch_id)) as Record<string, unknown> | undefined;
+
+      if (!batch) return reply.code(400).send({ error: 'batch_id does not exist' });
+      if (batch['status'] === 'closed') return reply.code(400).send({ error: 'Batch is closed and cannot receive new applications' });
+
+      // ── Farmstock item check ───────────────────────────────────────────────
+      let phi_days_operational: number | null = null;
+      let rei_hours: number | null = null;
+      let restricted_use = false;
+
+      const item = await fetchFarmstockItem(Number(input_id));
+      if (item) {
+        // Verify it's actually a pesticide (rule 13 enforcement from the other side)
+        const epaRegNo = item['epa_reg_number'] ?? item['epa_reg_no'];
+        if (!epaRegNo) {
+          return reply.code(422).send({
+            error: 'This product does not have an EPA registration number. Use the Foliar Application or Container Amendment form instead.',
+            redirect: 'foliar',
+            input_id: Number(input_id),
+          });
+        }
+        phi_days_operational = item['phi_days_operational'] != null ? Number(item['phi_days_operational']) : null;
+        rei_hours = item['rei_hours'] != null ? Number(item['rei_hours']) : null;
+        restricted_use = Boolean(item['restricted_use']);
+      }
+
+      // ── Rule 21 — RUP requires applicator license ──────────────────────────
+      if (restricted_use && (!applicator_license || String(applicator_license).trim() === '')) {
+        return reply.code(422).send({
+          error: 'This is a restricted-use pesticide. Applicator license number is required.',
+          restricted_use: true,
+        });
+      }
+
+      // ── Rule 19 — stage block (hard reject, no override) ──────────────────
+      const stageKey = getBatchStageKey(
+        String(batch['status']),
+        batch['current_stage_since'] ? String(batch['current_stage_since']) : null
+      );
+
+      if (stageKey) {
+        const override = db.prepare(`
+          SELECT allowed, reason FROM cv_input_phi_stage_overrides
+          WHERE input_id = ? AND batch_stage = ? AND allowed = 0
+          LIMIT 1
+        `).get(Number(input_id), stageKey) as Record<string, unknown> | undefined;
+
+        if (override) {
+          return reply.code(422).send({
+            error: `This product is not permitted during the current growth stage (${stageKey.replace(/_/g, ' ')}).`,
+            reason: override['reason'],
+            stage_blocked: true,
+          });
+        }
+      }
+
+      // ── Rule 18 — PHI compliance check ────────────────────────────────────
+      const harvestDate = expected_harvest_date ?? batch['harvest_date'];
+      let phi_compliant: number | null = null;
+
+      if (phi_days_operational != null && harvestDate) {
+        const harvestMs = new Date(String(harvestDate)).getTime();
+        const appliedMs = new Date(applied_at).getTime();
+        const daysUntilHarvest = (harvestMs - appliedMs) / 86400000;
+        phi_compliant = daysUntilHarvest >= phi_days_operational ? 1 : 0;
+
+        if (phi_compliant === 0 && (!phi_override_notes || String(phi_override_notes).trim() === '')) {
+          return reply.code(422).send({
+            error: `PHI violation: this product requires ${phi_days_operational} days before harvest, but harvest is in ${Math.floor(daysUntilHarvest)} days. Provide phi_override_notes to proceed.`,
+            phi_violation: true,
+            phi_days_operational,
+            days_until_harvest: Math.floor(daysUntilHarvest),
+          });
+        }
+      }
+
+      // ── Rule 20 — compute REI ──────────────────────────────────────────────
+      let rei_expires_at: string | null = null;
+      if (rei_hours != null) {
+        const appliedMs = new Date(applied_at).getTime();
+        rei_expires_at = new Date(appliedMs + rei_hours * 3600000).toISOString();
+      }
+
+      const userId = (request.user as Record<string, unknown>).id;
+      const now = new Date().toISOString();
+
+      const result = db.prepare(`
+        INSERT INTO cv_applications_pesticide
+          (batch_id, row_id, container_id, applied_at, input_id, input_lot_id,
+           rate_value, rate_unit, volume_applied, volume_unit, application_method,
+           target_pest, pest_pressure, ambient_temp_f, ambient_rh, wind_speed_mph,
+           wind_direction, phi_compliant, expected_harvest_date, rei_expires_at,
+           applicator_license, applicator, notes, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        Number(batch_id),
+        row_id ?? null,
+        container_id ?? null,
+        applied_at,
+        Number(input_id),
+        Number(input_lot_id),
+        Number(rate_value),
+        rate_unit,
+        Number(volume_applied),
+        volume_unit,
+        application_method,
+        String(target_pest).trim(),
+        pest_pressure ?? null,
+        Number(ambient_temp_f),
+        ambient_rh != null ? Number(ambient_rh) : null,
+        Number(wind_speed_mph),
+        wind_direction ?? null,
+        phi_compliant,
+        harvestDate ?? null,
+        rei_expires_at,
+        applicator_license ? String(applicator_license).trim() : null,
+        userId,
+        notes ?? null,
+        userId,
+        now,
+      );
+
+      return reply.code(201).send({
+        pesticide_app_id: Number(result.lastInsertRowid),
+        batch_id: Number(batch_id),
+        phi_compliant,
+        rei_expires_at,
+        rei_hours,
+        target_area: container_id ?? row_id ?? null,
+        ...(phi_compliant === 0 ? { warning: 'PHI violation override recorded.' } : {}),
+      });
+    },
+  );
+
+  /**
+   * POST /:id/clear-rei — clear REI (sign off that area is safe to re-enter).
+   */
+  app.post<{ Params: IdParams }>(
+    '/:id/clear-rei',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const db = getDB();
+      const existing = db.prepare(
+        'SELECT pesticide_app_id, rei_expires_at, rei_cleared_at FROM cv_applications_pesticide WHERE pesticide_app_id = ?'
+      ).get(id) as Record<string, unknown> | undefined;
+
+      if (!existing) return reply.code(404).send({ error: 'Application not found' });
+      if (existing['rei_cleared_at']) return reply.code(409).send({ error: 'REI already cleared' });
+      if (!existing['rei_expires_at']) return reply.code(409).send({ error: 'This application has no REI' });
+
+      const userId = (request.user as Record<string, unknown>).id;
+      const now = new Date().toISOString();
+
+      db.prepare(`
+        UPDATE cv_applications_pesticide
+        SET rei_cleared_at = ?, rei_cleared_by = ?
+        WHERE pesticide_app_id = ?
+      `).run(now, userId, id);
+
+      return reply.send({ pesticide_app_id: id, rei_cleared_at: now });
+    },
+  );
+
+  /**
+   * PATCH /:id — edit within 24h (limited fields).
+   */
+  app.patch<{ Params: IdParams; Body: PesticideUpdateBody }>(
+    '/:id',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const db = getDB();
+      const existing = db.prepare(
+        'SELECT * FROM cv_applications_pesticide WHERE pesticide_app_id = ?'
+      ).get(id) as Record<string, unknown> | undefined;
+
+      if (!existing) return reply.code(404).send({ error: 'Application not found' });
+      if (!isEditable(String(existing['applied_at']))) {
+        return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
+      }
+
+      const body = request.body as PesticideUpdateBody;
+      const updates: string[] = [];
+      const values: unknown[] = [];
+
+      if ('target_pest' in body) {
+        if (!body.target_pest || String(body.target_pest).trim() === '') return reply.code(400).send({ error: 'target_pest cannot be empty' });
+        updates.push('target_pest = ?'); values.push(String(body.target_pest).trim());
+      }
+      if ('pest_pressure' in body) {
+        if (body.pest_pressure && !VALID_PEST_PRESSURES.has(body.pest_pressure)) return reply.code(400).send({ error: 'Invalid pest_pressure' });
+        updates.push('pest_pressure = ?'); values.push(body.pest_pressure ?? null);
+      }
+      if ('ambient_temp_f' in body) {
+        if (body.ambient_temp_f == null || isNaN(Number(body.ambient_temp_f))) return reply.code(400).send({ error: 'ambient_temp_f must be a number' });
+        updates.push('ambient_temp_f = ?'); values.push(Number(body.ambient_temp_f));
+      }
+      if ('ambient_rh' in body) { updates.push('ambient_rh = ?'); values.push(body.ambient_rh != null ? Number(body.ambient_rh) : null); }
+      if ('wind_speed_mph' in body) {
+        if (body.wind_speed_mph == null || isNaN(Number(body.wind_speed_mph))) return reply.code(400).send({ error: 'wind_speed_mph must be a number' });
+        updates.push('wind_speed_mph = ?'); values.push(Number(body.wind_speed_mph));
+      }
+      if ('wind_direction' in body) { updates.push('wind_direction = ?'); values.push(body.wind_direction ?? null); }
+      if ('applicator_license' in body) { updates.push('applicator_license = ?'); values.push(body.applicator_license ? String(body.applicator_license).trim() : null); }
+      if ('notes' in body) { updates.push('notes = ?'); values.push(body.notes ?? null); }
+
+      if ('applied_at' in body && body.applied_at) {
+        if (isNaN(Date.parse(body.applied_at))) return reply.code(400).send({ error: 'applied_at must be a valid ISO datetime' });
+        const origDay = String(existing['applied_at']).slice(0, 10);
+        const newDay = new Date(body.applied_at).toISOString().slice(0, 10);
+        if (origDay !== newDay) return reply.code(400).send({ error: 'applied_at can only be changed within the same calendar day' });
+        updates.push('applied_at = ?'); values.push(body.applied_at);
+      }
+
+      if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });
+      values.push(id);
+      db.prepare(`UPDATE cv_applications_pesticide SET ${updates.join(', ')} WHERE pesticide_app_id = ?`).run(...values);
+
+      const updated = db.prepare(`
+        SELECT a.*, s.name AS batch_strain_name, b.sub_zone_id AS batch_sub_zone_id, u.name AS applicator_name
+        FROM cv_applications_pesticide a
+        JOIN cv_batches b ON b.batch_id = a.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_users u ON u.id = a.applicator
+        WHERE a.pesticide_app_id = ?
+      `).get(id) as Record<string, unknown>;
+
+      return reply.send({ ...updated, editable: isEditable(String(updated['applied_at'])) });
+    },
+  );
+
+  /**
+   * DELETE /:id — admin only, within 24h.
+   */
+  app.delete<{ Params: IdParams }>(
+    '/:id',
+    { preHandler: requireRole('admin') },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const db = getDB();
+      const existing = db.prepare(
+        'SELECT * FROM cv_applications_pesticide WHERE pesticide_app_id = ?'
+      ).get(id) as Record<string, unknown> | undefined;
+
+      if (!existing) return reply.code(404).send({ error: 'Application not found' });
+      if (!isEditable(String(existing['applied_at']))) return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
+
+      db.prepare('DELETE FROM cv_applications_pesticide WHERE pesticide_app_id = ?').run(id);
+      return reply.code(204).send();
+    },
+  );
+};
+
+export default pesticideApplicationsRoutes;

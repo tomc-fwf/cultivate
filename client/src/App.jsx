@@ -25,6 +25,8 @@ import FoliarLog from './pages/applications/FoliarLog';
 import FoliarNew from './pages/applications/FoliarNew';
 import AmendmentLog from './pages/containers/AmendmentLog';
 import AmendmentNew from './pages/containers/AmendmentNew';
+import PesticideLog from './pages/applications/PesticideLog';
+import PesticideNew from './pages/applications/PesticideNew';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -94,6 +96,8 @@ export default function App() {
               <Route path="/applications/foliar/new" element={<Protected><FoliarNew /></Protected>} />
               <Route path="/applications/amendments" element={<Protected><AmendmentLog /></Protected>} />
               <Route path="/applications/amendments/new" element={<Protected><AmendmentNew /></Protected>} />
+              <Route path="/applications/pesticide" element={<Protected><PesticideLog /></Protected>} />
+              <Route path="/applications/pesticide/new" element={<Protected><PesticideNew /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

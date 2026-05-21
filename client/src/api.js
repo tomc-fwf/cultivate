@@ -87,6 +87,16 @@ export const api = {
   updateFoliarApplication: (id, data) => req('PATCH', `/applications/foliar/${id}`, data),
   deleteFoliarApplication: (id) => req('DELETE', `/applications/foliar/${id}`),
 
+  // Pesticide applications
+  getPesticideApplications: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/applications/pesticide${q ? '?' + q : ''}`);
+  },
+  createPesticideApplication: (data) => req('POST', '/applications/pesticide', data),
+  updatePesticideApplication: (id, data) => req('PATCH', `/applications/pesticide/${id}`, data),
+  deletePesticideApplication: (id) => req('DELETE', `/applications/pesticide/${id}`),
+  clearPesticideREI: (id) => req('POST', `/applications/pesticide/${id}/clear-rei`),
+
   // Container amendments
   getContainerAmendments: (params = {}) => {
     const q = new URLSearchParams(params).toString();
