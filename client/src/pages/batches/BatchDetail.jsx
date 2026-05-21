@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
@@ -203,6 +203,21 @@ export default function BatchDetail() {
           </div>
         )}
       </div>
+
+      {/* Log Fertigation — primary field action */}
+      {batch.status !== 'closed' && batch.status !== 'harvest' && (
+        <Link
+          to={`/applications/fertigation/new?batch_id=${batch.batch_id}`}
+          className="flex items-center justify-between w-full bg-green-800 text-white font-semibold rounded-2xl px-5 mb-4 hover:bg-green-900 active:bg-green-950 transition-colors shadow-sm"
+          style={{ minHeight: '56px', textDecoration: 'none' }}
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-lg leading-none">💧</span>
+            Log Fertigation Application
+          </span>
+          <span className="text-green-300 text-base">→</span>
+        </Link>
+      )}
 
       {/* Lifecycle timeline + advance */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">

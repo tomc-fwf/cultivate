@@ -12,6 +12,7 @@ import catalogRoutes from './routes/catalog.js';
 import strainsRoutes from './routes/strains.js';
 import batchesRoutes from './routes/batches.js';
 import containersRoutes from './routes/containers.js';
+import fertigationApplicationsRoutes from './routes/fertigation-applications.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -57,6 +58,7 @@ export async function buildApp() {
   await app.register(strainsRoutes, { prefix: '/api/strains' });
   await app.register(batchesRoutes, { prefix: '/api/batches' });
   await app.register(containersRoutes, { prefix: '/api/containers' });
+  await app.register(fertigationApplicationsRoutes, { prefix: '/api/applications/fertigation' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

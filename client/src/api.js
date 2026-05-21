@@ -69,6 +69,15 @@ export const api = {
   bulkResetContainersToReady: () => req('POST', '/containers/admin/bulk-reset-ready'),
   bulkSetContainerState: (data) => req('POST', '/containers/admin/bulk-set-state', data),
 
+  // Fertigation applications
+  getFertigationApplications: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/applications/fertigation${q ? '?' + q : ''}`);
+  },
+  createFertigationApplication: (data) => req('POST', '/applications/fertigation', data),
+  updateFertigationApplication: (id, data) => req('PATCH', `/applications/fertigation/${id}`, data),
+  deleteFertigationApplication: (id) => req('DELETE', `/applications/fertigation/${id}`),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();
