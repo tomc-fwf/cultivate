@@ -56,6 +56,7 @@ interface BatchCreateBody {
   strain_id: number;
   sub_zone_id?: string | null;
   plant_count_initial: number;
+  plants_per_container?: number | null;
   sow_date: string;
   metrc_plant_batch_uid?: string | null;
   notes?: string | null;
@@ -81,6 +82,32 @@ interface RecipeAssignBody {
 const STATUS_RANK: Record<string, number> = Object.fromEntries(
   STATUS_ORDER.map((s, i) => [s, i])
 );
+
+function formatMetrcDate(isoDate: string): string {
+  const [y, m, d] = (isoDate ?? '').split('-');
+  return m && d && y ? `${m}/${d}/${y}` : isoDate;
+}
+
+function toMetrcPhase(status: string): string {
+  if (['germ', 'seedling', 'cult-hoop'].includes(status)) return 'Immature';
+  if (status === 'field-veg') return 'Vegetative';
+  if (['field-flower', 'flush', 'harvest_window', 'harvesting'].includes(status)) return 'Flowering';
+  return 'Closed';
+}
+
+function enrichBatch(row: Record<string, unknown>): Record<string, unknown> {
+  const strainName = (row['strain_name'] as string) ?? '';
+  const sowDate = (row['sow_date'] as string) ?? '';
+  const strainType = (row['strain_type'] as string) ?? '';
+  const status = (row['status'] as string) ?? '';
+  return {
+    ...row,
+    metrc_batch_name: sowDate
+      ? `${strainName} | ${formatMetrcDate(sowDate)} | ${strainType === 'auto' ? 'Auto' : 'Photo'}`
+      : null,
+    metrc_phase: toMetrcPhase(status),
+  };
+}
 
 // Shared enriched SELECT used by list and detail endpoints
 const BATCH_SELECT = `
@@ -145,7 +172,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       return String(b['sow_date'] ?? '').localeCompare(String(a['sow_date'] ?? ''));
     });
 
-    return reply.send(rows.map(row => ({ ...row, plant_count_current: resolvedPlantCount(row) })));
+    return reply.send(rows.map(row => enrichBatch({ ...row, plant_count_current: resolvedPlantCount(row) })));
   });
 
   /**
@@ -204,7 +231,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         db.prepare('SELECT COUNT(*) as n FROM cv_applications_pesticide WHERE batch_id = ?').get(id) as { n: number } | undefined
       )?.n ?? 0;
 
-      return reply.send({
+      return reply.send(enrichBatch({
         ...row,
         plant_count_current: resolvedPlantCount(row),
         recipe_history: recipeHistory,
@@ -215,7 +242,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           foliar: foliarCount,
           pesticide: pesticideCount,
         },
-      });
+      }));
     },
   );
 
@@ -227,7 +254,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const { strain_id, sub_zone_id, plant_count_initial, sow_date, metrc_plant_batch_uid, notes } =
+      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, metrc_plant_batch_uid, notes } =
         request.body as BatchCreateBody;
 
       if (!strain_id || isNaN(Number(strain_id))) {
@@ -256,13 +283,14 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const batchId = db.transaction(() => {
         const r = db.prepare(`
           INSERT INTO cv_batches
-            (strain_id, sub_zone_id, plant_count_initial, sow_date, status, current_stage_since,
+            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, status, current_stage_since,
              current_location_id, metrc_plant_batch_uid, notes, supervisor, created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(strain_id),
           sub_zone_id ?? null,
           Number(plant_count_initial),
+          plants_per_container ? Number(plants_per_container) : 1,
           sow_date,
           sow_date,
           LOCATION.GERM,
@@ -294,7 +322,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       const batch = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(batchId) as Record<string, unknown>;
 
-      return reply.code(201).send({
+      return reply.code(201).send(enrichBatch({
         ...batch,
         plant_count_current: Number(batch['plant_count_initial']),
         active_recipe_id: null,
@@ -304,7 +332,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         phase_history: db.prepare('SELECT * FROM cv_batch_phase_history WHERE batch_id = ?').all(batchId),
         location_history: db.prepare('SELECT * FROM cv_batch_location_history WHERE batch_id = ?').all(batchId),
         application_counts: { fertigation: 0, foliar: 0, pesticide: 0 },
-      });
+      }));
     },
   );
 
@@ -446,13 +474,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY lh.moved_at ASC
       `).all(id) as Array<Record<string, unknown>>;
 
-      return reply.send({
+      return reply.send(enrichBatch({
         ...row,
         plant_count_current: resolvedPlantCount(row),
         recipe_history: recipeHistory,
         phase_history: phaseHistory,
         location_history: locationHistory,
-      });
+      }));
     },
   );
 
@@ -522,7 +550,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       db.prepare(`UPDATE cv_batches SET ${updates.join(', ')} WHERE batch_id = ?`).run(...values);
 
       const row = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(id) as Record<string, unknown>;
-      return reply.send({ ...row, plant_count_current: resolvedPlantCount(row) });
+      return reply.send(enrichBatch({ ...row, plant_count_current: resolvedPlantCount(row) }));
     },
   );
 

@@ -165,6 +165,15 @@ export default function BatchDetail() {
     }
   }
 
+  // ── METRC phase helpers ─────────────────────────────────────────────────
+  const metrcPhase = batch.metrc_phase ?? 'Immature';
+  const METRC_PHASE_CHIP = {
+    'Immature':   'bg-lime-100 text-lime-800',
+    'Vegetative': 'bg-green-100 text-green-800',
+    'Flowering':  'bg-purple-100 text-purple-800',
+    'Closed':     'bg-gray-100 text-gray-500',
+  };
+
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-28">
 
@@ -173,60 +182,86 @@ export default function BatchDetail() {
         ← Plant Batches
       </button>
 
-      {/* Header */}
-      <div className="flex items-start gap-3 flex-wrap mb-5">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
-            {batch.strain_name}
-          </h1>
-          <div className="flex items-center gap-2 flex-wrap mt-1.5">
-            <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-              batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-            }`}>
-              {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
-            </span>
-            {/* Location badge — the primary spatial anchor */}
-            {location && (
-              <span className="text-xs font-semibold bg-gray-800 text-white px-2.5 py-1 rounded-full">
-                📍 {location}{batch.sub_zone_id ? ` · ${batch.sub_zone_id}` : ''}
+      {/* ── METRC Identity Card ──────────────────────────────────────────── */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+
+        {/* Strain + type + internal status */}
+        <div className="flex items-start justify-between gap-2 mb-3">
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
+              {batch.strain_name}
+            </h1>
+            <div className="flex items-center gap-2 flex-wrap mt-1">
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
+              }`}>
+                {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
               </span>
-            )}
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
-              {STATUS_LABELS[batch.status] ?? batch.status}
-            </span>
-            {batch.sub_zone_id && (
-              <button
-                onClick={() => navigate(`/containers?sub_zone_id=${batch.sub_zone_id}`)}
-                className="text-xs text-green-700 font-medium hover:text-green-900 underline"
-              >
-                View Containers
-              </button>
-            )}
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                {STATUS_LABELS[batch.status] ?? batch.status}
+              </span>
+            </div>
           </div>
+          {batch.sub_zone_id && (
+            <button
+              onClick={() => navigate(`/containers?sub_zone_id=${batch.sub_zone_id}`)}
+              className="text-xs text-green-700 font-medium hover:text-green-900 underline flex-shrink-0"
+            >
+              View Containers
+            </button>
+          )}
         </div>
-        {batch.metrc_plant_batch_uid ? (
+
+        {/* METRC batch name */}
+        {batch.metrc_batch_name && (
           <button
-            onClick={() => navigator.clipboard?.writeText(batch.metrc_plant_batch_uid)}
-            className="text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 font-mono hover:bg-green-100 transition-colors text-left flex-shrink-0"
+            onClick={() => navigator.clipboard?.writeText(batch.metrc_batch_name)}
+            className="w-full text-left bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 mb-3 hover:bg-gray-100 transition-colors group"
             title="Tap to copy"
           >
-            <div className="text-[10px] text-green-700 font-sans font-semibold mb-0.5 uppercase tracking-wide">METRC Plant Batch</div>
-            <span className="text-gray-500">{batch.metrc_plant_batch_uid.slice(0, -4)}</span>
-            <span className="font-bold text-green-800">{batch.metrc_plant_batch_uid.slice(-4)}</span>
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">METRC Plant Batch Name</div>
+            <div className="font-mono text-sm font-bold text-gray-800">{batch.metrc_batch_name}</div>
+            <div className="text-[10px] text-gray-400 mt-0.5 group-hover:text-green-600">tap to copy</div>
           </button>
-        ) : (
-          <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 flex-shrink-0">
-            <div className="text-[10px] text-amber-700 font-semibold uppercase tracking-wide mb-0.5">METRC Plant Batch</div>
-            <span className="text-amber-700 font-medium">No UID — required before harvest</span>
-          </div>
         )}
-      </div>
 
-      {/* Key metrics */}
-      <div className="grid grid-cols-3 gap-3 mb-5">
-        <MetricCard label={`Day ${batch.days_in_stage ?? 0}`} sub="in phase" />
-        <MetricCard label={String(batch.plant_count_current)} sub="plants" />
-        <MetricCard label={batch.sow_date} sub="sow date" mono />
+        {/* Phase · Count · Location row */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-gray-50 rounded-xl p-3 text-center">
+            <span className={`text-xs font-bold px-2 py-1 rounded-full block mb-1 ${METRC_PHASE_CHIP[metrcPhase] ?? 'bg-gray-100 text-gray-600'}`}>
+              {metrcPhase}
+            </span>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide">METRC phase</div>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3 text-center">
+            <div className="text-xl font-bold text-gray-900" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+              {batch.plant_count_current ?? batch.plant_count_initial}
+            </div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">plants</div>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-3 text-center">
+            {batch.current_location_name ? (
+              <>
+                <div className="text-xs font-bold text-gray-800">📍 {batch.current_location_name}</div>
+                {batch.sub_zone_id && (
+                  <div className="text-xs text-gray-500 mt-0.5">{batch.sub_zone_id}</div>
+                )}
+              </>
+            ) : (
+              <div className="text-xs text-gray-400">No location</div>
+            )}
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">location</div>
+          </div>
+        </div>
+
+        {/* Day in stage + sow date */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 border-t border-gray-100 pt-3">
+          <span>Day <span className="font-semibold text-gray-700">{batch.days_in_stage ?? 0}</span> in stage</span>
+          <span>Sow <span className="font-semibold text-gray-700 font-mono">{batch.sow_date}</span></span>
+          {batch.plants_per_container > 1 && (
+            <span><span className="font-semibold text-gray-700">{batch.plants_per_container}</span> per container</span>
+          )}
+        </div>
       </div>
 
       {/* METRC UID edit */}
@@ -313,67 +348,21 @@ export default function BatchDetail() {
         </div>
       )}
 
-      {/* ── Lifecycle & Location ── */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
-        <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide mb-4">Lifecycle & Location</h2>
+      {/* ── Phase & Location History ─────────────────────────────────────── */}
+      <BatchHistory batch={batch} />
 
-        <div className="flex flex-col gap-1 mb-5">
-          {LIFECYCLE_ORDER.map((status, idx) => {
-            const done = idx < currentStatusIdx;
-            const active = idx === currentStatusIdx;
-            const future = idx > currentStatusIdx;
-            const dateGetter = STAGE_DATES[status];
-            const date = dateGetter ? dateGetter(batch) : null;
-            const loc = LOCATION_LABEL[status];
-
-            return (
-              <div key={status} className={`flex items-start gap-3 py-2 ${future ? 'opacity-40' : ''}`}>
-                {/* Step indicator */}
-                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5 ${
-                  done ? 'bg-green-600 text-white'
-                    : active ? 'bg-green-800 text-white ring-4 ring-green-100'
-                    : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {done ? '✓' : idx + 1}
-                </div>
-
-                {/* Phase info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-sm font-semibold ${active ? 'text-gray-900' : done ? 'text-green-700' : 'text-gray-400'}`}>
-                      {STATUS_LABELS[status]}
-                    </span>
-                    {loc && (
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                        active ? 'bg-gray-800 text-white' : done ? 'bg-gray-100 text-gray-600' : 'bg-gray-50 text-gray-400'
-                      }`}>
-                        {loc}{active && batch.sub_zone_id ? ` · ${batch.sub_zone_id}` : ''}
-                      </span>
-                    )}
-                    {date && (
-                      <span className="text-xs text-gray-400 font-mono">{date.slice(0, 10)}</span>
-                    )}
-                  </div>
-                  {(active || done) && STAGE_DESC[status] && (
-                    <div className="text-xs text-gray-400 mt-0.5">{STAGE_DESC[status]}</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Transition button */}
-        {nextStatus && isSupervisor && batch.status !== 'closed' && (
+      {/* ── Advance Phase ────────────────────────────────────────────────── */}
+      {nextStatus && isSupervisor && batch.status !== 'closed' && (
+        <div className="mb-4">
           <button
             onClick={() => setShowTransitionModal(true)}
-            className="w-full py-4 bg-green-800 text-white font-semibold rounded-xl hover:bg-green-900 transition-colors text-sm"
+            className="w-full py-4 bg-green-800 text-white font-semibold rounded-2xl hover:bg-green-900 transition-colors text-sm shadow-sm"
             style={{ minHeight: '56px' }}
           >
-            {TRANSITION_ACTION[nextStatus] ?? `Move to ${STATUS_LABELS[nextStatus]}`}
+            {TRANSITION_ACTION[nextStatus] ?? `Move to ${STATUS_LABELS[nextStatus]}`} →
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Application counts */}
       {(batch.application_counts?.fertigation > 0 || batch.application_counts?.foliar > 0 || batch.application_counts?.pesticide > 0) && (
@@ -430,6 +419,141 @@ export default function BatchDetail() {
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────
+
+function toMetrcPhase(status) {
+  if (['germ', 'seedling', 'cult-hoop'].includes(status)) return 'Immature';
+  if (status === 'field-veg') return 'Vegetative';
+  if (['field-flower', 'flush', 'harvest_window', 'harvesting'].includes(status)) return 'Flowering';
+  return 'Closed';
+}
+
+function fmtTs(ts) {
+  if (!ts) return '—';
+  try {
+    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return ts.slice(0, 10); }
+}
+
+function MetrcSyncBadge({ status }) {
+  if (status === 'not_required') return null;
+  const map = {
+    pending: 'bg-amber-100 text-amber-700',
+    synced:  'bg-green-100 text-green-700',
+    failed:  'bg-red-100 text-red-700',
+  };
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded uppercase tracking-wide ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
+      METRC {status}
+    </span>
+  );
+}
+
+function BatchHistory({ batch }) {
+  const phaseEvents = (batch.phase_history ?? []).map(p => ({
+    type: 'phase',
+    ts: p.transitioned_at,
+    from_status: p.from_status,
+    to_status: p.to_status,
+    by: p.transitioned_by_name,
+    notes: p.notes,
+    metrc_sync_status: p.metrc_sync_status,
+  }));
+
+  const locationEvents = (batch.location_history ?? []).map(l => ({
+    type: 'location',
+    ts: l.moved_at,
+    from_location: l.from_location_name,
+    to_location: l.to_location_name,
+    by: l.moved_by_name,
+    trigger: l.trigger,
+    metrc_sync_status: l.metrc_sync_status,
+  }));
+
+  const timeline = [...phaseEvents, ...locationEvents]
+    .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
+
+  if (timeline.length === 0) return null;
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+      <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide mb-4">Phase & Location History</h2>
+      <div className="flex flex-col gap-0">
+        {timeline.map((evt, i) => {
+          const isLast = i === timeline.length - 1;
+          if (evt.type === 'phase') {
+            const fromPhase = evt.from_status ? toMetrcPhase(evt.from_status) : null;
+            const toPhase = toMetrcPhase(evt.to_status);
+            const phaseChanged = fromPhase && fromPhase !== toPhase;
+            return (
+              <div key={i} className="flex gap-3">
+                <div className="flex flex-col items-center flex-shrink-0">
+                  <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${
+                    isLast ? 'bg-green-700' : 'bg-gray-300'
+                  }`} />
+                  {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                </div>
+                <div className="pb-4 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-800">
+                      {evt.from_status ? STATUS_LABELS[evt.from_status] ?? evt.from_status : 'Created'}
+                      {evt.from_status ? ` → ${STATUS_LABELS[evt.to_status] ?? evt.to_status}` : `: ${STATUS_LABELS[evt.to_status] ?? evt.to_status}`}
+                    </span>
+                    {phaseChanged && (
+                      <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-1.5 py-0.5 rounded">
+                        {fromPhase} → {toPhase}
+                      </span>
+                    )}
+                    {!phaseChanged && toPhase && (
+                      <span className="text-xs text-gray-400">{toPhase}</span>
+                    )}
+                    <MetrcSyncBadge status={evt.metrc_sync_status} />
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                    <span>{fmtTs(evt.ts)}</span>
+                    {evt.by && <span>by {evt.by}</span>}
+                  </div>
+                  {evt.notes && (
+                    <div className="text-xs text-gray-500 mt-1 italic">"{evt.notes}"</div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+
+          // location event
+          return (
+            <div key={i} className="flex gap-3">
+              <div className="flex flex-col items-center flex-shrink-0">
+                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${
+                  isLast ? 'bg-blue-500' : 'bg-gray-200'
+                }`} />
+                {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
+              </div>
+              <div className="pb-4 flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-gray-800">
+                    📍 {evt.to_location}
+                  </span>
+                  {evt.from_location && (
+                    <span className="text-xs text-gray-400">from {evt.from_location}</span>
+                  )}
+                  <MetrcSyncBadge status={evt.metrc_sync_status} />
+                </div>
+                <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                  <span>{fmtTs(evt.ts)}</span>
+                  {evt.by && <span>by {evt.by}</span>}
+                  {evt.trigger && evt.trigger !== 'manual' && (
+                    <span className="capitalize">({evt.trigger.replace(/_/g, ' ')})</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function MetricCard({ label, sub, mono }) {
   return (
