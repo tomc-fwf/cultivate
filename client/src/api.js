@@ -116,6 +116,15 @@ export const api = {
   updateContainerAmendment: (id, data) => req('PATCH', `/applications/amendments/${id}`, data),
   deleteContainerAmendment: (id) => req('DELETE', `/applications/amendments/${id}`),
 
+  // Harvest
+  getHarvestStatus: (batchId) => req('GET', `/harvest/batch/${batchId}`),
+  createHarvestBatch: (data) => req('POST', '/harvest/batches', data),
+  recordHarvestEvent: (harvestBatchId, data) => req('POST', `/harvest/batches/${harvestBatchId}/events`, data),
+  forceCloseHarvestBatch: (harvestBatchId, data) => req('POST', `/harvest/batches/${harvestBatchId}/force-close`, data),
+  createWasteTrim: (data) => req('POST', '/harvest/waste-trim', data),
+  getWasteTrim: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/harvest/waste-trim${q ? '?' + q : ''}`); },
+  disposeWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/dispose`, data),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();
