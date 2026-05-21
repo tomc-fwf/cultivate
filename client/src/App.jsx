@@ -27,6 +27,7 @@ import AmendmentLog from './pages/containers/AmendmentLog';
 import AmendmentNew from './pages/containers/AmendmentNew';
 import PesticideLog from './pages/applications/PesticideLog';
 import PesticideNew from './pages/applications/PesticideNew';
+import REIDashboard from './pages/applications/REIDashboard';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -98,6 +99,7 @@ export default function App() {
               <Route path="/applications/amendments/new" element={<Protected><AmendmentNew /></Protected>} />
               <Route path="/applications/pesticide" element={<Protected><PesticideLog /></Protected>} />
               <Route path="/applications/pesticide/new" element={<Protected><PesticideNew /></Protected>} />
+              <Route path="/rei" element={<Protected><REIDashboard /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
