@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuth } from '../../App';
+import ContainerQuickSheet from './ContainerQuickSheet';
 
 // State color classes for container cells
 const STATE_CELL = {
@@ -74,10 +75,8 @@ export default function ContainerDashboard() {
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [error, setError] = useState('');
 
-  // Individual container action sheet
+  // Individual container quick sheet
   const [activeContainer, setActiveContainer] = useState(null);
-  const [settingState, setSettingState] = useState(false);
-  const [stateError, setStateError] = useState('');
 
   // Bulk scope state picker: { scope: 'zone'|'sub_zone'|'row'|'all', scope_id, label }
   const [bulkScope, setBulkScope] = useState(null);
@@ -127,20 +126,6 @@ export default function ContainerDashboard() {
     }).catch(e => { setError(e.message); setLoadingGrid(false); });
   }
 
-  async function handleSetState(toState) {
-    if (!activeContainer) return;
-    setSettingState(true);
-    setStateError('');
-    try {
-      await api.updateContainerState(activeContainer.container_id, { to_state: toState });
-      setActiveContainer(null);
-      if (selectedSubZone) reloadGrid(selectedSubZone);
-    } catch (e) {
-      setStateError(e.message);
-    } finally {
-      setSettingState(false);
-    }
-  }
 
   async function handleBulkSetState(toState) {
     if (!bulkScope) return;
@@ -398,61 +383,13 @@ export default function ContainerDashboard() {
         </div>
       )}
 
-      {/* Individual container action sheet */}
       {activeContainer && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center" onClick={() => setActiveContainer(null)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div
-            className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-24 shadow-2xl max-h-[85vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <div className="font-mono font-bold text-gray-900">{activeContainer.container_id}</div>
-                <div className="text-sm text-gray-500 mt-0.5">
-                  Current: <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${STATE_CHIP[activeContainer.current_state]}`}>
-                    {STATE_LABELS[activeContainer.current_state]}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => navigate(`/containers/${encodeURIComponent(activeContainer.container_id)}`)}
-                className="text-sm text-green-700 font-semibold hover:text-green-900"
-              >
-                Full Detail →
-              </button>
-            </div>
-
-            {isSupervisorPlus && (
-              <>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Set State</div>
-                <div className="grid grid-cols-2 gap-2">
-                  {MANUAL_STATES.map(state => (
-                    <button
-                      key={state}
-                      onClick={() => handleSetState(state)}
-                      disabled={settingState || state === activeContainer.current_state}
-                      className={`py-3 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-40 ${
-                        state === activeContainer.current_state
-                          ? `${STATE_CELL[state]} opacity-40 cursor-default`
-                          : `${STATE_CHIP[state]} border-transparent hover:opacity-80`
-                      }`}
-                    >
-                      {STATE_LABELS[state]}
-                      {state === activeContainer.current_state && ' ✓'}
-                    </button>
-                  ))}
-                </div>
-                {stateError && (
-                  <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{stateError}</div>
-                )}
-              </>
-            )}
-            {!isSupervisorPlus && (
-              <div className="text-sm text-gray-500">Supervisor or Admin role required to change state.</div>
-            )}
-          </div>
-        </div>
+        <ContainerQuickSheet
+          container={activeContainer}
+          subZonePotSize={subZoneData?.sub_zone?.pot_size_gal}
+          onClose={() => setActiveContainer(null)}
+          onStateChanged={() => { setActiveContainer(null); if (selectedSubZone) reloadGrid(selectedSubZone); }}
+        />
       )}
       </>
     );
