@@ -1,32 +1,35 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
-interface FertigationCreateBody {
-  batch_ids: number[];
-  recipe_id: number;
-  applied_at: string;
-  volume_gallons: number;
-  ec_measured: number;
-  ph_measured: number;
-  solution_temp_f?: number | null;
-  ambient_temp_f?: number | null;
-  ambient_rh?: number | null;
-  notes?: string | null;
-}
+const FertigationCreateSchema = z.object({
+  batch_ids: z.array(z.number().int().positive()).min(1),
+  recipe_id: z.number().int().positive(),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }),
+  volume_gallons: z.number().positive(),
+  ec_measured: z.number(),
+  ph_measured: z.number(),
+  solution_temp_f: z.number().nullable().optional(),
+  ambient_temp_f: z.number().nullable().optional(),
+  ambient_rh: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type FertigationCreateBody = z.infer<typeof FertigationCreateSchema>;
 
-interface FertigationUpdateBody {
-  volume_gallons?: number;
-  ec_measured?: number;
-  ph_measured?: number;
-  solution_temp_f?: number | null;
-  ambient_temp_f?: number | null;
-  ambient_rh?: number | null;
-  notes?: string | null;
-  applied_at?: string;
-}
+const FertigationUpdateSchema = z.object({
+  volume_gallons: z.number().positive().optional(),
+  ec_measured: z.number().optional(),
+  ph_measured: z.number().optional(),
+  solution_temp_f: z.number().nullable().optional(),
+  ambient_temp_f: z.number().nullable().optional(),
+  ambient_rh: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }).optional(),
+});
+type FertigationUpdateBody = z.infer<typeof FertigationUpdateSchema>;
 
 /**
  * Returns true if applied_at is within 24 hours of now.
@@ -147,7 +150,12 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const body = request.body as FertigationCreateBody;
+      let body: FertigationCreateBody;
+      try { body = FertigationCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const {
         batch_ids,
         recipe_id,
@@ -160,31 +168,6 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
         ambient_rh = null,
         notes = null,
       } = body;
-
-      // --- Validation ---
-      if (!Array.isArray(batch_ids) || batch_ids.length === 0) {
-        return reply.code(400).send({ error: 'batch_ids must be a non-empty array' });
-      }
-
-      if (!recipe_id || isNaN(Number(recipe_id))) {
-        return reply.code(400).send({ error: 'recipe_id is required' });
-      }
-
-      if (ec_measured == null || isNaN(Number(ec_measured))) {
-        return reply.code(400).send({ error: 'ec_measured is required (enter 0.0 and note "meter-error" if meter is broken)' });
-      }
-
-      if (ph_measured == null || isNaN(Number(ph_measured))) {
-        return reply.code(400).send({ error: 'ph_measured is required (enter 0.0 and note "meter-error" if meter is broken)' });
-      }
-
-      if (!volume_gallons || isNaN(Number(volume_gallons)) || Number(volume_gallons) <= 0) {
-        return reply.code(400).send({ error: 'volume_gallons is required and must be > 0' });
-      }
-
-      if (!applied_at || isNaN(Date.parse(applied_at))) {
-        return reply.code(400).send({ error: 'applied_at is required and must be a valid ISO datetime' });
-      }
 
       const db = getDB();
 
@@ -269,30 +252,26 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
       }
 
-      const body = request.body as FertigationUpdateBody;
+      let body: FertigationUpdateBody;
+      try { body = FertigationUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
 
       if ('volume_gallons' in body) {
-        if (!body.volume_gallons || Number(body.volume_gallons) <= 0) {
-          return reply.code(400).send({ error: 'volume_gallons must be > 0' });
-        }
         updates.push('volume_gallons = ?');
         values.push(Number(body.volume_gallons));
       }
 
       if ('ec_measured' in body) {
-        if (body.ec_measured == null || isNaN(Number(body.ec_measured))) {
-          return reply.code(400).send({ error: 'ec_measured must be a number' });
-        }
         updates.push('ec_measured = ?');
         values.push(Number(body.ec_measured));
       }
 
       if ('ph_measured' in body) {
-        if (body.ph_measured == null || isNaN(Number(body.ph_measured))) {
-          return reply.code(400).send({ error: 'ph_measured must be a number' });
-        }
         updates.push('ph_measured = ?');
         values.push(Number(body.ph_measured));
       }
@@ -318,9 +297,6 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if ('applied_at' in body && body.applied_at) {
-        if (isNaN(Date.parse(body.applied_at))) {
-          return reply.code(400).send({ error: 'applied_at must be a valid ISO datetime' });
-        }
         // Must remain on the same calendar day
         const origDay = String(existing['applied_at']).slice(0, 10);
         const newDay = new Date(body.applied_at).toISOString().slice(0, 10);

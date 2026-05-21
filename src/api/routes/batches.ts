@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import { formatMetrcDate, toMetrcPhase, makeBatchName } from '../../lib/domain-utils.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
@@ -53,32 +54,36 @@ const METRC_LOCATION_EVENT: Partial<Record<string, boolean>> = {
   'cult-hoop': true,
 };
 
-interface BatchCreateBody {
-  strain_id: number;
-  sub_zone_id?: string | null;
-  plant_count_initial: number;
-  plants_per_container?: number | null;
-  sow_date: string;
-  metrc_plant_batch_uid?: string | null;
-  notes?: string | null;
-}
+const BatchCreateSchema = z.object({
+  strain_id: z.number().int().positive(),
+  sub_zone_id: z.string().nullable().optional(),
+  plant_count_initial: z.number().int().positive(),
+  plants_per_container: z.number().int().min(1).default(1),
+  sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sow_date must be YYYY-MM-DD'),
+  metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type BatchCreateBody = z.infer<typeof BatchCreateSchema>;
 
-interface BatchUpdateBody {
-  metrc_plant_batch_uid?: string | null;
-  notes?: string | null;
-  sub_zone_id?: string | null;
-  plant_count_initial?: number;
-}
+const BatchUpdateSchema = z.object({
+  metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
+  notes: z.string().nullable().optional(),
+  sub_zone_id: z.string().nullable().optional(),
+  plant_count_initial: z.number().int().positive().optional(),
+});
+type BatchUpdateBody = z.infer<typeof BatchUpdateSchema>;
 
-interface TransitionBody {
-  to_status: string;
-  notes?: string | null;
-}
+const TransitionSchema = z.object({
+  to_status: z.string().min(1),
+  notes: z.string().nullable().optional(),
+});
+type TransitionBody = z.infer<typeof TransitionSchema>;
 
-interface RecipeAssignBody {
-  recipe_id: number;
-  notes?: string | null;
-}
+const RecipeAssignSchema = z.object({
+  recipe_id: z.number().int().positive(),
+  notes: z.string().nullable().optional(),
+});
+type RecipeAssignBody = z.infer<typeof RecipeAssignSchema>;
 
 const STATUS_RANK: Record<string, number> = Object.fromEntries(
   STATUS_ORDER.map((s, i) => [s, i])
@@ -241,18 +246,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, metrc_plant_batch_uid, notes } =
-        request.body as BatchCreateBody;
-
-      if (!strain_id || isNaN(Number(strain_id))) {
-        return reply.code(400).send({ error: 'strain_id is required' });
+      let body: BatchCreateBody;
+      try { body = BatchCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
       }
-      if (!plant_count_initial || plant_count_initial <= 0) {
-        return reply.code(400).send({ error: 'plant_count_initial must be > 0' });
-      }
-      if (!sow_date || !/^\d{4}-\d{2}-\d{2}/.test(sow_date)) {
-        return reply.code(400).send({ error: 'sow_date is required (YYYY-MM-DD)' });
-      }
+      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, metrc_plant_batch_uid, notes } = body;
 
       const db = getDB();
 
@@ -341,8 +341,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
 
-      const { to_status, notes } = request.body as TransitionBody;
-      if (!to_status) return reply.code(400).send({ error: 'to_status is required' });
+      let transBody: TransitionBody;
+      try { transBody = TransitionSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { to_status, notes } = transBody;
 
       const db = getDB();
 
@@ -485,7 +490,12 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const batch = db.prepare('SELECT * FROM cv_batches WHERE batch_id = ?').get(id) as Record<string, unknown> | undefined;
       if (!batch) return reply.code(404).send({ error: 'Batch not found' });
 
-      const body = request.body as BatchUpdateBody;
+      let body: BatchUpdateBody;
+      try { body = BatchUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
       const now = new Date().toISOString();
@@ -522,9 +532,6 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (assignmentCount > 0) {
           return reply.code(400).send({ error: 'Cannot change plant_count_initial once plant assignments exist' });
         }
-        if (!body.plant_count_initial || body.plant_count_initial <= 0) {
-          return reply.code(400).send({ error: 'plant_count_initial must be > 0' });
-        }
         updates.push('plant_count_initial = ?');
         values.push(Number(body.plant_count_initial));
       }
@@ -551,10 +558,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
 
-      const { recipe_id, notes } = request.body as RecipeAssignBody;
-      if (!recipe_id || isNaN(Number(recipe_id))) {
-        return reply.code(400).send({ error: 'recipe_id is required' });
+      let recipeBody: RecipeAssignBody;
+      try { recipeBody = RecipeAssignSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
       }
+      const { recipe_id, notes } = recipeBody;
 
       const db = getDB();
 

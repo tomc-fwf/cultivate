@@ -1,44 +1,47 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
-interface PesticideCreateBody {
-  batch_id: number;
-  row_id?: string | null;
-  container_id?: string | null;
-  applied_at: string;
-  input_id: number;
-  input_lot_id: number;
-  rate_value: number;
-  rate_unit: string;
-  volume_applied: number;
-  volume_unit: string;
-  application_method: string;
-  target_pest: string;
-  pest_pressure?: string | null;
-  ambient_temp_f: number;
-  ambient_rh?: number | null;
-  wind_speed_mph: number;
-  wind_direction?: string | null;
-  expected_harvest_date?: string | null;
-  applicator_license?: string | null;
-  phi_override_notes?: string | null;
-  notes?: string | null;
-}
+const PesticideCreateSchema = z.object({
+  batch_id: z.number().int().positive(),
+  row_id: z.string().nullable().optional(),
+  container_id: z.string().nullable().optional(),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }),
+  input_id: z.number().int().positive(),
+  input_lot_id: z.number().int().positive(),
+  rate_value: z.number().positive(),
+  rate_unit: z.string().min(1),
+  volume_applied: z.number().positive(),
+  volume_unit: z.string().min(1),
+  application_method: z.enum(['foliar_spray', 'soil_drench', 'granular', 'other']),
+  target_pest: z.string().min(1),
+  pest_pressure: z.enum(['incidental', 'threshold', 'outbreak']).nullable().optional(),
+  ambient_temp_f: z.number(),
+  ambient_rh: z.number().nullable().optional(),
+  wind_speed_mph: z.number(),
+  wind_direction: z.string().nullable().optional(),
+  expected_harvest_date: z.string().nullable().optional(),
+  applicator_license: z.string().nullable().optional(),
+  phi_override_notes: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type PesticideCreateBody = z.infer<typeof PesticideCreateSchema>;
 
-interface PesticideUpdateBody {
-  applied_at?: string;
-  target_pest?: string;
-  pest_pressure?: string | null;
-  ambient_temp_f?: number;
-  ambient_rh?: number | null;
-  wind_speed_mph?: number;
-  wind_direction?: string | null;
-  applicator_license?: string | null;
-  notes?: string | null;
-}
+const PesticideUpdateSchema = z.object({
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }).optional(),
+  target_pest: z.string().min(1).optional(),
+  pest_pressure: z.enum(['incidental', 'threshold', 'outbreak']).nullable().optional(),
+  ambient_temp_f: z.number().optional(),
+  ambient_rh: z.number().nullable().optional(),
+  wind_speed_mph: z.number().optional(),
+  wind_direction: z.string().nullable().optional(),
+  applicator_license: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type PesticideUpdateBody = z.infer<typeof PesticideUpdateSchema>;
 
 const VALID_APPLICATION_METHODS = new Set([
   'foliar_spray', 'soil_drench', 'granular', 'other',
@@ -170,7 +173,12 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const body = request.body as PesticideCreateBody;
+      let body: PesticideCreateBody;
+      try { body = PesticideCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const {
         batch_id,
         row_id = null,
@@ -194,25 +202,6 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
         phi_override_notes = null,
         notes = null,
       } = body;
-
-      // ── Required field validation (rules 16, 17) ──────────────────────────
-      if (!batch_id || isNaN(Number(batch_id))) return reply.code(400).send({ error: 'batch_id is required' });
-      if (!input_id || isNaN(Number(input_id))) return reply.code(400).send({ error: 'input_id is required' });
-      if (!input_lot_id || isNaN(Number(input_lot_id))) return reply.code(400).send({ error: 'input_lot_id is required — lot tracking is mandatory for pesticide applications' });
-      if (rate_value == null || isNaN(Number(rate_value)) || Number(rate_value) <= 0) return reply.code(400).send({ error: 'rate_value is required and must be > 0' });
-      if (!rate_unit) return reply.code(400).send({ error: 'rate_unit is required' });
-      if (volume_applied == null || isNaN(Number(volume_applied)) || Number(volume_applied) <= 0) return reply.code(400).send({ error: 'volume_applied is required and must be > 0' });
-      if (!volume_unit) return reply.code(400).send({ error: 'volume_unit is required' });
-      if (!application_method || !VALID_APPLICATION_METHODS.has(application_method)) {
-        return reply.code(400).send({ error: `application_method is required. Valid values: ${[...VALID_APPLICATION_METHODS].join(', ')}` });
-      }
-      if (!target_pest || String(target_pest).trim() === '') return reply.code(400).send({ error: 'target_pest is required' });
-      if (ambient_temp_f == null || isNaN(Number(ambient_temp_f))) return reply.code(400).send({ error: 'ambient_temp_f is required (MN MDA field)' });
-      if (wind_speed_mph == null || isNaN(Number(wind_speed_mph))) return reply.code(400).send({ error: 'wind_speed_mph is required (MN MDA field)' });
-      if (!applied_at || isNaN(Date.parse(applied_at))) return reply.code(400).send({ error: 'applied_at is required and must be a valid ISO datetime' });
-      if (pest_pressure && !VALID_PEST_PRESSURES.has(pest_pressure)) {
-        return reply.code(400).send({ error: `Invalid pest_pressure. Valid values: ${[...VALID_PEST_PRESSURES].join(', ')}` });
-      }
 
       const db = getDB();
 
@@ -405,25 +394,26 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
       }
 
-      const body = request.body as PesticideUpdateBody;
+      let body: PesticideUpdateBody;
+      try { body = PesticideUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
 
       if ('target_pest' in body) {
-        if (!body.target_pest || String(body.target_pest).trim() === '') return reply.code(400).send({ error: 'target_pest cannot be empty' });
         updates.push('target_pest = ?'); values.push(String(body.target_pest).trim());
       }
       if ('pest_pressure' in body) {
-        if (body.pest_pressure && !VALID_PEST_PRESSURES.has(body.pest_pressure)) return reply.code(400).send({ error: 'Invalid pest_pressure' });
         updates.push('pest_pressure = ?'); values.push(body.pest_pressure ?? null);
       }
       if ('ambient_temp_f' in body) {
-        if (body.ambient_temp_f == null || isNaN(Number(body.ambient_temp_f))) return reply.code(400).send({ error: 'ambient_temp_f must be a number' });
         updates.push('ambient_temp_f = ?'); values.push(Number(body.ambient_temp_f));
       }
       if ('ambient_rh' in body) { updates.push('ambient_rh = ?'); values.push(body.ambient_rh != null ? Number(body.ambient_rh) : null); }
       if ('wind_speed_mph' in body) {
-        if (body.wind_speed_mph == null || isNaN(Number(body.wind_speed_mph))) return reply.code(400).send({ error: 'wind_speed_mph must be a number' });
         updates.push('wind_speed_mph = ?'); values.push(Number(body.wind_speed_mph));
       }
       if ('wind_direction' in body) { updates.push('wind_direction = ?'); values.push(body.wind_direction ?? null); }
@@ -431,7 +421,6 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
       if ('notes' in body) { updates.push('notes = ?'); values.push(body.notes ?? null); }
 
       if ('applied_at' in body && body.applied_at) {
-        if (isNaN(Date.parse(body.applied_at))) return reply.code(400).send({ error: 'applied_at must be a valid ISO datetime' });
         const origDay = String(existing['applied_at']).slice(0, 10);
         const newDay = new Date(body.applied_at).toISOString().slice(0, 10);
         if (origDay !== newDay) return reply.code(400).send({ error: 'applied_at can only be changed within the same calendar day' });

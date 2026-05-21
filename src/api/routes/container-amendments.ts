@@ -1,32 +1,35 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
-interface AmendmentCreateBody {
-  container_id: string;
-  applied_at: string;
-  amendment_type: string;
-  application_method?: string | null;
-  input_id?: number | null;
-  input_lot_id?: number | null;
-  quantity?: number | null;
-  quantity_unit?: string | null;
-  purpose?: string | null;
-  soil_sample_id?: number | null;
-  notes?: string | null;
-}
+const AmendmentCreateSchema = z.object({
+  container_id: z.string().min(1),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }),
+  amendment_type: z.enum(['media_replacement', 'amendment', 'inoculation', 'drench', 'top_dress', 'mix_in', 'correction', 'removal', 'other']),
+  application_method: z.enum(['top_dress', 'mix_in', 'drench', 'side_dress', 'replaced', 'removed', 'other']).nullable().optional(),
+  input_id: z.number().int().positive().nullable().optional(),
+  input_lot_id: z.number().int().positive().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  quantity_unit: z.string().nullable().optional(),
+  purpose: z.string().nullable().optional(),
+  soil_sample_id: z.number().int().positive().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type AmendmentCreateBody = z.infer<typeof AmendmentCreateSchema>;
 
-interface AmendmentUpdateBody {
-  applied_at?: string;
-  amendment_type?: string;
-  application_method?: string | null;
-  quantity?: number | null;
-  quantity_unit?: string | null;
-  purpose?: string | null;
-  notes?: string | null;
-}
+const AmendmentUpdateSchema = z.object({
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }).optional(),
+  amendment_type: z.enum(['media_replacement', 'amendment', 'inoculation', 'drench', 'top_dress', 'mix_in', 'correction', 'removal', 'other']).optional(),
+  application_method: z.enum(['top_dress', 'mix_in', 'drench', 'side_dress', 'replaced', 'removed', 'other']).nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  quantity_unit: z.string().nullable().optional(),
+  purpose: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type AmendmentUpdateBody = z.infer<typeof AmendmentUpdateSchema>;
 
 const VALID_AMENDMENT_TYPES = new Set([
   'media_replacement', 'amendment', 'inoculation', 'drench',
@@ -126,7 +129,12 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const body = request.body as AmendmentCreateBody;
+      let body: AmendmentCreateBody;
+      try { body = AmendmentCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const {
         container_id,
         applied_at,
@@ -140,26 +148,6 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         soil_sample_id = null,
         notes = null,
       } = body;
-
-      if (!container_id || String(container_id).trim() === '') {
-        return reply.code(400).send({ error: 'container_id is required' });
-      }
-
-      if (!applied_at || isNaN(Date.parse(applied_at))) {
-        return reply.code(400).send({ error: 'applied_at is required and must be a valid ISO datetime' });
-      }
-
-      if (!amendment_type || !VALID_AMENDMENT_TYPES.has(amendment_type)) {
-        return reply.code(400).send({
-          error: `amendment_type is required. Valid values: ${[...VALID_AMENDMENT_TYPES].join(', ')}`,
-        });
-      }
-
-      if (application_method && !VALID_APPLICATION_METHODS.has(application_method)) {
-        return reply.code(400).send({
-          error: `Invalid application_method. Valid values: ${[...VALID_APPLICATION_METHODS].join(', ')}`,
-        });
-      }
 
       const db = getDB();
 
@@ -254,22 +242,21 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: 'Amendment record is locked after 24 hours' });
       }
 
-      const body = request.body as AmendmentUpdateBody;
+      let body: AmendmentUpdateBody;
+      try { body = AmendmentUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
 
       if ('amendment_type' in body) {
-        if (!body.amendment_type || !VALID_AMENDMENT_TYPES.has(body.amendment_type)) {
-          return reply.code(400).send({ error: 'Invalid amendment_type' });
-        }
         updates.push('amendment_type = ?');
         values.push(body.amendment_type);
       }
 
       if ('application_method' in body) {
-        if (body.application_method && !VALID_APPLICATION_METHODS.has(body.application_method)) {
-          return reply.code(400).send({ error: 'Invalid application_method' });
-        }
         updates.push('application_method = ?');
         values.push(body.application_method ?? null);
       }
@@ -286,9 +273,6 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
       if ('notes' in body) { updates.push('notes = ?'); values.push(body.notes ?? null); }
 
       if ('applied_at' in body && body.applied_at) {
-        if (isNaN(Date.parse(body.applied_at))) {
-          return reply.code(400).send({ error: 'applied_at must be a valid ISO datetime' });
-        }
         const origDay = String(existing['applied_at']).slice(0, 10);
         const newDay = new Date(body.applied_at).toISOString().slice(0, 10);
         if (origDay !== newDay) {

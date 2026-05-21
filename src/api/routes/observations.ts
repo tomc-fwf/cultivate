@@ -1,34 +1,37 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
-interface ObservationCreateBody {
-  batch_id: number;
-  row_id?: string | null;
-  container_id?: string | null;
-  observed_at?: string;
-  category: string;
-  severity?: string | null;
-  note?: string | null;
-  maturity_pct?: number | null;
-  ready_to_harvest?: number | null;
-  harvest_priority?: number | null;
-  triggered_app_id?: string | null;
-}
+const ObservationCreateSchema = z.object({
+  batch_id: z.number().int().positive(),
+  row_id: z.string().nullable().optional(),
+  container_id: z.string().nullable().optional(),
+  observed_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'observed_at must be a valid ISO datetime' }).optional(),
+  category: z.enum(['healthy', 'pest', 'deficiency', 'disease', 'damage', 'harvest_readiness', 'other']),
+  severity: z.enum(['low', 'medium', 'high']).nullable().optional(),
+  note: z.string().nullable().optional(),
+  maturity_pct: z.number().int().min(0).max(100).nullable().optional(),
+  ready_to_harvest: z.number().nullable().optional(),
+  harvest_priority: z.number().int().nullable().optional(),
+  triggered_app_id: z.string().nullable().optional(),
+});
+type ObservationCreateBody = z.infer<typeof ObservationCreateSchema>;
 
-interface ObservationUpdateBody {
-  observed_at?: string;
-  category?: string;
-  severity?: string | null;
-  note?: string | null;
-  maturity_pct?: number | null;
-  ready_to_harvest?: number | null;
-  harvest_priority?: number | null;
-  resolved_at?: string | null;
-  resolution_note?: string | null;
-}
+const ObservationUpdateSchema = z.object({
+  observed_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'observed_at must be a valid ISO datetime' }).optional(),
+  category: z.enum(['healthy', 'pest', 'deficiency', 'disease', 'damage', 'harvest_readiness', 'other']).optional(),
+  severity: z.enum(['low', 'medium', 'high']).nullable().optional(),
+  note: z.string().nullable().optional(),
+  maturity_pct: z.number().int().min(0).max(100).nullable().optional(),
+  ready_to_harvest: z.number().nullable().optional(),
+  harvest_priority: z.number().int().nullable().optional(),
+  resolved_at: z.string().nullable().optional(),
+  resolution_note: z.string().nullable().optional(),
+});
+type ObservationUpdateBody = z.infer<typeof ObservationUpdateSchema>;
 
 const VALID_CATEGORIES = new Set([
   'healthy', 'pest', 'deficiency', 'disease', 'damage',
@@ -156,7 +159,12 @@ const observationsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const body = request.body as ObservationCreateBody;
+      let body: ObservationCreateBody;
+      try { body = ObservationCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const {
         batch_id,
         row_id = null,
@@ -171,16 +179,11 @@ const observationsRoutes: FastifyPluginAsync = async (app) => {
         triggered_app_id = null,
       } = body;
 
-      if (!batch_id || isNaN(Number(batch_id))) return reply.code(400).send({ error: 'batch_id is required' });
-      if (!category || !VALID_CATEGORIES.has(category)) {
-        return reply.code(400).send({ error: `category is required. Valid values: ${[...VALID_CATEGORIES].join(', ')}` });
-      }
       if (category !== 'harvest_readiness' && (!severity || !VALID_SEVERITIES.has(severity))) {
         return reply.code(400).send({ error: `severity is required for category '${category}'. Valid values: ${[...VALID_SEVERITIES].join(', ')}` });
       }
 
       const appliedAt = observed_at ?? new Date().toISOString();
-      if (isNaN(Date.parse(appliedAt))) return reply.code(400).send({ error: 'observed_at must be a valid ISO datetime' });
 
       const db = getDB();
       const batch = db.prepare(
@@ -247,16 +250,19 @@ const observationsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: 'Observation record is locked after 24 hours' });
       }
 
-      const body = request.body as ObservationUpdateBody;
+      let body: ObservationUpdateBody;
+      try { body = ObservationUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
 
       if ('category' in body) {
-        if (!body.category || !VALID_CATEGORIES.has(body.category)) return reply.code(400).send({ error: 'Invalid category' });
         updates.push('category = ?'); values.push(body.category);
       }
       if ('severity' in body) {
-        if (body.severity && !VALID_SEVERITIES.has(body.severity)) return reply.code(400).send({ error: 'Invalid severity' });
         updates.push('severity = ?'); values.push(body.severity ?? null);
       }
       if ('note' in body) { updates.push('note = ?'); values.push(body.note ? String(body.note).trim() : null); }
@@ -269,7 +275,6 @@ const observationsRoutes: FastifyPluginAsync = async (app) => {
       if ('resolved_at' in body) { updates.push('resolved_at = ?'); values.push(body.resolved_at ?? null); }
       if ('resolution_note' in body) { updates.push('resolution_note = ?'); values.push(body.resolution_note ?? null); }
       if ('observed_at' in body && body.observed_at) {
-        if (isNaN(Date.parse(body.observed_at))) return reply.code(400).send({ error: 'observed_at must be a valid ISO datetime' });
         updates.push('observed_at = ?'); values.push(body.observed_at);
       }
 

@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface ContainerIdParams { containerId: string }
 
@@ -28,31 +29,34 @@ const ASSIGNMENT_SELECT = `
   LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
 `;
 
-interface AssignBody {
-  container_id: string;
-  metrc_plant_tag: string;
+const AssignSchema = z.object({
+  container_id: z.string().min(1),
+  metrc_plant_tag: z.string().regex(/^[A-Za-z0-9]{24}$/, 'metrc_plant_tag must be exactly 24 alphanumeric characters'),
   // Required when the container has more than one untagged placement (plants_per_container > 1)
-  assignment_id?: number;
-}
+  assignment_id: z.number().int().positive().optional(),
+});
+type AssignBody = z.infer<typeof AssignSchema>;
 
-interface BulkAssignBody {
-  assignments: Array<{
-    container_id: string;
-    metrc_plant_tag: string;
-    assignment_id?: number;
-  }>;
-}
+const BulkAssignSchema = z.object({
+  assignments: z.array(z.object({
+    container_id: z.string().min(1),
+    metrc_plant_tag: z.string().regex(/^[A-Za-z0-9]{24}$/, 'metrc_plant_tag must be exactly 24 alphanumeric characters'),
+    assignment_id: z.number().int().positive().optional(),
+  })).min(1),
+});
+type BulkAssignBody = z.infer<typeof BulkAssignSchema>;
 
 // Reassign a tag that is already active on one assignment to a different untagged assignment.
 // Used after the caller receives a 409 TAG_ALREADY_ASSIGNED conflict, or to correct a
 // mis-scan. The physical plants do not move — only the METRC tag metadata is corrected.
-interface ReassignBody {
-  metrc_plant_tag: string;
-  from_assignment_id: number;   // assignment currently holding the tag (will be cleared)
-  to_container_id: string;      // destination container
-  to_assignment_id?: number;    // required if destination has multiple untagged placements
-  reason: string;               // required — shown in audit trail
-}
+const ReassignSchema = z.object({
+  metrc_plant_tag: z.string().regex(/^[A-Za-z0-9]{24}$/, 'metrc_plant_tag must be exactly 24 alphanumeric characters'),
+  from_assignment_id: z.number().int().positive(),
+  to_container_id: z.string().min(1),
+  to_assignment_id: z.number().int().positive().optional(),
+  reason: z.string().min(1, 'reason is required for tag reassignment'),
+});
+type ReassignBody = z.infer<typeof ReassignSchema>;
 
 const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
 
@@ -136,13 +140,13 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { container_id, metrc_plant_tag, assignment_id } = request.body;
-
-      if (!container_id) return reply.code(400).send({ error: 'container_id is required' });
-      if (!metrc_plant_tag) return reply.code(400).send({ error: 'metrc_plant_tag is required' });
-      if (!isValidTag(metrc_plant_tag)) {
-        return reply.code(400).send({ error: 'metrc_plant_tag must be exactly 24 alphanumeric characters' });
+      let assignBody: AssignBody;
+      try { assignBody = AssignSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
       }
+      const { container_id, metrc_plant_tag, assignment_id } = assignBody;
 
       const db = getDB();
 
@@ -223,31 +227,16 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
     '/bulk',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { assignments } = request.body;
-
-      if (!Array.isArray(assignments) || assignments.length === 0) {
-        return reply.code(400).send({ error: 'assignments array is required and must not be empty' });
+      let bulkBody: BulkAssignBody;
+      try { bulkBody = BulkAssignSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
       }
-
-      // Validate all items before touching the DB
-      const errors: Array<{ index: number; container_id: string; error: string }> = [];
-
-      for (let i = 0; i < assignments.length; i++) {
-        const item = assignments[i];
-        if (!item.container_id) {
-          errors.push({ index: i, container_id: '', error: 'container_id is required' });
-          continue;
-        }
-        if (!item.metrc_plant_tag) {
-          errors.push({ index: i, container_id: item.container_id, error: 'metrc_plant_tag is required' });
-          continue;
-        }
-        if (!isValidTag(item.metrc_plant_tag)) {
-          errors.push({ index: i, container_id: item.container_id, error: 'metrc_plant_tag must be exactly 24 alphanumeric characters' });
-        }
-      }
+      const { assignments } = bulkBody;
 
       // Check for duplicate tags within the batch itself
+      const errors: Array<{ index: number; container_id: string; error: string }> = [];
       const tagsSeen = new Map<string, number>();
       for (let i = 0; i < assignments.length; i++) {
         const tag = assignments[i].metrc_plant_tag;
@@ -349,13 +338,13 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
     '/reassign',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { metrc_plant_tag, from_assignment_id, to_container_id, to_assignment_id, reason } = request.body;
-
-      if (!metrc_plant_tag) return reply.code(400).send({ error: 'metrc_plant_tag is required' });
-      if (!isValidTag(metrc_plant_tag)) return reply.code(400).send({ error: 'metrc_plant_tag must be exactly 24 alphanumeric characters' });
-      if (!from_assignment_id) return reply.code(400).send({ error: 'from_assignment_id is required' });
-      if (!to_container_id) return reply.code(400).send({ error: 'to_container_id is required' });
-      if (!reason?.trim()) return reply.code(400).send({ error: 'reason is required for tag reassignment' });
+      let reassignBody: ReassignBody;
+      try { reassignBody = ReassignSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { metrc_plant_tag, from_assignment_id, to_container_id, to_assignment_id, reason } = reassignBody;
 
       const db = getDB();
 

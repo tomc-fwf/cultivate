@@ -1,16 +1,24 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 interface ItemIdParams { id: string; itemId: string }
 
-interface PlanCreateBody {
-  batch_id: number;
-  sub_zone_id: string;
-  plants_to_place: number;
-  notes?: string | null;
-}
+const PlanCreateSchema = z.object({
+  batch_id: z.number().int().positive(),
+  sub_zone_id: z.string().min(1),
+  plants_to_place: z.number().int().positive(),
+  notes: z.string().nullable().optional(),
+});
+type PlanCreateBody = z.infer<typeof PlanCreateSchema>;
+
+const ItemAddSchema = z.object({
+  container_id: z.string().min(1),
+  plants_count: z.number().int().positive().optional(),
+  notes: z.string().nullable().optional(),
+});
 
 interface ItemAddBody {
   container_id: string;
@@ -22,14 +30,16 @@ interface ItemAddBulkBody {
   items: Array<{ container_id: string; plants_count?: number; notes?: string | null }>;
 }
 
-interface CommitBody {
+const CommitSchema = z.object({
   // Commit specific items. Omit or pass empty array to commit all draft items.
-  item_ids?: number[];
-}
+  item_ids: z.array(z.number().int().positive()).optional(),
+});
+type CommitBody = z.infer<typeof CommitSchema>;
 
-interface SupersedeBody {
-  notes?: string | null;
-}
+const SupersedeSchema = z.object({
+  notes: z.string().nullable().optional(),
+});
+type SupersedeBody = z.infer<typeof SupersedeSchema>;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -130,17 +140,13 @@ const plantingPlansRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const { batch_id, sub_zone_id, plants_to_place, notes } = request.body;
-
-      if (!batch_id || isNaN(Number(batch_id))) {
-        return reply.code(400).send({ error: 'batch_id is required' });
+      let planBody: PlanCreateBody;
+      try { planBody = PlanCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
       }
-      if (!sub_zone_id) {
-        return reply.code(400).send({ error: 'sub_zone_id is required' });
-      }
-      if (!plants_to_place || plants_to_place <= 0) {
-        return reply.code(400).send({ error: 'plants_to_place must be > 0' });
-      }
+      const { batch_id, sub_zone_id, plants_to_place, notes } = planBody;
 
       const db = getDB();
 
@@ -205,6 +211,13 @@ const plantingPlansRoutes: FastifyPluginAsync = async (app) => {
       const items: ItemAddBulkBody['items'] = Array.isArray(rawItems) ? rawItems : [body as unknown as ItemAddBody];
 
       if (!items.length) return reply.code(400).send({ error: 'items array is required and must not be empty' });
+
+      // Validate each item's structure with Zod
+      try { items.forEach((item) => ItemAddSchema.parse(item)); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
 
       const db = getDB();
       const plan = db.prepare('SELECT * FROM cv_planting_plans WHERE plan_id = ?').get(id) as Record<string, unknown> | undefined;
@@ -360,7 +373,13 @@ const plantingPlansRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: `Cannot commit a plan in "${plan['status']}" status` });
       }
 
-      const { item_ids } = request.body ?? {};
+      let commitBody: CommitBody;
+      try { commitBody = CommitSchema.parse(request.body ?? {}); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { item_ids } = commitBody;
       const userId = request.user.id;
       const now = new Date().toISOString();
 
@@ -527,7 +546,14 @@ const plantingPlansRoutes: FastifyPluginAsync = async (app) => {
 
       const now = new Date().toISOString();
       const userId = request.user.id;
-      const { notes } = request.body ?? {};
+
+      let supersedeBody: SupersedeBody;
+      try { supersedeBody = SupersedeSchema.parse(request.body ?? {}); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { notes } = supersedeBody;
 
       const draftItems = db.prepare(
         "SELECT * FROM cv_planting_plan_items WHERE plan_id = ? AND status = 'draft'"

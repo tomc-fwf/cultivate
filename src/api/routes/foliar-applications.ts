@@ -1,40 +1,43 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { z } from 'zod';
 
 interface IdParams { id: string }
 
-interface FoliarCreateBody {
-  batch_id: number;
-  row_id?: string | null;
-  container_id?: string | null;
-  applied_at: string;
-  foliar_recipe_id?: number | null;
-  input_id?: number | null;
-  input_lot_id?: number | null;
-  rate_value?: number | null;
-  rate_unit?: string | null;
-  volume_applied?: number | null;
-  volume_unit?: string | null;
-  purpose: string;
-  ambient_temp_f?: number | null;
-  ambient_rh?: number | null;
-  notes?: string | null;
-}
+const FoliarCreateSchema = z.object({
+  batch_id: z.number().int().positive(),
+  row_id: z.string().nullable().optional(),
+  container_id: z.string().nullable().optional(),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }),
+  foliar_recipe_id: z.number().int().positive().nullable().optional(),
+  input_id: z.number().int().positive().nullable().optional(),
+  input_lot_id: z.number().int().positive().nullable().optional(),
+  rate_value: z.number().positive().nullable().optional(),
+  rate_unit: z.string().nullable().optional(),
+  volume_applied: z.number().positive().nullable().optional(),
+  volume_unit: z.string().nullable().optional(),
+  purpose: z.string().min(1, 'purpose is required — describe why this foliar is being applied'),
+  ambient_temp_f: z.number().nullable().optional(),
+  ambient_rh: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type FoliarCreateBody = z.infer<typeof FoliarCreateSchema>;
 
-interface FoliarUpdateBody {
-  row_id?: string | null;
-  container_id?: string | null;
-  applied_at?: string;
-  rate_value?: number | null;
-  rate_unit?: string | null;
-  volume_applied?: number | null;
-  volume_unit?: string | null;
-  purpose?: string;
-  ambient_temp_f?: number | null;
-  ambient_rh?: number | null;
-  notes?: string | null;
-}
+const FoliarUpdateSchema = z.object({
+  row_id: z.string().nullable().optional(),
+  container_id: z.string().nullable().optional(),
+  applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }).optional(),
+  rate_value: z.number().positive().nullable().optional(),
+  rate_unit: z.string().nullable().optional(),
+  volume_applied: z.number().positive().nullable().optional(),
+  volume_unit: z.string().nullable().optional(),
+  purpose: z.string().min(1, 'purpose cannot be empty').optional(),
+  ambient_temp_f: z.number().nullable().optional(),
+  ambient_rh: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type FoliarUpdateBody = z.infer<typeof FoliarUpdateSchema>;
 
 function isEditable(appliedAt: string): boolean {
   return Date.now() - new Date(appliedAt).getTime() < 24 * 60 * 60 * 1000;
@@ -156,7 +159,12 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const body = request.body as FoliarCreateBody;
+      let body: FoliarCreateBody;
+      try { body = FoliarCreateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const {
         batch_id,
         row_id = null,
@@ -175,15 +183,7 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         notes = null,
       } = body;
 
-      // --- Core validation ---
-      if (!batch_id || isNaN(Number(batch_id))) {
-        return reply.code(400).send({ error: 'batch_id is required' });
-      }
-
-      if (!purpose || String(purpose).trim() === '') {
-        return reply.code(400).send({ error: 'purpose is required — describe why this foliar is being applied' });
-      }
-
+      // --- Cross-field business logic checks ---
       if (!foliar_recipe_id && !input_id) {
         return reply.code(400).send({ error: 'Either foliar_recipe_id or input_id is required' });
       }
@@ -202,10 +202,6 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
 
       if (volume_applied != null && !volume_unit) {
         return reply.code(400).send({ error: 'volume_unit is required when volume_applied is provided' });
-      }
-
-      if (!applied_at || isNaN(Date.parse(applied_at))) {
-        return reply.code(400).send({ error: 'applied_at is required and must be a valid ISO datetime' });
       }
 
       const db = getDB();
@@ -350,14 +346,16 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
       }
 
-      const body = request.body as FoliarUpdateBody;
+      let body: FoliarUpdateBody;
+      try { body = FoliarUpdateSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
       const updates: string[] = [];
       const values: unknown[] = [];
 
       if ('purpose' in body) {
-        if (!body.purpose || String(body.purpose).trim() === '') {
-          return reply.code(400).send({ error: 'purpose cannot be empty' });
-        }
         updates.push('purpose = ?');
         values.push(String(body.purpose).trim());
       }
@@ -373,9 +371,6 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
       if ('notes' in body) { updates.push('notes = ?'); values.push(body.notes ?? null); }
 
       if ('applied_at' in body && body.applied_at) {
-        if (isNaN(Date.parse(body.applied_at))) {
-          return reply.code(400).send({ error: 'applied_at must be a valid ISO datetime' });
-        }
         const origDay = String(existing['applied_at']).slice(0, 10);
         const newDay = new Date(body.applied_at).toISOString().slice(0, 10);
         if (origDay !== newDay) {
