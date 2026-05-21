@@ -27,6 +27,13 @@ export const api = {
   // Catalog (farmstock items proxy — ingredient picker source)
   getCatalogItems: () => req('GET', '/catalog/items'),
 
+  // Inventory (farmstock crop inputs including pesticides — cultivate Crop Inputs view)
+  getInventory: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/catalog/inventory${q ? '?' + q : ''}`);
+  },
+  getInventoryItem: (id) => req('GET', `/catalog/inventory/${id}`),
+
   // Fertigation recipes
   getFertigationRecipes: () => req('GET', '/recipes/fertigation'),
   getFertigationRecipe: (id) => req('GET', `/recipes/fertigation/${id}`),

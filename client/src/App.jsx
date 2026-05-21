@@ -11,6 +11,8 @@ import FertigationRecipeEdit from './pages/recipes/FertigationRecipeEdit';
 import FoliarRecipes from './pages/recipes/FoliarRecipes';
 import FoliarRecipeDetail from './pages/recipes/FoliarRecipeDetail';
 import FoliarRecipeEdit from './pages/recipes/FoliarRecipeEdit';
+import CropInputs from './pages/inputs/CropInputs';
+import CropInputDetail from './pages/inputs/CropInputDetail';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -66,6 +68,8 @@ export default function App() {
               <Route path="/recipes/foliar/new" element={<Protected minRole="supervisor"><FoliarRecipeEdit /></Protected>} />
               <Route path="/recipes/foliar/:id" element={<Protected><FoliarRecipeDetail /></Protected>} />
               <Route path="/recipes/foliar/:id/version" element={<Protected minRole="supervisor"><FoliarRecipeEdit /></Protected>} />
+              <Route path="/inputs" element={<Protected><CropInputs /></Protected>} />
+              <Route path="/inputs/:id" element={<Protected><CropInputDetail /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
