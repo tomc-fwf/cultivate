@@ -38,6 +38,10 @@ import WasteTrimForm from './pages/harvest/WasteTrimForm';
 import WeatherEventClose from './pages/harvest/WeatherEventClose';
 import PlantLossForm from './pages/containers/PlantLossForm';
 import PlantReplacementForm from './pages/containers/PlantReplacementForm';
+import TeardownForm from './pages/containers/TeardownForm';
+import SoilSampleForm from './pages/containers/SoilSampleForm';
+import StartupForm from './pages/containers/StartupForm';
+import StartupReadyForm from './pages/containers/StartupReadyForm';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -102,6 +106,10 @@ export default function App() {
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
               <Route path="/containers/:containerId/loss" element={<Protected><PlantLossForm /></Protected>} />
               <Route path="/containers/:containerId/replacement" element={<Protected><PlantReplacementForm /></Protected>} />
+              <Route path="/containers/:containerId/teardown" element={<Protected><TeardownForm /></Protected>} />
+              <Route path="/containers/:containerId/soil-sample/new" element={<Protected><SoilSampleForm /></Protected>} />
+              <Route path="/containers/:containerId/startup" element={<Protected><StartupForm /></Protected>} />
+              <Route path="/containers/:containerId/startup/:startupId/ready" element={<Protected minRole="supervisor"><StartupReadyForm /></Protected>} />
               <Route path="/containers/:containerId" element={<Protected><ContainerDetail /></Protected>} />
               <Route path="/applications" element={<Protected><ApplicationsHub /></Protected>} />
               <Route path="/applications/fertigation" element={<Protected><FertigationLog /></Protected>} />

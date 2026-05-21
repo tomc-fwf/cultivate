@@ -21,6 +21,7 @@ import plantingPlansRoutes from './routes/planting-plans.js';
 import tagAssignmentsRoutes from './routes/tag-assignments.js';
 import harvestRoutes from './routes/harvest.js';
 import plantLossRoutes from './routes/plant-loss.js';
+import containerLifecycleRoutes from './routes/container-lifecycle.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -75,6 +76,7 @@ export async function buildApp() {
   await app.register(tagAssignmentsRoutes, { prefix: '/api/tag-assignments' });
   await app.register(harvestRoutes, { prefix: '/api/harvest' });
   await app.register(plantLossRoutes, { prefix: '/api/plant-loss' });
+  await app.register(containerLifecycleRoutes, { prefix: '/api/containers' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

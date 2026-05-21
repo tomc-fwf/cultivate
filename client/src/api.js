@@ -69,6 +69,15 @@ export const api = {
   bulkResetContainersToReady: () => req('POST', '/containers/admin/bulk-reset-ready'),
   bulkSetContainerState: (data) => req('POST', '/containers/admin/bulk-set-state', data),
 
+  // Container lifecycle
+  startTeardown: (containerId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/teardown`, data),
+  updateTeardown: (containerId, teardownId, data) => req('PATCH', `/containers/${encodeURIComponent(containerId)}/teardown/${teardownId}`, data),
+  createSoilSample: (containerId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/soil-samples`, data),
+  getSoilSamples: (containerId) => req('GET', `/containers/${encodeURIComponent(containerId)}/soil-samples`),
+  addSoilResults: (containerId, sampleId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/soil-samples/${sampleId}/results`, data),
+  startStartup: (containerId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/startup`, data),
+  signOffReady: (containerId, startupId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/startup/${startupId}/ready`, data),
+
   // Fertigation applications
   getFertigationApplications: (params = {}) => {
     const q = new URLSearchParams(params).toString();

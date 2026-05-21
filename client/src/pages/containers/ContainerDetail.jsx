@@ -78,6 +78,8 @@ export default function ContainerDetail() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [soilSamples, setSoilSamples] = useState([]);
+  const [loadingSamples, setLoadingSamples] = useState(false);
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState('');
@@ -103,6 +105,14 @@ export default function ContainerDetail() {
   }
 
   useEffect(() => { load(); }, [containerId]);
+
+  // Load soil samples separately
+  useEffect(() => {
+    setLoadingSamples(true);
+    api.getSoilSamples(containerId)
+      .then(s => { setSoilSamples(s); setLoadingSamples(false); })
+      .catch(() => setLoadingSamples(false));
+  }, [containerId]);
 
   // Load harvest status when batch is in harvesting status and container is active/empty
   useEffect(() => {
@@ -273,6 +283,53 @@ export default function ContainerDetail() {
               <button onClick={() => setShowOosConfirm(false)} className="text-xs text-gray-500 hover:text-gray-700">Cancel</button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Lifecycle Actions */}
+      {(state === 'active' || state === 'empty') && current_batch && (
+        <div className="mb-4">
+          <button
+            onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/teardown?batch_id=${current_batch.batch_id}`)}
+            className="flex items-center gap-2 w-full px-4 py-3 bg-orange-50 border-2 border-orange-200 text-orange-900 font-semibold text-sm rounded-2xl hover:border-orange-400 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            <span>🧹</span>Begin Teardown
+          </button>
+        </div>
+      )}
+      {state === 'teardown' && (
+        <div className="mb-4 flex flex-col gap-2">
+          <button
+            onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/soil-sample/new?teardown_id=${teardown_events?.[0]?.teardown_id ?? 'new'}`)}
+            className="flex items-center gap-2 w-full px-4 py-3 bg-blue-50 border-2 border-blue-200 text-blue-900 font-semibold text-sm rounded-2xl hover:border-blue-400 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            <span>🧪</span>Log Soil Sample
+          </button>
+          <button
+            onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/startup`)}
+            className="flex items-center gap-2 w-full px-4 py-3 bg-blue-50 border-2 border-blue-300 text-blue-900 font-semibold text-sm rounded-2xl hover:border-blue-500 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            <span>🌱</span>Begin Startup
+          </button>
+        </div>
+      )}
+      {state === 'startup' && isSupervisor && startup_events?.[0] && (
+        <div className="mb-4">
+          <button
+            onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/startup/${startup_events[0].startup_id}/ready`)}
+            className="flex items-center gap-2 w-full px-4 py-3 bg-green-50 border-2 border-green-400 text-green-900 font-semibold text-sm rounded-2xl hover:border-green-600 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            <span>✅</span>Mark as Ready for Planting
+          </button>
+        </div>
+      )}
+      {state === 'startup' && !isSupervisor && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-sm text-amber-700">
+          Supervisor sign-off required to mark this container as ready.
         </div>
       )}
 
@@ -565,6 +622,50 @@ export default function ContainerDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Soil Sample History */}
+      {(soilSamples.length > 0 || loadingSamples) && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide mb-3">Soil Samples</h2>
+          {loadingSamples ? (
+            <p className="text-sm text-gray-400 italic">Loading…</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {soilSamples.map(s => (
+                <div key={s.sample_id} className="border border-gray-100 rounded-xl p-3 text-sm">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="font-medium text-gray-800">{s.sample_label}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      s.results_received ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {s.results_received ? 'Results in' : 'Awaiting results'}
+                    </span>
+                    <span className="text-xs text-gray-400 capitalize">{(s.sample_type ?? '').replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    Sampled: {fmtDate(s.sampled_at)}
+                    {s.lab_name && ` · ${s.lab_name}`}
+                  </div>
+                  {s.results && s.results.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {s.results.map(r => (
+                        <span key={r.result_id} className={`text-xs px-2 py-0.5 rounded-full font-mono ${
+                          r.interpretation === 'optimal' ? 'bg-green-100 text-green-700' :
+                          r.interpretation === 'deficient' || r.interpretation === 'excessive' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-600'
+                        }`}>
+                          {r.parameter}: {r.value}{r.unit ? ` ${r.unit}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {s.notes && <div className="text-xs text-gray-500 mt-1 italic">{s.notes}</div>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
