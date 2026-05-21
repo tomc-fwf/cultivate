@@ -118,7 +118,7 @@ export default function ApplicationsHub() {
 
       {/* ── Recipes & Catalog ──────────────────────────────────────────── */}
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Recipes & Catalog</h2>
-      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
         <button
           onClick={() => navigate('/recipes/fertigation')}
           className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
@@ -145,6 +145,47 @@ export default function ApplicationsHub() {
           <span className="text-lg flex-shrink-0">📦</span>
           <span className="text-sm font-semibold text-gray-800">Crop Inputs</span>
           <span className="ml-auto text-gray-400">→</span>
+        </button>
+      </div>
+
+      {/* ── Exports & Reports ──────────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Exports & Reports</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+        <button
+          onClick={() => navigate('/exports/metrc')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">📤</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Record Additives</div>
+            <div className="text-xs text-gray-500">All four application types · JSON / CSV</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/mda-pesticide')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🏛️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">MDA Pesticide Report</div>
+            <div className="text-xs text-gray-500">MN Statute 18B.37 format · defensive recordkeeping</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/cultivation-record')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">📋</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Cultivation Record</div>
+            <div className="text-xs text-gray-500">Full per-batch audit record · MN Statute 342.25</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
       </div>
     </div>

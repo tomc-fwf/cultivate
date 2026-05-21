@@ -142,6 +142,13 @@ export const api = {
   getPlantLoss: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/plant-loss${q ? '?' + q : ''}`); },
   recordReplacement: (data) => req('POST', '/plant-loss/replacements', data),
 
+  // Exports
+  getMetrcAdditivesExport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-additives${q ? '?' + q : ''}`); },
+  getMdaPesticideReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/mda-pesticide${q ? '?' + q : ''}`); },
+  getCultivationRecord: (batchId) => req('GET', `/exports/cultivation-record/${batchId}`),
+  downloadMetrcCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-additives?${q}`); },
+  downloadMdaCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/mda-pesticide?${q}`); },
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

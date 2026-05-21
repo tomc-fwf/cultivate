@@ -42,6 +42,9 @@ import TeardownForm from './pages/containers/TeardownForm';
 import SoilSampleForm from './pages/containers/SoilSampleForm';
 import StartupForm from './pages/containers/StartupForm';
 import StartupReadyForm from './pages/containers/StartupReadyForm';
+import MetrcExport from './pages/exports/MetrcExport';
+import MdaReport from './pages/exports/MdaReport';
+import CultivationRecord from './pages/exports/CultivationRecord';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -129,6 +132,9 @@ export default function App() {
               <Route path="/harvest/:batchId" element={<Protected><HarvestDashboard /></Protected>} />
               <Route path="/harvest/:batchId/partial" element={<Protected><PartialHarvestForm /></Protected>} />
               <Route path="/harvest/:batchId/final" element={<Protected><FinalHarvestForm /></Protected>} />
+              <Route path="/exports/metrc" element={<Protected><MetrcExport /></Protected>} />
+              <Route path="/exports/mda-pesticide" element={<Protected><MdaReport /></Protected>} />
+              <Route path="/exports/cultivation-record" element={<Protected><CultivationRecord /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
