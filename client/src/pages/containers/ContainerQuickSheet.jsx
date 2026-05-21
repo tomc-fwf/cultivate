@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sprout, Tag, FlaskConical, Microscope, Eye, ChevronRight, Loader2, Leaf } from 'lucide-react';
+import { Sprout, Tag, FlaskConical, Microscope, Eye, ChevronRight, Loader2, Leaf, StickyNote } from 'lucide-react';
 import { api } from '../../api';
 import { useAuth } from '../../App';
 
@@ -243,6 +243,21 @@ export default function ContainerQuickSheet({ container, subZonePotSize, onClose
               <button
                 onClick={() => {
                   onClose();
+                  navigate(`/observations/new?container_id=${encodeURIComponent(container.container_id)}${currentBatch?.batch_id ? '&batch_id=' + currentBatch.batch_id : ''}`);
+                }}
+                className="flex items-center justify-between w-full px-4 py-3.5 rounded-xl bg-white border border-gray-200 text-gray-800 font-semibold text-sm hover:border-green-400 active:scale-[0.98] transition-transform"
+                style={{ minHeight: 56 }}
+              >
+                <div className="flex items-center gap-3">
+                  <Eye size={16} className="text-green-700" />
+                  <span>Log Observation</span>
+                </div>
+                <ChevronRight size={16} className="text-gray-400" />
+              </button>
+
+              <button
+                onClick={() => {
+                  onClose();
                   navigate(`/applications/amendments/new?container_id=${encodeURIComponent(container.container_id)}`);
                 }}
                 className="flex items-center justify-between w-full px-4 py-3.5 rounded-xl bg-white border border-gray-200 text-gray-800 font-semibold text-sm hover:border-green-400 active:scale-[0.98] transition-transform"
@@ -297,7 +312,6 @@ export default function ContainerQuickSheet({ container, subZonePotSize, onClose
             <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Coming Soon</div>
             <div className="flex flex-col gap-1.5">
               {[
-                { icon: Eye, label: 'Record Observation', note: 'Phase 1 #10' },
                 { icon: FlaskConical, label: 'Apply Foliar Spot Treatment', note: 'Phase 1 #6 — batch only' },
                 { icon: Microscope, label: 'Log Pesticide Application', note: 'Phase 1 #8' },
                 { icon: Tag, label: 'Assign METRC Tag', note: 'Phase 1 #16' },

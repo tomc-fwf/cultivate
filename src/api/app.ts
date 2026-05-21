@@ -16,6 +16,7 @@ import fertigationApplicationsRoutes from './routes/fertigation-applications.js'
 import foliarApplicationsRoutes from './routes/foliar-applications.js';
 import containerAmendmentsRoutes from './routes/container-amendments.js';
 import pesticideApplicationsRoutes from './routes/pesticide-applications.js';
+import observationsRoutes from './routes/observations.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -65,6 +66,7 @@ export async function buildApp() {
   await app.register(foliarApplicationsRoutes, { prefix: '/api/applications/foliar' });
   await app.register(containerAmendmentsRoutes, { prefix: '/api/applications/amendments' });
   await app.register(pesticideApplicationsRoutes, { prefix: '/api/applications/pesticide' });
+  await app.register(observationsRoutes, { prefix: '/api/observations' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 
