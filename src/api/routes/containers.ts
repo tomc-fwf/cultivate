@@ -340,9 +340,90 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
-   * POST /admin/bulk-reset-ready — admin only.
-   * Hard resets ALL non-ready containers to "ready" and clears current_batch_id.
-   * Use for initial setup or data correction when containers are in a wrong state.
+   * POST /admin/bulk-set-state — admin only.
+   * Sets all containers in a given scope (zone, sub_zone, row, or all) to a target state.
+   * Body: { to_state, scope: "all"|"zone"|"sub_zone"|"row", scope_id?: string }
+   */
+  app.post<{ Body: { to_state: string; scope: string; scope_id?: string; notes?: string } }>(
+    '/admin/bulk-set-state',
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      const { to_state, scope, scope_id, notes } = request.body as {
+        to_state: string; scope: string; scope_id?: string; notes?: string;
+      };
+
+      if (!to_state || !VALID_STATES.includes(to_state as ContainerState)) {
+        return reply.code(400).send({ error: `to_state must be one of: ${VALID_STATES.join(', ')}` });
+      }
+      if (!['all', 'zone', 'sub_zone', 'row'].includes(scope)) {
+        return reply.code(400).send({ error: 'scope must be one of: all, zone, sub_zone, row' });
+      }
+      if (scope !== 'all' && !scope_id) {
+        return reply.code(400).send({ error: `scope_id is required when scope is "${scope}"` });
+      }
+
+      const db = getDB();
+      const now = new Date().toISOString();
+      const userId = request.user.id;
+
+      // Build the container_id list for this scope
+      let scopeQuery = `
+        SELECT c.container_id, cs.current_state
+        FROM cv_containers c
+        JOIN cv_rows r ON r.row_id = c.row_id
+        JOIN cv_sub_zones sz ON sz.sub_zone_id = r.sub_zone_id
+        JOIN cv_container_state cs ON cs.container_id = c.container_id
+      `;
+      const params: unknown[] = [];
+      if (scope === 'zone') {
+        scopeQuery += ' WHERE sz.zone_id = ?';
+        params.push(Number(scope_id));
+      } else if (scope === 'sub_zone') {
+        scopeQuery += ' WHERE sz.sub_zone_id = ?';
+        params.push(scope_id);
+      } else if (scope === 'row') {
+        scopeQuery += ' WHERE r.row_id = ?';
+        params.push(scope_id);
+      }
+
+      const toUpdate = db.prepare(scopeQuery).all(...params) as Array<{ container_id: string; current_state: string }>;
+
+      if (toUpdate.length === 0) {
+        return reply.send({ updated_count: 0, message: 'No containers found in specified scope.' });
+      }
+
+      const doUpdate = db.transaction(() => {
+        const upd = db.prepare(
+          `UPDATE cv_container_state
+           SET current_state=?, state_since=?, updated_at=?
+           WHERE container_id=?`,
+        );
+        const log = db.prepare(
+          `INSERT INTO cv_container_state_transitions
+             (container_id, from_state, to_state, transitioned_at, transitioned_by, trigger_event, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, 'manual', ?, ?)`,
+        );
+        const logNote = notes ?? `Bulk set to ${to_state} (scope: ${scope}${scope_id ? ' ' + scope_id : ''})`;
+        for (const row of toUpdate) {
+          if (row.current_state === to_state) continue; // skip no-ops
+          upd.run(to_state, now, now, row.container_id);
+          log.run(row.container_id, row.current_state, to_state, now, userId, logNote, now);
+        }
+      });
+      doUpdate();
+
+      const changed = toUpdate.filter(r => r.current_state !== to_state).length;
+      return reply.send({
+        updated_count: changed,
+        scanned_count: toUpdate.length,
+        message: `Set ${changed} container${changed !== 1 ? 's' : ''} to "${to_state}"${changed < toUpdate.length ? ` (${toUpdate.length - changed} already in that state)` : ''}.`,
+      });
+    },
+  );
+
+  /**
+   * POST /admin/bulk-reset-ready — kept for backward compatibility; delegates to bulk-set-state.
+   * @deprecated Use /admin/bulk-set-state instead.
    */
   app.post(
     '/admin/bulk-reset-ready',
@@ -353,8 +434,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
       const userId = request.user.id;
 
       const toReset = db.prepare(
-        `SELECT container_id, current_state FROM cv_container_state
-         WHERE current_state != 'ready'`,
+        `SELECT container_id, current_state FROM cv_container_state WHERE current_state != 'ready'`,
       ).all() as Array<{ container_id: string; current_state: string }>;
 
       if (toReset.length === 0) {
@@ -363,9 +443,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
       const doReset = db.transaction(() => {
         const upd = db.prepare(
-          `UPDATE cv_container_state
-           SET current_state='ready', state_since=?, current_batch_id=NULL, updated_at=?
-           WHERE container_id=?`,
+          `UPDATE cv_container_state SET current_state='ready', state_since=?, updated_at=? WHERE container_id=?`,
         );
         const log = db.prepare(
           `INSERT INTO cv_container_state_transitions

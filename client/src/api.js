@@ -65,6 +65,7 @@ export const api = {
   updateContainerState: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/state`, data),
   updateContainerNotes: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/notes`, data),
   bulkResetContainersToReady: () => req('POST', '/containers/admin/bulk-reset-ready'),
+  bulkSetContainerState: (data) => req('POST', '/containers/admin/bulk-set-state', data),
 
   // Batches
   getBatches: (params = {}) => {

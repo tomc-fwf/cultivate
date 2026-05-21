@@ -54,7 +54,9 @@ function sumCounts(summaries) {
   return totals;
 }
 
-// States that can be set manually (active/empty require a batch — blocked by API)
+// All valid states (for bulk admin operations)
+const VALID_STATES = ['ready', 'active', 'empty', 'teardown', 'startup', 'out_of_service'];
+// States available in the individual container action sheet (active/empty require batch context)
 const MANUAL_STATES = ['ready', 'startup', 'teardown', 'out_of_service'];
 
 export default function ContainerDashboard() {
@@ -72,14 +74,16 @@ export default function ContainerDashboard() {
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [error, setError] = useState('');
 
-  // Container action sheet
-  const [activeContainer, setActiveContainer] = useState(null); // { container_id, current_state, position }
+  // Individual container action sheet
+  const [activeContainer, setActiveContainer] = useState(null);
   const [settingState, setSettingState] = useState(false);
   const [stateError, setStateError] = useState('');
 
-  // Bulk reset
-  const [resetting, setResetting] = useState(false);
-  const [resetMsg, setResetMsg] = useState('');
+  // Bulk scope state picker: { scope: 'zone'|'sub_zone'|'row'|'all', scope_id, label }
+  const [bulkScope, setBulkScope] = useState(null);
+  const [bulkWorking, setBulkWorking] = useState(false);
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [bulkError, setBulkError] = useState('');
 
   // Load summary on mount
   useEffect(() => {
@@ -138,20 +142,27 @@ export default function ContainerDashboard() {
     }
   }
 
-  async function handleBulkReset() {
-    if (!window.confirm('Hard reset ALL non-ready containers to "Ready"? This clears any batch linkage and logs a transition for each container. Use for initial setup or data correction only.')) return;
-    setResetting(true);
-    setResetMsg('');
+  async function handleBulkSetState(toState) {
+    if (!bulkScope) return;
+    setBulkWorking(true);
+    setBulkError('');
+    setBulkMsg('');
     try {
-      const result = await api.bulkResetContainersToReady();
-      setResetMsg(result.message);
+      const result = await api.bulkSetContainerState({
+        to_state: toState,
+        scope: bulkScope.scope,
+        scope_id: bulkScope.scope_id,
+      });
+      setBulkMsg(result.message);
       const sumData = await api.getContainerSummary();
       setSummary(sumData);
       if (selectedSubZone) reloadGrid(selectedSubZone);
+      // Auto-close after success
+      setTimeout(() => { setBulkScope(null); setBulkMsg(''); }, 1500);
     } catch (e) {
-      setResetMsg(`Error: ${e.message}`);
+      setBulkError(e.message);
     } finally {
-      setResetting(false);
+      setBulkWorking(false);
     }
   }
 
@@ -239,13 +250,23 @@ export default function ContainerDashboard() {
         </button>
 
         {/* Sub-zone header */}
-        <div className="mb-5">
-          <h1 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: 'Fraunces, serif' }}>
-            {sub_zone.sub_zone_id}
-          </h1>
-          <div className="text-sm text-gray-500">
-            Zone {selectedSubZone.charAt(1)} · {sub_zone.pot_size_gal}-gal · {sub_zone.container_count} containers
+        <div className="mb-5 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: 'Fraunces, serif' }}>
+              {sub_zone.sub_zone_id}
+            </h1>
+            <div className="text-sm text-gray-500">
+              Zone {selectedSubZone.charAt(1)} · {sub_zone.pot_size_gal}-gal · {sub_zone.container_count} containers
+            </div>
           </div>
+          {isAdmin && (
+            <button
+              onClick={() => { setBulkScope({ scope: 'sub_zone', scope_id: selectedSubZone, label: selectedSubZone }); setBulkMsg(''); setBulkError(''); }}
+              className="flex-shrink-0 text-sm px-3 py-2 rounded-xl border border-gray-200 bg-white text-gray-700 hover:border-green-400 hover:text-green-800 font-medium"
+            >
+              Set all in {selectedSubZone}…
+            </button>
+          )}
         </div>
 
         {/* State filter chips */}
@@ -287,10 +308,23 @@ export default function ContainerDashboard() {
             const allRowContainers = byRow[rowNum] ?? [];
             return (
               <div key={rowNum}>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Row {rowNum} <span className="text-gray-400 font-normal normal-case">
-                    ({allRowContainers.length} containers)
-                  </span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Row {rowNum} <span className="text-gray-400 font-normal normal-case">
+                      ({allRowContainers.length} containers)
+                    </span>
+                  </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => {
+                        const rowId = allRowContainers[0]?.row_id;
+                        if (rowId) { setBulkScope({ scope: 'row', scope_id: rowId, label: `${selectedSubZone} Row ${rowNum}` }); setBulkMsg(''); setBulkError(''); }
+                      }}
+                      className="text-xs text-gray-400 hover:text-gray-700 border border-gray-200 rounded px-2 py-0.5"
+                    >
+                      Set row…
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {allRowContainers.map(c => {
@@ -346,7 +380,38 @@ export default function ContainerDashboard() {
         )}
       </div>
 
-      {/* Container action sheet */}
+      {/* Bulk state sheet */}
+      {bulkScope && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setBulkScope(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-semibold text-gray-900">Set State — {bulkScope.label}</div>
+              <button onClick={() => setBulkScope(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="text-xs text-gray-500 mb-4">
+              Sets every container in this scope to the chosen state and logs each transition.
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {VALID_STATES.map(state => (
+                <button
+                  key={state}
+                  onClick={() => handleBulkSetState(state)}
+                  disabled={bulkWorking}
+                  className={`py-3 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-50 ${STATE_CHIP[state]} border-transparent hover:opacity-80`}
+                >
+                  {STATE_LABELS[state]}
+                </button>
+              ))}
+            </div>
+            {bulkWorking && <div className="mt-3 text-sm text-gray-500 text-center">Updating…</div>}
+            {bulkMsg && <div className="mt-3 text-sm text-green-700 bg-green-50 rounded-xl px-3 py-2">{bulkMsg}</div>}
+            {bulkError && <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{bulkError}</div>}
+          </div>
+        </div>
+      )}
+
+      {/* Individual container action sheet */}
       {activeContainer && (
         <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActiveContainer(null)}>
           <div className="absolute inset-0 bg-black/40" />
@@ -466,6 +531,27 @@ export default function ContainerDashboard() {
         )}
       </div>
 
+      {/* Zone-level bulk actions (admin) */}
+      {isAdmin && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[1, 2, 3, 4].map(zoneId => (
+            <button
+              key={zoneId}
+              onClick={() => { setBulkScope({ scope: 'zone', scope_id: String(zoneId), label: `Zone ${zoneId}` }); setBulkMsg(''); setBulkError(''); }}
+              className="text-xs px-3 py-1.5 rounded-xl border border-gray-200 bg-white text-gray-700 hover:border-green-400 hover:text-green-800 font-medium"
+            >
+              Set Zone {zoneId} state…
+            </button>
+          ))}
+          <button
+            onClick={() => { setBulkScope({ scope: 'all', scope_id: undefined, label: 'All Containers' }); setBulkMsg(''); setBulkError(''); }}
+            className="text-xs px-3 py-1.5 rounded-xl border border-red-200 bg-red-50 text-red-700 hover:bg-red-100 font-medium"
+          >
+            Set ALL containers…
+          </button>
+        </div>
+      )}
+
       {/* Sub-zone cards grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {summary.map(sz => {
@@ -518,16 +604,57 @@ export default function ContainerDashboard() {
                 ))}
               </div>
 
-              <button
-                onClick={(e) => { e.stopPropagation(); selectSubZone(sz.sub_zone_id); }}
-                className="text-xs text-green-700 font-semibold hover:text-green-900 text-left"
-              >
-                View Grid →
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => { e.stopPropagation(); selectSubZone(sz.sub_zone_id); }}
+                  className="text-xs text-green-700 font-semibold hover:text-green-900"
+                >
+                  View Grid →
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setBulkScope({ scope: 'sub_zone', scope_id: sz.sub_zone_id, label: sz.sub_zone_id }); setBulkMsg(''); setBulkError(''); }}
+                    className="text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded px-1.5 py-0.5"
+                  >
+                    Set state…
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
+
+      {/* Bulk state sheet (overview level) */}
+      {bulkScope && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setBulkScope(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-1">
+              <div className="font-semibold text-gray-900">Set State — {bulkScope.label}</div>
+              <button onClick={() => setBulkScope(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="text-xs text-gray-500 mb-4">
+              Sets every container in this scope to the chosen state and logs each transition.
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {VALID_STATES.map(state => (
+                <button
+                  key={state}
+                  onClick={() => handleBulkSetState(state)}
+                  disabled={bulkWorking}
+                  className={`py-3 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-50 ${STATE_CHIP[state]} border-transparent hover:opacity-80`}
+                >
+                  {STATE_LABELS[state]}
+                </button>
+              ))}
+            </div>
+            {bulkWorking && <div className="mt-3 text-sm text-gray-500 text-center">Updating…</div>}
+            {bulkMsg && <div className="mt-3 text-sm text-green-700 bg-green-50 rounded-xl px-3 py-2">{bulkMsg}</div>}
+            {bulkError && <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{bulkError}</div>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
