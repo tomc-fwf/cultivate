@@ -11,6 +11,7 @@ import foliarRecipesRoutes from './routes/foliar-recipes.js';
 import catalogRoutes from './routes/catalog.js';
 import strainsRoutes from './routes/strains.js';
 import batchesRoutes from './routes/batches.js';
+import containersRoutes from './routes/containers.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -43,6 +44,7 @@ export async function buildApp() {
   await app.register(catalogRoutes, { prefix: '/api/catalog' });
   await app.register(strainsRoutes, { prefix: '/api/strains' });
   await app.register(batchesRoutes, { prefix: '/api/batches' });
+  await app.register(containersRoutes, { prefix: '/api/containers' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

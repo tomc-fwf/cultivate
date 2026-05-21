@@ -125,9 +125,17 @@ export default function BatchDetail() {
               {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
             </span>
             {batch.sub_zone_id && (
-              <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
-                {batch.sub_zone_id}
-              </span>
+              <>
+                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                  {batch.sub_zone_id}
+                </span>
+                <button
+                  onClick={() => navigate(`/containers?sub_zone_id=${batch.sub_zone_id}`)}
+                  className="text-xs text-green-700 font-medium hover:text-green-900 underline"
+                >
+                  View Containers
+                </button>
+              </>
             )}
             <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
               {STATUS_LABELS[batch.status] ?? batch.status}

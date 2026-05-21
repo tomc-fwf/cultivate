@@ -55,6 +55,16 @@ export const api = {
   updateStrain: (id, data) => req('PUT', `/strains/${id}`, data),
   deleteStrain: (id) => req('DELETE', `/strains/${id}`),
 
+  // Containers
+  getContainerSummary: () => req('GET', '/containers/summary'),
+  getContainers: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/containers${q ? '?' + q : ''}`);
+  },
+  getContainer: (id) => req('GET', `/containers/${encodeURIComponent(id)}`),
+  updateContainerState: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/state`, data),
+  updateContainerNotes: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/notes`, data),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

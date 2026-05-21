@@ -17,6 +17,8 @@ import Batches from './pages/batches/Batches';
 import BatchDetail from './pages/batches/BatchDetail';
 import BatchNew from './pages/batches/BatchNew';
 import Strains from './pages/strains/Strains';
+import ContainerDashboard from './pages/containers/ContainerDashboard';
+import ContainerDetail from './pages/containers/ContainerDetail';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -78,6 +80,8 @@ export default function App() {
               <Route path="/batches/new" element={<Protected minRole="supervisor"><BatchNew /></Protected>} />
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
+              <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
+              <Route path="/containers/:containerId" element={<Protected><ContainerDetail /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
