@@ -1942,4 +1942,51 @@ The two apps share a SQLite database. A schema change in either app can affect t
 
 ---
 
+### Background Task Execution — Felix
+
+Felix (`C:\projects\felix`) is a background Claude Code dispatcher. Drop a JSON file in `C:\Users\Tom\felix-inbox\pending\` and Felix queues and executes it against the target directory headlessly.
+
+**Use Felix for:**
+- Long-running or parallelizable work that doesn't need interactive back-and-forth
+- Batches of related tasks with sequential dependencies (migration → route → frontend)
+- Work that can run overnight or during scheduled windows (3am, 11am, 5pm, 10:30pm)
+
+**Felix task file template for cultivate:**
+```json
+{
+  "import_config": {
+    "target_directory": "C:\\projects\\cultivate",
+    "source": "cultivate",
+    "task_type": "feature",
+    "priority": 2
+  },
+  "tasks": [
+    {
+      "name": "Short name ≤50 chars",
+      "instructions": "Read CLAUDE.md before starting. Follow the vertical slice rule. [Detailed instructions — must be self-contained; Felix is headless and Claude cannot ask clarifying questions.]",
+      "model": "sonnet",
+      "acceptance_criteria": [
+        "npx tsc --noEmit passes",
+        "Changes committed and pushed"
+      ]
+    }
+  ]
+}
+```
+
+**Rules for Felix instructions:**
+1. Always begin with "Read CLAUDE.md before starting."
+2. Include all context — file paths, field names, which schema table to reference, which patterns to follow. Claude cannot ask clarifying questions in headless mode.
+3. Use `dependencies` for sequencing: task 2 won't start until task 1 is `completed`.
+4. `acceptance_criteria` are surfaced to Claude as a self-check before committing.
+5. End every task with an explicit commit+push instruction.
+
+**Checking status:**
+```powershell
+Get-ScheduledTask -TaskName Felix | Select State
+Get-Content C:\Users\Tom\.felix\logs\combined-$(Get-Date -Format yyyy-MM-dd).log -Tail 30
+```
+
+---
+
 *Last updated: May 2026. Maintained in version control. Material changes require operator review.*
