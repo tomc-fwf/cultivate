@@ -16,7 +16,19 @@ import containersRoutes from './routes/containers.js';
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
 
-  await app.register(fastifyHelmet);
+  await app.register(fastifyHelmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", 'static.cloudflareinsights.com'],
+        connectSrc: ["'self'", 'cloudflareinsights.com'],
+        styleSrc: ["'self'", "'unsafe-inline'", 'fonts.googleapis.com'],
+        fontSrc: ["'self'", 'fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:'],
+        workerSrc: ["'self'", 'blob:'],
+      },
+    },
+  });
 
   await app.register(fastifyCors, {
     origin: process.env.ALLOWED_ORIGIN ?? true,
