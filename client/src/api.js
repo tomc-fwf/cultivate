@@ -2,9 +2,11 @@ const BASE = '/api';
 const getToken = () => localStorage.getItem('cv_token');
 
 async function req(method, path, body) {
+  const headers = { Authorization: `Bearer ${getToken()}` };
+  if (body != null) headers['Content-Type'] = 'application/json';
   const res = await fetch(`${BASE}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+    headers,
     body: body != null ? JSON.stringify(body) : undefined
   });
   const data = await res.json();
