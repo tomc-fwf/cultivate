@@ -229,6 +229,7 @@ export default function ContainerDashboard() {
       : ALL_STATES.reduce((acc, s) => { acc[s] = containers.filter(c => c.current_state === s).length; return acc; }, {});
 
     return (
+      <>
       <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
         <button
           onClick={clearSubZone}
@@ -401,6 +402,7 @@ export default function ContainerDashboard() {
           </div>
         </div>
       )}
+      </>
     );
   }
 
