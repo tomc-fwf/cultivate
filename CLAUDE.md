@@ -5,14 +5,13 @@
 This file orients Claude Code to the cultivation tracking application: what it does, who uses it, what data it manages, and how it must behave. It is the **authoritative project brief**. When in doubt about scope, data model, or business rules, refer here. Code style, framework conventions, and deployment details follow our existing PWA framework (see `README.md` and existing apps in this repo as the reference implementation).
 
 **Read order for new Claude Code sessions:**
-1. This file (project context and domain model)
-2. **The Sibling App Boundary section below** — important for any session, critical for the first session
-3. `docs/sibling-app-resolution.md` — approved integration decisions (supersedes Options A–D in this file)
-4. `docs/harvest-model.md` — harvest, partial harvest, and waste trim model detail
-5. The cultivate repo's root `README.md` (stack, conventions, deploy)
-6. The farmstock sibling app at `C:\projects\farmstock` (especially for the first session)
-7. The most recently built app in the hatstak.app family (style reference)
-8. Then begin work.
+1. This file — project context, domain model, and development standards
+2. `docs/harvest-model.md` — harvest, partial harvest, and waste trim model detail
+3. `docs/sibling-app-resolution.md` — approved farmstock ↔ cultivate integration decisions
+4. Recent git log (`git log --oneline -20`) — understand what has been built
+5. Then begin work. Do not re-read farmstock or the broader family on every session; those decisions are settled.
+
+**Current state (as of May 2026):** Sibling app integration is resolved (shared DB, Option A). Phase 1 is in progress — features 1–16 are built. See Application Surface section for remaining work.
 
 ---
 
@@ -1767,33 +1766,179 @@ External authority:
 
 ---
 
-## Conventions for Claude Code Sessions
+## Development Standards — Production Grade, Regulated Environment
 
-### First Session Sequence (Mandatory)
+This is a compliance-critical application. Every record may be reviewed by a regulator. Every API endpoint is an audit surface. Development standards reflect that — they are not suggestions.
 
-The first Claude Code session for cultivate must follow this sequence:
+---
 
-1. **Read this whole CLAUDE.md file thoroughly.**
-2. **Read the sibling app farmstock** at `C:\projects\farmstock` — its codebase, schema, and any documentation. Understand what exists today.
-3. **Read the broader hatstak.app family conventions** — auth shell, shared components, theme tokens, deployment pipeline. Identify which patterns to inherit.
-4. **Produce the Sibling App Resolution Document** (see "Required Deliverable Before Building" in the Sibling App Boundary section). This document:
-   - Maps farmstock's current state to cultivate's needs
-   - Recommends an integration pattern (shared DB, API, shared package, hybrid)
-   - Lists what to migrate from farmstock, what to reference, what to rebuild
-   - Identifies breaking changes farmstock will need
-   - Proposes a sequencing plan
-5. **Submit the Resolution Document to the operator for review.** Do not begin schema work, migrations, or feature implementation until this is approved.
-6. **Once approved, proceed with Phase 1 implementation** in the order listed in the Application Surface section.
+### The Vertical Slice Rule — Definition of Done
 
-### Ongoing Conventions
+**A feature is not done until every layer is complete in the same commit.**
 
-7. **Confirm understanding before building each feature.** Summarize the task in one paragraph and propose an approach before writing code.
-8. **One feature at a time.** Don't bundle unrelated work into a single PR/commit.
-9. **Tests for business rules.** Recipe versioning, audit immutability, METRC UID requirements, container ID format validation, container state machine transitions, plant loss → state cascades — all need tests.
-10. **Migrations for every schema change.** No ad-hoc DB modifications. Migrations must be reversible where possible.
-11. **Use seed data for the physical model.** Zones, sub-zones, rows, containers are fixed and known — load them via seed/migration, not user input.
-12. **Coordinate cross-app changes carefully.** If a change in cultivate requires a change in farmstock (or vice versa), flag it explicitly and propose the coordinated change set before implementing.
-13. **When in doubt, ask.** Better to clarify than rebuild.
+| Layer | Complete means |
+|---|---|
+| **Database** | Migration written and reversible; seed data added if required |
+| **Backend** | Route registered in `app.ts`; auth middleware applied; all inputs validated; business rules enforced; consistent error responses; transactions for multi-step writes |
+| **API client** | Method added to `client/src/api.js` |
+| **Frontend** | List view + detail view + entry form; loading and error states on every async call; draft persistence on forms with 3+ fields |
+| **Navigation** | Route registered in `App.jsx`; NavBar or hub wired if the feature needs to be discoverable |
+| **Cross-surface** | Check Today screen, BatchDetail, ContainerDetail, Batches list — update any that show data affected by this feature |
+| **Tests** | Business rule tests written (see Testing section) |
+
+**Cross-surface scanning is mandatory.** Before closing any task, check whether the same gap exists elsewhere. If you add a field to BatchDetail, check the Batches list page and Today screen. If you fix a form, check whether other forms have the same problem. Never fix one surface and leave related surfaces inconsistent.
+
+**One concern at a time, fully complete.** Don't mix unrelated features in a commit. Don't split one feature's vertical slice across multiple commits. Backend + frontend + migrations for the same feature go together.
+
+---
+
+### Input Validation — Use Zod (Already Installed)
+
+`zod` is in `package.json`. Use it for all API request body validation. Do not write manual `if (!field)` chains.
+
+```typescript
+// backend route pattern
+import { z } from 'zod';
+
+const CreateBatchSchema = z.object({
+  strain_id: z.number().int().positive(),
+  plant_count_initial: z.number().int().positive(),
+  plants_per_container: z.number().int().min(1).default(1),
+  sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+```
+
+Validation errors return HTTP 400 with `{ error: string, issues?: ZodIssue[] }`.
+
+---
+
+### API Contract Standards
+
+- All response fields use **snake_case**.
+- **Error shape**: `{ error: string }` always. Validation errors may add `{ issues: [...] }`.
+- **HTTP status codes**:
+  - `200` — success (GET, PATCH)
+  - `201` — created (POST)
+  - `400` — validation failure or business rule violation
+  - `401` — unauthenticated
+  - `403` — insufficient role
+  - `404` — record not found
+  - `422` — rule violation requiring client-side redirect (e.g., pesticide product in foliar form)
+  - `500` — unexpected server error (log full error; return generic message only)
+- **Never** expose stack traces, internal IDs, or schema details in error responses.
+- List endpoints return arrays. Detail endpoints return objects. A found record is never `null` — use 404.
+- Computed fields (e.g., `metrc_batch_name`, `metrc_phase`, `plant_count_current`, `days_in_stage`) are added in the route layer, not the client.
+
+---
+
+### Security — Non-Negotiable Checklist
+
+Every route must satisfy all of the following before it is considered complete:
+
+1. **Auth middleware** — `requireAuth` or `requireRole('supervisor'|'admin')` on every handler, no exceptions.
+2. **Input validation** — all user-supplied fields validated with Zod before any database access.
+3. **Parameterized SQL** — no string concatenation in queries. Use `?` placeholders always.
+4. **No sensitive data in responses** — no passwords, tokens, internal join keys, or full stack traces.
+5. **Role check for write operations** — mutations that affect compliance records (batches, applications, harvest events) require at minimum `grower` role; transitions and deletions require `supervisor`.
+
+Rate limiting is applied globally in `app.ts`. Sensitive state changes (batch transitions, harvest events, plant loss, pesticide applications) log `user_id` and timestamp at the application layer — this is the audit trail.
+
+---
+
+### TypeScript Standards (Backend)
+
+- Strict mode is the target. Avoid `any`; if unavoidable, add a comment explaining why.
+- All request body shapes have a named `interface` or Zod schema.
+- Database rows come back as `Record<string, unknown>` from better-sqlite3; extract and cast field by field — do not blind-cast entire rows to a domain type.
+- Extract shared logic into named helper functions (`enrichBatch`, `resolvedPlantCount`, etc.) — no inline logic repeated across multiple route handlers.
+- All migrations are typed (`import type { Knex } from 'knex'`).
+
+---
+
+### Frontend Standards
+
+- **Every async operation** has a loading state and an error state. No silent failures. No "it just doesn't load" bugs.
+- **Form validation** before submit: required fields, format checks. Field-level inline errors. General error banner at top of form.
+- **Draft persistence**: any form with 3+ fields persists to `localStorage` keyed by a `cv_draft_*` key; cleared on successful submit.
+- **Optimistic UI only for low-risk reads**. For compliance-critical writes (harvest events, pesticide applications, plant loss, batch transitions) — wait for server confirmation before navigating away.
+- **Touch targets**: minimum `minHeight: '56px'` on all interactive elements per Field UX requirements.
+- **No hardcoded IDs or magic strings** — use named constants or derive from API data.
+- **Error boundaries**: any page that fetches data must handle load failure gracefully with a user-visible error message and a retry option.
+
+---
+
+### Database Standards
+
+- Every schema change goes in a **new numbered migration** (`src/db/migrations/NNN_name.ts`). Never modify the database outside a migration.
+- Migrations must implement both `up()` and `down()`. The `down()` must actually reverse the change.
+- All tables have `created_at` and `updated_at`. Most have `created_by` FK → `cv_users`.
+- **Foreign keys are enforced** — `PRAGMA foreign_keys = ON` is set at DB init. Do not disable this.
+- **Audit records are never deleted.** Use `active = 0`, `status = 'closed'`, or `corrects_id` patterns. Hard-delete is only permitted for non-compliance data (e.g., draft records that were never submitted).
+- **Multi-step writes use transactions.** Creating a batch also writes phase history and location history — all three writes are in one `db.transaction(() => { ... })()` call.
+- **Seed data for the physical model**: zones, sub-zones, rows, and containers are fixed. Load via migration/seed, never via the application UI.
+
+---
+
+### Testing
+
+Testing is required for business rules. It is not optional or deferred.
+
+**Framework to set up** (not yet configured — must be done before Phase 1 is considered complete):
+- Backend: `vitest` + Fastify's `inject()` for route-level integration tests
+- Frontend: `vitest` + `@testing-library/react`
+- Add `"test": "vitest"` to both `package.json` scripts
+
+**Minimum test coverage required:**
+
+| Rule | Type |
+|---|---|
+| METRC UID format — 24 alphanumeric characters | Unit |
+| Container ID format — `Z1-A-R3-C12` pattern | Unit |
+| Batch status transitions — only valid `VALID_TRANSITIONS` paths allowed | Unit |
+| PHI calculation — `phi_days_operational` enforced, not label PHI | Unit |
+| REI expiry — `applied_at + rei_hours` computed correctly | Unit |
+| Stage compliance blocks — `input_phi_stage_overrides` with `allowed=false` blocks application | Integration |
+| Plant count derived from active assignments, not edited directly | Integration |
+| Harvest events blocked unless batch status is `harvesting` | Integration |
+| Final harvest triggers unassignment + container → teardown | Integration |
+| Pesticide applications require `input_lot_id` | Integration |
+| Container state constraints — `active` requires active assignment | Integration |
+
+Until the framework is configured, mark untested business rules with `// TODO: test — [rule]` in the route file.
+
+---
+
+### When to Ask vs. When to Proceed
+
+**Ask before implementing** only when:
+- The task conflicts with an existing business rule in this file
+- The task requires a schema change with significant breaking implications
+- There is genuine ambiguity between two architecturally different approaches
+
+**Do not ask** before implementing:
+- Routine feature work where intent is clear from context and the Application Surface section
+- Bug fixes and UI corrections
+- Adding a field that already exists in the schema to a form that's missing it
+- Any work where the domain model in this file provides sufficient guidance
+
+When an assumption is made, state it in one sentence at the start of the response. Wrong assumptions are cheap to fix; unnecessary questions waste time.
+
+---
+
+### Commit and Push Standards
+
+- Commit after each complete vertical slice — route + frontend + migration for the same feature in one commit.
+- Push immediately after committing. Never accumulate uncommitted work across a session.
+- Commit message prefix: `feat:` (new feature), `fix:` (bug fix), `refactor:` (no behavior change), `test:` (tests only), `migration:` (schema only).
+- Never commit `.env` files, credentials, or secrets.
+
+---
+
+### Cross-App Coordination (Cultivate ↔ Farmstock)
+
+The two apps share a SQLite database. A schema change in either app can affect the other. If a cultivate change touches a shared table (e.g., `cv_items`, `cv_users`, `cv_input_lots`), explicitly flag the impact on farmstock before implementing.
 
 ---
 
