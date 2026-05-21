@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
+import { useAuth } from '../../App';
 
 // State color classes for container cells
 const STATE_CELL = {
@@ -53,8 +54,14 @@ function sumCounts(summaries) {
   return totals;
 }
 
+// States that can be set manually (active/empty require a batch — blocked by API)
+const MANUAL_STATES = ['ready', 'startup', 'teardown', 'out_of_service'];
+
 export default function ContainerDashboard() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isSupervisorPlus = user?.role === 'supervisor' || user?.role === 'admin';
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedSubZone = searchParams.get('sub_zone_id');
 
@@ -64,6 +71,15 @@ export default function ContainerDashboard() {
   const [loading, setLoading] = useState(true);
   const [loadingGrid, setLoadingGrid] = useState(false);
   const [error, setError] = useState('');
+
+  // Container action sheet
+  const [activeContainer, setActiveContainer] = useState(null); // { container_id, current_state, position }
+  const [settingState, setSettingState] = useState(false);
+  const [stateError, setStateError] = useState('');
+
+  // Bulk reset
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
 
   // Load summary on mount
   useEffect(() => {
@@ -93,6 +109,50 @@ export default function ContainerDashboard() {
   function clearSubZone() {
     setStateFilter('all');
     setSearchParams({});
+  }
+
+  function reloadGrid(szId) {
+    setLoadingGrid(true);
+    Promise.all([
+      api.getContainerSummary(),
+      api.getContainers({ sub_zone_id: szId }),
+    ]).then(([sumData, gridData]) => {
+      setSummary(sumData);
+      setSubZoneData(gridData);
+      setLoadingGrid(false);
+    }).catch(e => { setError(e.message); setLoadingGrid(false); });
+  }
+
+  async function handleSetState(toState) {
+    if (!activeContainer) return;
+    setSettingState(true);
+    setStateError('');
+    try {
+      await api.updateContainerState(activeContainer.container_id, { to_state: toState });
+      setActiveContainer(null);
+      if (selectedSubZone) reloadGrid(selectedSubZone);
+    } catch (e) {
+      setStateError(e.message);
+    } finally {
+      setSettingState(false);
+    }
+  }
+
+  async function handleBulkReset() {
+    if (!window.confirm('Reset all unoccupied containers (no active batch) to "Ready"? This will log a transition for each one.')) return;
+    setResetting(true);
+    setResetMsg('');
+    try {
+      const result = await api.bulkResetContainersToReady();
+      setResetMsg(result.message);
+      const sumData = await api.getContainerSummary();
+      setSummary(sumData);
+      if (selectedSubZone) reloadGrid(selectedSubZone);
+    } catch (e) {
+      setResetMsg(`Error: ${e.message}`);
+    } finally {
+      setResetting(false);
+    }
   }
 
   if (loading) {
@@ -237,10 +297,10 @@ export default function ContainerDashboard() {
                     return (
                       <button
                         key={c.container_id}
-                        onClick={() => navigate(`/containers/${encodeURIComponent(c.container_id)}`)}
+                        onClick={() => !isFiltered && setActiveContainer(c)}
                         className={`relative flex items-center justify-center rounded-lg border font-mono text-xs font-bold transition-colors ${
                           STATE_CELL[c.current_state] ?? 'bg-gray-100 border-gray-300'
-                        } ${isFiltered ? 'opacity-25' : 'hover:opacity-80'}`}
+                        } ${isFiltered ? 'opacity-25 cursor-default' : 'hover:opacity-80 active:scale-95'}`}
                         style={{ width: 48, height: 48, minWidth: 48 }}
                         title={`${c.container_id} — ${STATE_LABELS[c.current_state] ?? c.current_state}`}
                       >
@@ -269,7 +329,78 @@ export default function ContainerDashboard() {
             </div>
           ))}
         </div>
+
+        {/* Admin: bulk reset */}
+        {isAdmin && (
+          <div className="mt-6 border-t border-gray-100 pt-4 flex items-center gap-3 flex-wrap">
+            <button
+              onClick={handleBulkReset}
+              disabled={resetting}
+              className="text-sm px-4 py-2 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
+            >
+              {resetting ? 'Resetting…' : 'Reset unoccupied → Ready'}
+            </button>
+            {resetMsg && <span className="text-sm text-gray-600">{resetMsg}</span>}
+          </div>
+        )}
       </div>
+
+      {/* Container action sheet */}
+      {activeContainer && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActiveContainer(null)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="font-mono font-bold text-gray-900">{activeContainer.container_id}</div>
+                <div className="text-sm text-gray-500 mt-0.5">
+                  Current: <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${STATE_CHIP[activeContainer.current_state]}`}>
+                    {STATE_LABELS[activeContainer.current_state]}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate(`/containers/${encodeURIComponent(activeContainer.container_id)}`)}
+                className="text-sm text-green-700 font-semibold hover:text-green-900"
+              >
+                Full Detail →
+              </button>
+            </div>
+
+            {isSupervisorPlus && (
+              <>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Set State</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {MANUAL_STATES.map(state => (
+                    <button
+                      key={state}
+                      onClick={() => handleSetState(state)}
+                      disabled={settingState || state === activeContainer.current_state}
+                      className={`py-3 rounded-xl text-sm font-semibold border transition-colors disabled:opacity-40 ${
+                        state === activeContainer.current_state
+                          ? `${STATE_CELL[state]} opacity-40 cursor-default`
+                          : `${STATE_CHIP[state]} border-transparent hover:opacity-80`
+                      }`}
+                    >
+                      {STATE_LABELS[state]}
+                      {state === activeContainer.current_state && ' ✓'}
+                    </button>
+                  ))}
+                </div>
+                {stateError && (
+                  <div className="mt-3 text-sm text-red-600 bg-red-50 rounded-xl px-3 py-2">{stateError}</div>
+                )}
+              </>
+            )}
+            {!isSupervisorPlus && (
+              <div className="text-sm text-gray-500">Supervisor or Admin role required to change state.</div>
+            )}
+          </div>
+        </div>
+      )}
     );
   }
 
@@ -281,12 +412,24 @@ export default function ContainerDashboard() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
           Containers
         </h1>
-        <span className="text-sm text-gray-500">{grandTotal} total</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-gray-500">{grandTotal} total</span>
+          {isAdmin && (
+            <button
+              onClick={handleBulkReset}
+              disabled={resetting}
+              className="text-xs px-3 py-1.5 rounded-xl border border-amber-300 bg-amber-50 text-amber-800 font-medium hover:bg-amber-100 disabled:opacity-50"
+            >
+              {resetting ? 'Resetting…' : 'Reset unoccupied → Ready'}
+            </button>
+          )}
+        </div>
       </div>
+      {resetMsg && <div className="mb-4 text-sm text-gray-600 bg-gray-50 rounded-xl px-3 py-2">{resetMsg}</div>}
 
       {/* Global state counts summary bar */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-6">

@@ -306,11 +306,12 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
       const fromState = state['current_state'] as string;
 
-      // Validate manual transition: only out_of_service transitions allowed manually
-      if (to_state !== 'out_of_service' && !(fromState === 'out_of_service' && to_state === 'ready')) {
+      // Admins may set any state manually (needed for setup and corrections).
+      // Guard: active/empty require a current_batch_id; block if none is set.
+      if ((to_state === 'active' || to_state === 'empty') && !state['current_batch_id']) {
         return reply.code(400).send({
-          error: `Manual transitions are only permitted: any → out_of_service, or out_of_service → ready. ` +
-                 `Transition "${fromState}" → "${to_state}" must be triggered by a workflow action.`,
+          error: `Cannot manually set state to "${to_state}" — a current batch must be assigned first. ` +
+                 `Use the batch assignment workflow instead.`,
         });
       }
 
@@ -335,6 +336,50 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
       const updated = db.prepare('SELECT * FROM cv_container_state WHERE container_id = ?').get(containerId);
       return reply.send(updated);
+    },
+  );
+
+  /**
+   * POST /admin/bulk-reset-ready — admin only.
+   * Resets all containers with no current_batch_id to "ready" state.
+   * Use when the seed data is wrong or after a fresh deployment.
+   */
+  app.post(
+    '/admin/bulk-reset-ready',
+    { preHandler: requireAdmin },
+    async (request, reply) => {
+      const db = getDB();
+      const now = new Date().toISOString();
+      const userId = request.user.id;
+
+      const toReset = db.prepare(
+        `SELECT container_id, current_state FROM cv_container_state
+         WHERE current_batch_id IS NULL AND current_state != 'ready'`,
+      ).all() as Array<{ container_id: string; current_state: string }>;
+
+      if (toReset.length === 0) {
+        return reply.send({ reset_count: 0, message: 'All unoccupied containers are already ready.' });
+      }
+
+      const doReset = db.transaction(() => {
+        const upd = db.prepare(
+          `UPDATE cv_container_state
+           SET current_state='ready', state_since=?, updated_at=?
+           WHERE container_id=? AND current_batch_id IS NULL`,
+        );
+        const log = db.prepare(
+          `INSERT INTO cv_container_state_transitions
+             (container_id, from_state, to_state, transitioned_at, transitioned_by, trigger_event, notes, created_at)
+           VALUES (?, ?, 'ready', ?, ?, 'manual', 'Bulk reset to ready', ?)`,
+        );
+        for (const row of toReset) {
+          upd.run(now, now, row.container_id);
+          log.run(row.container_id, row.current_state, now, userId, now);
+        }
+      });
+      doReset();
+
+      return reply.send({ reset_count: toReset.length, message: `Reset ${toReset.length} containers to ready.` });
     },
   );
 
