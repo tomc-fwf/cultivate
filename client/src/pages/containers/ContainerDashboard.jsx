@@ -369,9 +369,9 @@ export default function ContainerDashboard() {
 
       {/* Bulk state sheet */}
       {bulkScope && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setBulkScope(null)}>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center" onClick={() => setBulkScope(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-24 shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
               <div className="font-semibold text-gray-900">Set State — {bulkScope.label}</div>
               <button onClick={() => setBulkScope(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
@@ -400,10 +400,10 @@ export default function ContainerDashboard() {
 
       {/* Individual container action sheet */}
       {activeContainer && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setActiveContainer(null)}>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center" onClick={() => setActiveContainer(null)}>
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl"
+            className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-24 shadow-2xl max-h-[85vh] overflow-y-auto"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -602,9 +602,9 @@ export default function ContainerDashboard() {
 
       {/* Bulk state sheet (overview level) */}
       {bulkScope && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setBulkScope(null)}>
+        <div className="fixed inset-0 z-[70] flex items-end justify-center" onClick={() => setBulkScope(null)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-8 shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="relative bg-white rounded-t-2xl w-full max-w-lg p-5 pb-24 shadow-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-1">
               <div className="font-semibold text-gray-900">Set State — {bulkScope.label}</div>
               <button onClick={() => setBulkScope(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
