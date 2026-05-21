@@ -70,9 +70,13 @@ export async function buildApp() {
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 
-  // Serve SPA index.html for all non-/api routes
+  // Serve SPA index.html for all non-/api routes.
+  // Cache-Control: no-cache so Cloudflare/browsers always revalidate index.html
+  // on each deploy. Hashed JS/CSS assets are still cached indefinitely by the
+  // browser via their content-hash filenames.
   app.setNotFoundHandler(async (request, reply) => {
     if (!request.url.startsWith('/api')) {
+      reply.header('Cache-Control', 'no-cache');
       return reply.sendFile('index.html');
     }
     reply.code(404).send({ error: 'Not found' });
