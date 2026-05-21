@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { formatMetrcDate, toMetrcPhase, makeBatchName } from '../../lib/domain-utils.js';
 
 interface IdParams { id: string }
 
@@ -83,18 +84,6 @@ const STATUS_RANK: Record<string, number> = Object.fromEntries(
   STATUS_ORDER.map((s, i) => [s, i])
 );
 
-function formatMetrcDate(isoDate: string): string {
-  const [y, m, d] = (isoDate ?? '').split('-');
-  return m && d && y ? `${m}/${d}/${y}` : isoDate;
-}
-
-function toMetrcPhase(status: string): string {
-  if (['germ', 'seedling', 'cult-hoop'].includes(status)) return 'Immature';
-  if (status === 'field-veg') return 'Vegetative';
-  if (['field-flower', 'flush', 'harvest_window', 'harvesting'].includes(status)) return 'Flowering';
-  return 'Closed';
-}
-
 function enrichBatch(row: Record<string, unknown>): Record<string, unknown> {
   const strainName = (row['strain_name'] as string) ?? '';
   const sowDate = (row['sow_date'] as string) ?? '';
@@ -102,9 +91,7 @@ function enrichBatch(row: Record<string, unknown>): Record<string, unknown> {
   const status = (row['status'] as string) ?? '';
   return {
     ...row,
-    metrc_batch_name: sowDate
-      ? `${strainName} | ${formatMetrcDate(sowDate)} | ${strainType === 'auto' ? 'Auto' : 'Photo'}`
-      : null,
+    metrc_batch_name: sowDate ? makeBatchName(strainName, sowDate, strainType) : null,
     metrc_phase: toMetrcPhase(status),
   };
 }

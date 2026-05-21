@@ -7,7 +7,9 @@
     "start": "node dist/api/server.js",
     "dev": "tsx src/api/server.ts",
     "build": "tsc --project tsconfig.json && cd client && npm run build",
-    "build:ts": "tsc --project tsconfig.json"
+    "build:ts": "tsc --project tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
@@ -26,8 +28,12 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.7.0",
+    "@vitest/coverage-v8": "^4.1.7",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.7"
   },
-  "engines": { "node": ">=18.0.0" }
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
