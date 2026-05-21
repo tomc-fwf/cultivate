@@ -7,10 +7,12 @@ This file orients Claude Code to the cultivation tracking application: what it d
 **Read order for new Claude Code sessions:**
 1. This file (project context and domain model)
 2. **The Sibling App Boundary section below** — important for any session, critical for the first session
-3. The cultivate repo's root `README.md` (stack, conventions, deploy)
-4. The farmstock sibling app at `C:\projects\farmstock` (especially for the first session)
-5. The most recently built app in the hatstak.app family (style reference)
-6. Then begin work.
+3. `docs/sibling-app-resolution.md` — approved integration decisions (supersedes Options A–D in this file)
+4. `docs/harvest-model.md` — harvest, partial harvest, and waste trim model detail
+5. The cultivate repo's root `README.md` (stack, conventions, deploy)
+6. The farmstock sibling app at `C:\projects\farmstock` (especially for the first session)
+7. The most recently built app in the hatstak.app family (style reference)
+8. Then begin work.
 
 ---
 
@@ -132,7 +134,7 @@ Terms used throughout this document and the application UI. **Use these exact te
 
 | Term | Meaning |
 |------|---------|
-| **Batch** | One strain occupying one sub-zone for one season-run. The METRC unit. Has one METRC Plant Batch UID. Lifecycle: Germ → Seedlings → Cult-Hoop → Field → Harvest. |
+| **Plant Batch** | One strain occupying one sub-zone for one season-run. The METRC unit. Has one METRC Plant Batch UID. Lifecycle: Germ → Seedlings → Cult-Hoop → Field → Harvest Window → Harvesting → Closed. Do not use "batch" alone when the context could be confused with Harvest Batch or a METRC product package — always say "plant batch." |
 | **Strain** | A genetic cultivar (e.g. "Northern Lights Auto"). |
 | **Zone** | A field irrigation zone. We have 4 zones (Zone 1, 2, 3, 4), each with shared drip-line infrastructure. |
 | **Sub-zone** | A pot-size partition within a zone. Each zone has A (30-gal pots) and B (10-gal pots). 8 sub-zones total: Z1A, Z1B, Z2A, Z2B, Z3A, Z3B, Z4A, Z4B. **Sub-zones are durable physical identifiers — they never change.** One strain occupies one sub-zone per run. |
@@ -148,6 +150,12 @@ Terms used throughout this document and the application UI. **Use these exact te
 | **Location** | A physical area: Germ-01, Seedlings, Cult-Hoop, or Field. Batches move through these. |
 | **Applicator** | A staff member who performs an application or observation. |
 | **Observation** | A note about plant condition. Logged at row or container granularity. |
+| **Harvest Window** | Plant Batch status period when daily maturity assessments are underway. Individual plant readiness observations are logged per container. No state change on the plant — this is the evidence trail for the management decision to begin harvesting. |
+| **Harvesting** | Plant Batch status indicating harvest has been committed and is actively in progress. Entered by management decision based on the observation log. All harvest events (partial and final) are gated on this status. |
+| **Harvest Batch** | A group of plants harvested together under the same environmental conditions within a 1–2 day window. Normally one per plant batch; a major weather event forces the current harvest batch closed and creates a new one for remaining plants. Maps 1:1 to a METRC harvest lot. Distinct from Plant Batch and from any METRC product package/batch. |
+| **Partial Harvest** | A harvest event where product (wet weight) is removed from a plant that remains alive and in the ground. Multiple partial harvests are allowed per plant. METRC calls this "manicure" — the term is avoided here because it is confused with trimming. |
+| **Final Harvest** | A harvest event that cuts the plant. One per plant. Records product wet weight, unassigns the plant from its container, and transitions the container to teardown. |
+| **Waste Trim** | A first-class plant event — distinct from harvest — that records material removed from a plant and disposed of as waste (not product). Occurs throughout the full lifecycle: veg, flower, flush, and harvesting. Captured with a reason (defoliation, IPM removal, disease removal, etc.) and wet weight. Has its own waste lifecycle: collected → held → disposed → reported to METRC. |
 
 ### Crop Input Classification
 
@@ -190,6 +198,8 @@ Products that do NOT have EPA numbers can be classified as biocontrols, amendmen
 | **Soil Amendment Application** | A single instance of an amendment applied to a batch. Logged at sub-zone, row, or container granularity depending on method. |
 | **Pesticide Application** | A single instance of a pesticide applied to a batch. Logged at row/container granularity. **Requires full MN MDA-compliant record** with target pest, wind speed, temperature, PHI compliance check, REI sign-off. Even if applied via foliar spray, recorded here, not as a Foliar Application. |
 | **Crop Input** | Any product used in cultivation per MN Rule 4770 across any of the four classes above. |
+| **Partial Harvest** | See Domain Glossary. METRC term: "manicure." Do not use "manicure" in the UI or codebase. |
+| **Waste Trim** | See Domain Glossary. Generates waste (not product). Requires wet weight and reason. Distinct from any harvest event. |
 
 ### Why Pesticide is Separate from Foliar
 
@@ -218,14 +228,16 @@ The data model reflects this real-world distinction.
 ### Batch Lifecycle
 
 ```
-LOCATION       DURATION         RECIPE         GRANULARITY
-─────────────────────────────────────────────────────────────────
-Germ-01        Days 0–7         BASE           Tray-level
-Seedlings      Days 7–21        BASE → SEEDLING Sub-zone
-Cult-Hoop      Days 17–25       SEEDLING       Sub-zone
-Field          Day 25+ → harvest VEG → FLOWER   Sub-zone (routine)
-                                  → FLUSH        Row/container (hose, foliar, obs)
-Harvest        Closeout         —              Per-plant (METRC tags)
+LOCATION          DURATION              RECIPE          GRANULARITY
+──────────────────────────────────────────────────────────────────────────
+Germ-01           Days 0–7              BASE            Tray-level
+Seedlings         Days 7–21             BASE → SEEDLING Sub-zone
+Cult-Hoop         Days 17–25            SEEDLING        Sub-zone
+Field             Day 25+ → flush       VEG → FLOWER    Sub-zone (routine)
+                                          → FLUSH         Row/container (hose, foliar, obs)
+Harvest Window    Days before harvest   —               Per-container (maturity observations)
+Harvesting        1–2 days             —               Per-plant (partial + final harvest events)
+Closed            —                    —               —
 ```
 
 ### Application Methods
@@ -520,27 +532,32 @@ type                "auto" | "photo"
 genetics            nullable
 notes
 
-batches
+plant_batches
 ─────────────
-batch_id            PK
+plant_batch_id      PK
 strain_id           FK → strains
 sub_zone_id         FK → sub_zones (assigned when moved to field)
 metrc_plant_batch_uid nullable until assigned in METRC
 plant_count_initial integer
-plant_count_current integer (DERIVED — counted from active plant_assignments within this batch; do not edit directly; recompute on read or maintain via assignment events)
-status              "germ" | "seedling" | "cult-hoop" | "field-veg" | "field-flower" | "flush" | "harvest" | "closed"
+plant_count_current integer (DERIVED — counted from active plant_assignments within this plant batch; do not edit directly; recompute on read or maintain via assignment events)
+plants_per_container integer default 1  -- intended planting density; 2 is common for autoflowers;
+                                        -- consistent across the plant batch
+status              "germ" | "seedling" | "cult-hoop" | "field-veg" | "field-flower" | "flush" | "harvest_window" | "harvesting" | "closed"
+                    -- harvest_window: daily maturity assessments underway, harvest not yet committed
+                    -- harvesting: management decision made, harvest in progress (1–2 day window)
+                    -- closed: all plants have a final_harvest event across all harvest_batches
 sow_date
 transplant_date     nullable
 field_move_date     nullable
-harvest_date        nullable
+harvest_started_date date, nullable  -- date first harvest event recorded (any harvest_batch)
 closed_date         nullable
 notes
 supervisor          FK → users
 
 batch_stage_recipes
 ─────────────  
-(records which recipe is currently active for a batch)
-batch_id            FK → batches
+(records which recipe is currently active for a plant batch)
+plant_batch_id      FK → plant_batches
 recipe_id           FK → recipes
 effective_from      timestamp
 effective_to        timestamp, nullable (null = current)
@@ -551,7 +568,7 @@ plant_assignments
 ─────────────
 (the live mapping between METRC plant tags and physical containers — the "who's where" registry)
 assignment_id       PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 container_id        FK → containers (physical position, e.g. Z1-A-R3-C12)
 metrc_plant_tag     text — METRC UID (24-char), unique while active
 assigned_at         timestamp
@@ -561,8 +578,12 @@ unassign_reason     nullable enum: harvested | destroyed | died | moved | replac
 unassign_notes      text, nullable
 unassigned_by       FK → users, nullable
 
-# Unique constraint: only one active assignment (unassigned_at IS NULL) per container at a time
-# Unique constraint: only one active assignment per metrc_plant_tag
+# NO unique constraint on (container_id, unassigned_at IS NULL) — multiple plants per
+# container are supported. plant_batches.plants_per_container records the intended density
+# (typically 1; 2 is common for autoflowers). The actual count is always derived from
+# active assignments.
+# Unique constraint: only one active assignment per metrc_plant_tag (a tag belongs to
+# exactly one plant at a time regardless of container sharing)
 
 container_qr_codes
 ─────────────
@@ -578,7 +599,7 @@ applications_fertigation
 ─────────────
 (routine drip applications — sub-zone level)
 application_id      PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 recipe_id           FK → fertigation_recipes (the version actually used)
 applied_at          timestamp
 volume_gallons      decimal
@@ -596,7 +617,7 @@ applications_foliar
 ─────────────
 (non-pesticide foliar sprays — row/container level)
 foliar_id           PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 row_id              FK → rows, nullable
 container_id        FK → containers, nullable
 applied_at          timestamp
@@ -626,7 +647,7 @@ inoculants, etc.) are now tracked in the container_amendments table because they
 container-scoped events that persist across batches, not batch-scoped events.
 
 When a soil amendment is applied during an active batch, the container_amendment record
-sets batch_id to the active batch — this preserves the batch-scoped view while keeping
+sets plant_batch_id to the active plant batch — this preserves the plant-batch-scoped view while keeping
 the amendment in the container's permanent history.
 
 See the Container Lifecycle Tables section below for the container_amendments schema.
@@ -635,7 +656,7 @@ applications_pesticide
 ─────────────
 (pesticide, fungicide, biocontrol agent applications — full MN MDA compliance)
 pesticide_app_id    PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 row_id              FK → rows, nullable
 container_id        FK → containers, nullable
 applied_at          timestamp
@@ -666,11 +687,11 @@ corrects_id         FK → applications_pesticide, nullable
 observations
 ─────────────
 observation_id      PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 row_id              FK → rows, nullable
 container_id        FK → containers, nullable
 observed_at         timestamp
-category            "healthy" | "pest" | "deficiency" | "disease" | "damage" | "other"
+category            "healthy" | "pest" | "deficiency" | "disease" | "damage" | "harvest_readiness" | "other"
 severity            "low" | "medium" | "high"
 note                text
 observer            FK → users
@@ -678,6 +699,17 @@ photo_urls          array, nullable
 resolved_at         timestamp, nullable
 resolution_note     text, nullable
 triggered_app_id    text nullable — reference to follow-up application if any
+
+# Fields active only when category = 'harvest_readiness':
+maturity_pct        integer, nullable — estimated trichome/pistil maturity 0–100
+ready_to_harvest    boolean, nullable — staff judgment: this plant is ready now
+harvest_priority    integer, nullable — relative priority within row (1=highest) for
+                                        sequencing when not all plants ready simultaneously
+
+# harvest_readiness observations accumulate during the harvest_window batch status.
+# They serve two purposes: (1) evidence trail for the management decision to begin
+# harvesting, (2) row-level readiness summary for planning harvest processing order.
+# The transition to 'harvesting' is a management decision based on this log — not gated.
 ```
 
 ### Container Lifecycle Tables
@@ -689,7 +721,7 @@ container_state
 container_id        PK / FK → containers
 current_state       enum: ready | active | empty | teardown | startup | out_of_service
 state_since         timestamp — when entered current state
-current_batch_id    FK → batches, nullable (set when state IN ('active', 'empty', 'teardown'))
+current_plant_batch_id FK → plant_batches, nullable (set when state IN ('active', 'empty', 'teardown'))
 media_first_used    date — when this container was first commissioned with growing media
 last_full_replacement date, nullable — most recent FULL media replacement (rare event)
 last_teardown_date  date, nullable
@@ -697,10 +729,10 @@ last_startup_date   date, nullable
 notes               text — current status notes
 
 # Constraints:
-# - state='active' requires current_batch_id IS NOT NULL AND an active plant_assignment
-# - state='empty' requires current_batch_id IS NOT NULL AND NO active plant_assignment
-# - state='teardown' requires current_batch_id IS NOT NULL
-# - state IN ('ready', 'startup', 'out_of_service') requires current_batch_id IS NULL
+# - state='active' requires current_plant_batch_id IS NOT NULL AND an active plant_assignment
+# - state='empty' requires current_plant_batch_id IS NOT NULL AND NO active plant_assignment
+# - state='teardown' requires current_plant_batch_id IS NOT NULL
+# - state IN ('ready', 'startup', 'out_of_service') requires current_plant_batch_id IS NULL
 
 container_state_transitions
 ─────────────
@@ -711,7 +743,7 @@ from_state          enum
 to_state            enum
 transitioned_at     timestamp
 transitioned_by     FK → users
-batch_id            FK → batches, nullable
+plant_batch_id      FK → plant_batches, nullable
 trigger_event       enum: batch_assigned | plant_loss | plant_replaced | batch_closed | teardown_complete | startup_complete | manual | other
 notes               text
 
@@ -720,7 +752,7 @@ container_amendments
 (any addition to container media — batch-scoped OR container-only)
 amendment_id        PK
 container_id        FK → containers
-batch_id            FK → batches, nullable (null = container-only event during teardown/startup)
+plant_batch_id      FK → plant_batches, nullable (null = container-only event during teardown/startup)
 container_state     enum: active | empty | teardown | startup — state when applied
 applied_at          timestamp
 amendment_type      enum: media_replacement | amendment | inoculation | drench | top_dress | mix_in | correction | removal | other
@@ -771,7 +803,7 @@ teardown_events
 (distinct teardown record — captures the work, not just a state change)
 teardown_id         PK
 container_id        FK → containers
-batch_id            FK → batches (the batch that was harvested out)
+plant_batch_id      FK → plant_batches (the batch that was harvested out)
 started_at          timestamp
 completed_at        timestamp, nullable
 plant_removed       boolean default false
@@ -805,7 +837,7 @@ plant_loss_events
 ─────────────
 (first-class record of mid-batch plant loss; triggers METRC waste reporting)
 loss_id             PK
-batch_id            FK → batches
+plant_batch_id      FK → plant_batches
 container_id        FK → containers
 plant_assignment_id FK → plant_assignments (the assignment terminated by this loss)
 metrc_plant_tag     text — denormalized UID at time of loss
@@ -820,6 +852,93 @@ metrc_sync_status   enum: pending | synced | failed | not_required
 metrc_synced_at     timestamp, nullable
 notes               text
 photo_urls          array, nullable
+
+harvest_batches
+─────────────
+(a METRC harvest lot — plants harvested together under the same conditions in a 1–2 day window)
+(normally one per cultivation batch; a major weather event force-closes the current harvest_batch
+and creates a new one for remaining plants under new conditions)
+harvest_batch_id    PK
+plant_batch_id      FK → plant_batches              -- the cultivation batch
+sequence_number     integer default 1         -- 1 normally; increments if weather forces a split
+status              enum: in_progress | completed | force_closed
+close_reason        enum: completed | weather_event | other
+close_notes         text, nullable            -- required when close_reason = weather_event
+started_at          timestamp
+completed_at        timestamp, nullable       -- set when last final_harvest event recorded
+ambient_temp_f      decimal, nullable         -- environmental conditions for this harvest batch
+ambient_rh          decimal, nullable
+wind_speed_mph      decimal, nullable
+metrc_harvest_batch_uid text, nullable        -- assigned in METRC at harvest
+started_by          FK → users
+closed_by           FK → users, nullable
+notes               text
+
+# A cultivation batch moves to 'closed' status automatically when all plant_assignments
+# have a final_harvest event across any of its harvest_batches.
+# Weather event flow: force_close current harvest_batch → create new harvest_batch
+# (sequence_number+1) for remaining plants → cultivation batch stays 'harvesting'.
+
+plant_harvest_events
+─────────────
+(product-generating harvest events — partial harvest and final harvest are peers;
+ the only difference is whether the plant survives)
+harvest_event_id    PK
+harvest_batch_id    FK → harvest_batches
+plant_batch_id      FK → plant_batches              -- denormalized for query convenience
+plant_assignment_id FK → plant_assignments
+container_id        FK → containers
+event_type          enum: partial_harvest | final_harvest
+                    -- partial_harvest: plant remains active, multiple allowed per plant
+                    --                 METRC maps this as "manicure" — do not use that term in UI
+                    -- final_harvest:  plant is cut; triggers plant_assignment unassignment
+                    --                 (reason: harvested) and container → teardown
+harvested_at        timestamp
+product_type        enum: flower | larf | popcorn | trim_product | other
+wet_weight          decimal
+weight_unit         text                      -- e.g. "g", "oz", "lb"
+applicator          FK → users
+notes               text
+photo_urls          text, nullable            -- JSON array
+metrc_sync_status   enum: pending | synced | failed | not_required
+metrc_synced_at     timestamp, nullable
+
+# Constraint: event_type = 'partial_harvest' requires batch.status = 'harvesting'
+# Constraint: event_type = 'final_harvest' requires batch.status = 'harvesting'
+# On final_harvest: unassign plant_assignment (reason=harvested), container → teardown,
+#   check if all plants in batch are final_harvested → if so, batch → closed
+
+plant_waste_trim_events
+─────────────
+(waste-generating trim events — distinct from harvest events, occur throughout full lifecycle)
+(generates waste, not product; requires reason, wet weight, and tracks disposal lifecycle)
+waste_trim_id       PK
+plant_batch_id      FK → plant_batches
+container_id        FK → containers, nullable
+row_id              FK → rows, nullable       -- for row-level trim events
+plant_assignment_id FK → plant_assignments, nullable
+harvest_batch_id    FK → harvest_batches, nullable  -- set if occurring during harvesting stage
+harvest_event_id    FK → plant_harvest_events, nullable  -- set if tied to a specific harvest event
+trimmed_at          timestamp
+trim_reason         enum: defoliation | lollipoping | ipm_removal | disease_removal |
+                          pest_damage | physical_damage | senescence | other
+trim_reason_notes   text, nullable
+wet_weight          decimal
+weight_unit         text                      -- e.g. "g", "oz", "lb"
+waste_status        enum: collected | held | disposed | reported
+                    -- collected: material removed and weighed, not yet disposed
+                    -- held: quarantine, testing, or awaiting disposal window
+                    -- disposed: composted, incinerated, etc. per disposition field
+                    -- reported: METRC waste/destruction event synced
+waste_status_updated_at timestamp
+disposed_at         timestamp, nullable
+disposition         enum: composted | incinerated | quarantined | tested | other
+disposed_by         FK → users, nullable
+applicator          FK → users
+notes               text
+photo_urls          text, nullable            -- JSON array
+metrc_sync_status   enum: pending | synced | failed | not_required
+metrc_synced_at     timestamp, nullable
 ```
 
 ### Audit & Compliance
@@ -829,7 +948,7 @@ metrc_sync_log
 ─────────────
 sync_id             PK
 sync_type           "additive" | "plant_batch" | "plant_tag_assignment" | "plant_waste" | "harvest" | "other"
-batch_id            FK → batches, nullable
+plant_batch_id      FK → plant_batches, nullable
 related_id          text, nullable — ID of the source record (loss_id, harvest_id, etc.)
 synced_at           timestamp
 status              "success" | "failed" | "pending"
@@ -884,7 +1003,7 @@ These are non-negotiable. If implementation forces a tradeoff, flag it before de
 
 ### Soil Amendments (See Container Lifecycle)
 
-15. **Soil amendments are container-scoped, not batch-scoped.** All soil amendments — including those applied during an active batch — are recorded in the `container_amendments` table, not in an application table. This preserves the amendment in the container's permanent history. When an amendment is applied during an active batch, the `batch_id` field captures the batch context. See Container Lifecycle rules (30–40) for full requirements.
+15. **Soil amendments are container-scoped, not batch-scoped.** All soil amendments — including those applied during an active batch — are recorded in the `container_amendments` table, not in an application table. This preserves the amendment in the container's permanent history. When an amendment is applied during an active plant batch, the `plant_batch_id` field captures the plant batch context. See Container Lifecycle rules (30–40) for full requirements.
 
 ### Pesticide Applications — Strictest Compliance
 
@@ -904,7 +1023,7 @@ These are non-negotiable. If implementation forces a tradeoff, flag it before de
 
 ### Plant Assignment & Scanning
 
-23. **One active plant assignment per container.** A container can have only one active plant assignment (where `unassigned_at IS NULL`) at a time. Attempts to assign a second plant to the same container must unassign the existing plant first with a reason.
+23. **Multiple plants per container are supported.** A container may have more than one active plant assignment simultaneously. `plant_batches.plants_per_container` records the intended density for the plant batch (default 1; 2 is common for autoflowers). There is no unique constraint on `(container_id, unassigned_at IS NULL)`. Container state `active` means one or more active assignments; `empty` means zero active assignments within an active plant batch.
 
 24. **One active assignment per METRC tag.** A METRC plant tag can only be actively assigned to one container at a time. If scanned and already assigned elsewhere, the system requires explicit reassignment (which unassigns the prior container with a reason).
 
@@ -920,14 +1039,14 @@ These are non-negotiable. If implementation forces a tradeoff, flag it before de
 
 ### Container Lifecycle
 
-30. **Container state must be valid for its batch relationship.** The system enforces:
-    - `active` requires `current_batch_id IS NOT NULL` AND an active plant_assignment
-    - `empty` requires `current_batch_id IS NOT NULL` AND NO active plant_assignment
-    - `teardown` requires `current_batch_id IS NOT NULL`
-    - `ready`, `startup`, `out_of_service` require `current_batch_id IS NULL`
+30. **Container state must be valid for its plant batch relationship.** The system enforces:
+    - `active` requires `current_plant_batch_id IS NOT NULL` AND one or more active plant_assignments
+    - `empty` requires `current_plant_batch_id IS NOT NULL` AND NO active plant_assignments
+    - `teardown` requires `current_plant_batch_id IS NOT NULL`
+    - `ready`, `startup`, `out_of_service` require `current_plant_batch_id IS NULL`
     Invalid combinations are rejected at the data layer.
 
-31. **A container must be in `ready` state to receive a new batch assignment.** No exceptions. Containers in `teardown`, `startup`, `empty`, or `out_of_service` cannot accept a new batch.
+31. **A container must be in `ready` state to receive a new plant batch assignment.** No exceptions. Containers in `teardown`, `startup`, `empty`, or `out_of_service` cannot accept a new plant batch.
 
 32. **Plant loss events automatically transition state to EMPTY.** Recording a plant_loss_event:
     - Unassigns the corresponding plant_assignment with the loss reason
@@ -950,6 +1069,34 @@ These are non-negotiable. If implementation forces a tradeoff, flag it before de
 39. **Plant loss records require METRC sync.** Every plant_loss_event must have `metrc_sync_status` tracked. The system surfaces unsynced losses as action items until reported to METRC (manually in Phase 1, automatically in Phase 4).
 
 40. **Plant_count_current is derived, not edited.** This value is always computed from the count of active plant_assignments for the batch. Manual edits are rejected. The system can choose to cache for performance, but the source of truth is the assignment table.
+
+### Harvest Lifecycle
+
+41. **Harvest-ready is a batch-level state, not a plant-level state.** Individual plant maturity is captured via `harvest_readiness` observations (container-level). The batch status transition from `harvest_window` to `harvesting` is a management decision based on the observation log. No individual plant state change is required or supported.
+
+42. **The `harvest_window → harvesting` transition is logged but not gated.** It requires `transitioned_by` (FK → users) and `notes` referencing the observation evidence. No approval queue. The manager makes the call and records it.
+
+43. **Harvest events require `harvesting` batch status.** Both `partial_harvest` and `final_harvest` events are blocked unless the batch status is `harvesting`. This enforces the harvest-ready gate.
+
+44. **Partial harvest leaves the plant alive.** A `partial_harvest` event records product wet weight but does not unassign the plant or change container state. Multiple partial harvests are allowed per plant per harvest batch. METRC maps this as "manicure" — do not use the term "manicure" anywhere in the UI or codebase; use "partial harvest."
+
+45. **Final harvest kills the plant.** A `final_harvest` event records product wet weight, unassigns the plant_assignment (reason: `harvested`), and transitions the container to `teardown`. One per plant.
+
+46. **Harvest must complete within 1–2 days under consistent conditions.** A harvest batch is a time-bounded event. Environmental conditions (temp, RH, wind) are recorded on the harvest_batch and apply to all events within it.
+
+47. **Weather events force-close the harvest batch, not the cultivation batch.** A major weather event that disrupts harvest:
+    - Sets current `harvest_batch.status = force_closed` with `close_reason = weather_event` and required `close_notes`
+    - Creates a new `harvest_batch` (sequence_number+1) for remaining plants under new conditions
+    - The cultivation batch remains in `harvesting` status until all plants have a `final_harvest` event
+    - No pause state exists — the harvest batch closes and a new one begins
+
+48. **Batch closes automatically when all plants are final-harvested.** When the last `final_harvest` event is recorded across all harvest_batches for a cultivation batch, the batch status transitions to `closed`. No manual close action required.
+
+49. **Waste trim is independent of harvest status.** `plant_waste_trim_events` can be recorded at any batch status (field-veg, field-flower, flush, harvest_window, harvesting). No harvest-ready prerequisite. Waste trim generates waste, not product.
+
+50. **Waste trim requires wet weight and reason.** Both fields are non-nullable. The reason captures the why (defoliation, IPM removal, disease removal, etc.) — not the material type. Waste trim has its own disposal lifecycle (`collected → held → disposed → reported`) and must be reported to METRC.
+
+51. **Harvest and waste trim are peer event types, not parent-child.** `plant_waste_trim_events` that occur during a harvest session may optionally reference a `harvest_event_id` for context, but they are first-class records in their own right — not sub-records of harvest events.
 
 ---
 
@@ -980,10 +1127,13 @@ Each screen below is a feature increment. Build in this priority order unless di
 **4. Batch Management**
 - Batch list with current status, days-in-stage, sub-zone, strain
 - Create new batch: pick strain, sub-zone, plant count, sow date, expected harvest date
-- Batch lifecycle actions: "Move to Seedlings", "Move to Cult-Hoop", "Move to Field", "Begin Flower", "Begin Flush", "Begin Harvest", "Close Batch"
-- Each transition timestamped, supervisor sign-off
+- Batch lifecycle actions: "Move to Seedlings", "Move to Cult-Hoop", "Move to Field", "Begin Flower", "Begin Flush", "Begin Harvest Window", "Begin Harvesting", "Close Batch"
+  - "Begin Harvest Window" → `flush → harvest_window`; enables harvest_readiness observations
+  - "Begin Harvesting" → `harvest_window → harvesting`; management action, requires notes referencing observation log; enables harvest events
+- Each transition timestamped, recorded_by
 - Fertigation recipe transitions tracked separately (a batch can be in "Field" status while transitioning from AUTO-VEG to AUTO-FLOWER recipe)
 - **Active REI/PHI status visible on each batch card**
+- **Harvest window: row readiness summary visible on batch card** — "Z1-A-R1: 28/30 ready" etc.
 
 **5. Fertigation Application Entry**
 - **Field-optimized per the Field UX Requirements section** — three-tap maximum, thumb-zone save, large touch targets
@@ -1007,7 +1157,7 @@ Each screen below is a feature increment. Build in this priority order unless di
 - Form fields: container, amendment type, product, lot, quantity, application method, purpose, applicator, optional photo
 - Product picker filtered to `amendment`, `biocontrol_non_pesticide` categories (and `fertilizer` for soil-applied non-foliar use)
 - Automatically captures container's current state (active/empty/teardown/startup) — appears in record
-- If applied during an active batch, captures `batch_id` to enable batch-scoped views
+- If applied during an active plant batch, captures `plant_batch_id` to enable plant-batch-scoped views
 
 **8. Pesticide Application Entry — Distinct Form**
 - **Separate, prominent screen** — not buried in a generic "application" flow
@@ -1034,6 +1184,10 @@ Each screen below is a feature increment. Build in this priority order unless di
 - **Voice input** supported for notes
 - Inspection mode: walk a row, tap-through containers, log issues (see Field UX → Inspection Mode)
 - Option to "flag for follow-up" — creates a task for foliar or pesticide treatment
+- **Harvest readiness mode** (active during `harvest_window` batch status):
+  - Category pre-set to `harvest_readiness`
+  - Additional fields: maturity_pct (0–100 slider), ready_to_harvest (yes/no), harvest_priority
+  - Row summary view after completing a row: "28/30 ready"
 
 **11. METRC Application Export**
 - Filter by date range and/or batch
@@ -1049,7 +1203,7 @@ Each screen below is a feature increment. Build in this priority order unless di
 
 **13. Cultivation Record (Audit Export)**
 - Per-batch complete history PDF
-- Includes: batch details, every fertigation/foliar/amendment/pesticide application with full input expansion, every observation, recipe versions used, supervisor sign-offs, all REI clearances
+- Includes: batch details, every fertigation/foliar/amendment/pesticide application with full input expansion, every observation, recipe versions used, supervisor sign-offs, all REI clearances, all harvest events (partial and final) with wet weights, all waste trim events with disposal records
 - Designed for regulator handoff — meets MN Statute 342.25 record requirements
 
 **14. Today Screen (App Home)**
@@ -1078,15 +1232,47 @@ Each screen below is a feature increment. Build in this priority order unless di
 - Label content: large QR code + position ID + zone color stripe
 - Used for initial setup and replacement of damaged labels
 
-**18. Harvest Workflow (Container + Visual Tag Verification)**
-- Triggered from container record: tap "Begin Harvest"
-- App displays the assigned METRC tag's last 4 digits in large text (e.g., "...6789")
+**18. Harvest Workflows**
+
+Requires batch status `harvesting`. Three distinct entry points, all field-optimized.
+
+**18a. Partial Harvest Entry (METRC: "manicure" — do not use that term in UI)**
+- Triggered from container record during `harvesting` batch status: tap "Partial Harvest"
+- App displays assigned METRC tag last 4 digits for visual verification
+- Form: product_type (flower / larf / popcorn / other), wet_weight, weight_unit, notes
+- Plant remains active — no state changes triggered
+- Multiple partial harvests allowed per plant per harvest batch
+- METRC sync queued as partial harvest lot
+
+**18b. Final Harvest Entry**
+- Triggered from container record: tap "Final Harvest"
+- **If container has multiple active assignments** (plants_per_container > 1), app lists all assigned plants — operator selects which plant is being harvested
+- App displays the selected METRC tag's last 4 digits in large text (e.g., "...6789")
 - Operator visually verifies the physical tag on the plant matches the displayed digits
 - Tap "Confirm match" — proceed; or "Mismatch — investigate" — opens reconciliation flow
-- On confirm: enter wet weight (and optional notes about plant condition) → save
-- Plant assignment automatically unassigned with reason `harvested`
-- METRC sync queue updated with harvest event (Phase 4 pushes to METRC API; Phase 1 queues for manual METRC entry)
-- Container record shows "Vacant — last plant harvested [date]" until reassigned
+- Form: product_type, wet_weight, weight_unit, notes
+- On save:
+  - plant_harvest_event (final_harvest) recorded
+  - Plant assignment unassigned (reason: `harvested`)
+  - Container transitions to `teardown`
+  - Batch plant_count_current updated
+  - System checks if all plants in batch are final-harvested → batch auto-closes if so
+- METRC sync queued (Phase 4 pushes to METRC API; Phase 1 queues for manual entry)
+
+**18c. Waste Trim Entry**
+- Available at any batch status (not gated on `harvesting`)
+- Triggered from container record or row record: tap "Record Waste Trim"
+- Form: trim_reason (controlled vocabulary), wet_weight, weight_unit, notes
+- Waste lifecycle captured: status starts as `collected`
+- Waste disposal confirmation flow: operator marks `disposed` with disposition when complete
+- METRC waste sync queued
+
+**18d. Weather Event — Force Close Harvest Batch**
+- Triggered from harvest batch record: "Force Close (Weather Event)"
+- Requires close_notes describing the weather event
+- Creates new harvest_batch (sequence_number+1) for remaining plants
+- UI surfaces which plants have been final-harvested and which remain
+- Cultivation batch stays in `harvesting` — harvest continues under new batch
 
 **19. Plant Loss Quick Action**
 - Lightweight, fast-entry form for mid-batch plant loss

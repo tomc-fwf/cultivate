@@ -78,6 +78,15 @@ export const api = {
   updateFertigationApplication: (id, data) => req('PATCH', `/applications/fertigation/${id}`, data),
   deleteFertigationApplication: (id) => req('DELETE', `/applications/fertigation/${id}`),
 
+  // Foliar applications
+  getFoliarApplications: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/applications/foliar${q ? '?' + q : ''}`);
+  },
+  createFoliarApplication: (data) => req('POST', '/applications/foliar', data),
+  updateFoliarApplication: (id, data) => req('PATCH', `/applications/foliar/${id}`, data),
+  deleteFoliarApplication: (id) => req('DELETE', `/applications/foliar/${id}`),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

@@ -21,6 +21,8 @@ import ContainerDashboard from './pages/containers/ContainerDashboard';
 import ContainerDetail from './pages/containers/ContainerDetail';
 import FertigationLog from './pages/applications/FertigationLog';
 import FertigationNew from './pages/applications/FertigationNew';
+import FoliarLog from './pages/applications/FoliarLog';
+import FoliarNew from './pages/applications/FoliarNew';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -86,6 +88,8 @@ export default function App() {
               <Route path="/containers/:containerId" element={<Protected><ContainerDetail /></Protected>} />
               <Route path="/applications/fertigation" element={<Protected><FertigationLog /></Protected>} />
               <Route path="/applications/fertigation/new" element={<Protected><FertigationNew /></Protected>} />
+              <Route path="/applications/foliar" element={<Protected><FoliarLog /></Protected>} />
+              <Route path="/applications/foliar/new" element={<Protected><FoliarNew /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
