@@ -13,6 +13,10 @@ import FoliarRecipeDetail from './pages/recipes/FoliarRecipeDetail';
 import FoliarRecipeEdit from './pages/recipes/FoliarRecipeEdit';
 import CropInputs from './pages/inputs/CropInputs';
 import CropInputDetail from './pages/inputs/CropInputDetail';
+import Batches from './pages/batches/Batches';
+import BatchDetail from './pages/batches/BatchDetail';
+import BatchNew from './pages/batches/BatchNew';
+import Strains from './pages/strains/Strains';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -70,6 +74,10 @@ export default function App() {
               <Route path="/recipes/foliar/:id/version" element={<Protected minRole="supervisor"><FoliarRecipeEdit /></Protected>} />
               <Route path="/inputs" element={<Protected><CropInputs /></Protected>} />
               <Route path="/inputs/:id" element={<Protected><CropInputDetail /></Protected>} />
+              <Route path="/batches" element={<Protected><Batches /></Protected>} />
+              <Route path="/batches/new" element={<Protected minRole="supervisor"><BatchNew /></Protected>} />
+              <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
+              <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

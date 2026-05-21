@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Sprout, BookOpen, Package, LogOut } from 'lucide-react';
+import { Sprout, BookOpen, Package, Layers, LogOut } from 'lucide-react';
 import { useAuth } from '../App';
 
 export default function NavBar() {
@@ -10,6 +10,7 @@ export default function NavBar() {
     <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-2 px-1 z-50">
       <NavLink to="/" end className={cls}><Sprout size={22}/><span>Today</span></NavLink>
       <NavLink to="/inputs" className={cls}><Package size={22}/><span>Inputs</span></NavLink>
+      <NavLink to="/batches" className={cls}><Layers size={22}/><span>Batches</span></NavLink>
       <NavLink to="/recipes" className={cls}><BookOpen size={22}/><span>Recipes</span></NavLink>
       <button onClick={logout} className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-400 hover:text-red-500 transition-colors">
         <LogOut size={22}/><span>Logout</span>

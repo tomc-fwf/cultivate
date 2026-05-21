@@ -48,4 +48,21 @@ export const api = {
   createFoliarRecipe: (data) => req('POST', '/recipes/foliar', data),
   createFoliarRecipeVersion: (id, data) => req('POST', `/recipes/foliar/${id}/version`, data),
   deleteFoliarRecipe: (id) => req('DELETE', `/recipes/foliar/${id}`),
+
+  // Strains
+  getStrains: () => req('GET', '/strains'),
+  createStrain: (data) => req('POST', '/strains', data),
+  updateStrain: (id, data) => req('PUT', `/strains/${id}`, data),
+  deleteStrain: (id) => req('DELETE', `/strains/${id}`),
+
+  // Batches
+  getBatches: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/batches${q ? '?' + q : ''}`);
+  },
+  getBatch: (id) => req('GET', `/batches/${id}`),
+  createBatch: (data) => req('POST', '/batches', data),
+  transitionBatch: (id, data) => req('PATCH', `/batches/${id}/transition`, data),
+  updateBatch: (id, data) => req('PATCH', `/batches/${id}`, data),
+  assignBatchRecipe: (id, data) => req('PATCH', `/batches/${id}/recipe`, data),
 };
