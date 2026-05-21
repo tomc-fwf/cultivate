@@ -4,19 +4,52 @@ import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 
 interface IdParams { id: string }
 
-// Valid lifecycle statuses in order
-const STATUS_ORDER = ['germ', 'seedling', 'cult-hoop', 'field-veg', 'field-flower', 'flush', 'harvest', 'closed'] as const;
+const STATUS_ORDER = [
+  'germ', 'seedling', 'cult-hoop',
+  'field-veg', 'field-flower', 'flush',
+  'harvest_window', 'harvesting', 'closed',
+] as const;
 type BatchStatus = (typeof STATUS_ORDER)[number];
 
-// Valid transitions: from → to
 const VALID_TRANSITIONS: Record<string, string> = {
-  'germ': 'seedling',
-  'seedling': 'cult-hoop',
-  'cult-hoop': 'field-veg',
-  'field-veg': 'field-flower',
-  'field-flower': 'flush',
-  'flush': 'harvest',
-  'harvest': 'closed',
+  'germ':          'seedling',
+  'seedling':      'cult-hoop',
+  'cult-hoop':     'field-veg',
+  'field-veg':     'field-flower',
+  'field-flower':  'flush',
+  'flush':         'harvest_window',
+  'harvest_window':'harvesting',
+  'harvesting':    'closed',
+};
+
+// Seed location IDs from 011_locations migration
+const LOCATION = {
+  GERM:      1,
+  SEEDLINGS: 2,
+  CULT_HOOP: 3,
+  // Field: location_id = 3 + sub_zone index (Z1A=4, Z1B=5, Z2A=6 ... Z4B=11)
+  // Resolved at runtime via cv_locations.sub_zone_id join
+} as const;
+
+// Transitions where a location move is auto-generated alongside the phase change.
+// cult-hoop → field-veg is NOT here: the planting plan commit owns that move.
+const IMPLIED_LOCATION_MOVES: Partial<Record<string, { to_location_id: number }>> = {
+  'seedling':  { to_location_id: LOCATION.SEEDLINGS },
+  'cult-hoop': { to_location_id: LOCATION.CULT_HOOP },
+};
+
+// Transitions that generate a METRC "Change Growth Phase" event.
+// Pre-field sub-stage changes (germ→seedling, seedling→cult-hoop) are internal only —
+// METRC tracks immature plants as a group with no sub-stage distinction.
+const METRC_PHASE_EVENT: Partial<Record<string, boolean>> = {
+  'field-veg':    true,  // Immature → Vegetative in METRC
+  'field-flower': true,  // Vegetative → Flowering in METRC
+};
+
+// Transitions that generate a METRC "Move Plants" event for the implied location move.
+const METRC_LOCATION_EVENT: Partial<Record<string, boolean>> = {
+  'seedling':  true,
+  'cult-hoop': true,
 };
 
 interface BatchCreateBody {
@@ -45,50 +78,44 @@ interface RecipeAssignBody {
   notes?: string | null;
 }
 
-/**
- * Build the enriched batch query shared by list and detail endpoints.
- */
-function batchBaseQuery(db: ReturnType<typeof import('../../db/index.js').getDB>) {
-  return db.prepare(`
-    SELECT b.*,
-           s.name AS strain_name,
-           s.type AS strain_type,
-           bsr.recipe_id AS active_recipe_id,
-           fr.name AS active_recipe_name,
-           fr.version AS active_recipe_version,
-           fr.ec_target_low AS active_recipe_ec_low,
-           fr.ec_target_high AS active_recipe_ec_high,
-           fr.ph_target_low AS active_recipe_ph_low,
-           fr.ph_target_high AS active_recipe_ec_ph_high,
-           COALESCE(
-             (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-             0
-           ) AS active_assignment_count,
-           CAST(
-             ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date)))
-           AS INTEGER) AS days_in_stage
-    FROM cv_batches b
-    JOIN cv_strains s ON s.strain_id = b.strain_id
-    LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-    LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-  `);
-}
+const STATUS_RANK: Record<string, number> = Object.fromEntries(
+  STATUS_ORDER.map((s, i) => [s, i])
+);
 
-/**
- * Compute plant_count_current: active assignments if any exist, else plant_count_initial.
- */
+// Shared enriched SELECT used by list and detail endpoints
+const BATCH_SELECT = `
+  SELECT b.*,
+         s.name AS strain_name,
+         s.type AS strain_type,
+         loc.name AS current_location_name,
+         loc.location_type AS current_location_type,
+         bsr.recipe_id AS active_recipe_id,
+         fr.name AS active_recipe_name,
+         fr.version AS active_recipe_version,
+         fr.ec_target_low AS active_recipe_ec_low,
+         fr.ec_target_high AS active_recipe_ec_high,
+         fr.ph_target_low AS active_recipe_ph_low,
+         fr.ph_target_high AS active_recipe_ph_high,
+         COALESCE(
+           (SELECT COUNT(*) FROM cv_plant_assignments pa
+            WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
+           0
+         ) AS active_assignment_count,
+         CAST(
+           ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date)))
+         AS INTEGER) AS days_in_stage
+  FROM cv_batches b
+  JOIN cv_strains s ON s.strain_id = b.strain_id
+  LEFT JOIN cv_locations loc ON loc.location_id = b.current_location_id
+  LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
+  LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
+`;
+
 function resolvedPlantCount(row: Record<string, unknown>): number {
   const activeCount = Number(row['active_assignment_count'] ?? 0);
   if (activeCount > 0) return activeCount;
   return Number(row['plant_count_initial'] ?? 0);
 }
-
-/**
- * Status sort order for list endpoint.
- */
-const STATUS_RANK: Record<string, number> = Object.fromEntries(
-  STATUS_ORDER.map((s, i) => [s, i])
-);
 
 const batchesRoutes: FastifyPluginAsync = async (app) => {
 
@@ -100,101 +127,29 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
     const { status = 'active' } = request.query as { status?: string };
-
     const db = getDB();
-    let rows: Record<string, unknown>[];
 
+    let whereClause = '';
     if (status === 'closed') {
-      rows = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ec_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        WHERE b.status = 'closed'
-        ORDER BY b.sow_date DESC
-      `).all() as Record<string, unknown>[];
-    } else if (status === 'all') {
-      rows = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ec_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        ORDER BY b.sow_date DESC
-      `).all() as Record<string, unknown>[];
-    } else {
-      // active (default)
-      rows = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ec_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        WHERE b.status != 'closed'
-        ORDER BY b.sow_date DESC
-      `).all() as Record<string, unknown>[];
+      whereClause = "WHERE b.status = 'closed'";
+    } else if (status !== 'all') {
+      whereClause = "WHERE b.status != 'closed'";
     }
 
-    // Sort by status priority, then sow_date DESC
+    const rows = db.prepare(`${BATCH_SELECT} ${whereClause} ORDER BY b.sow_date DESC`)
+      .all() as Record<string, unknown>[];
+
     rows.sort((a, b) => {
       const rankDiff = (STATUS_RANK[a['status'] as string] ?? 99) - (STATUS_RANK[b['status'] as string] ?? 99);
       if (rankDiff !== 0) return rankDiff;
       return String(b['sow_date'] ?? '').localeCompare(String(a['sow_date'] ?? ''));
     });
 
-    const enriched = rows.map(row => ({
-      ...row,
-      plant_count_current: resolvedPlantCount(row),
-    }));
-
-    return reply.send(enriched);
+    return reply.send(rows.map(row => ({ ...row, plant_count_current: resolvedPlantCount(row) })));
   });
 
   /**
-   * GET /:id — single batch with full detail.
+   * GET /:id — single batch with full detail including phase and location history.
    */
   app.get<{ Params: IdParams }>(
     '/:id',
@@ -205,32 +160,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       const db = getDB();
 
-      const row = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        WHERE b.batch_id = ?
-      `).get(id) as Record<string, unknown> | undefined;
-
+      const row = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(id) as Record<string, unknown> | undefined;
       if (!row) return reply.code(404).send({ error: 'Batch not found' });
 
-      // Recipe history
       const recipeHistory = db.prepare(`
         SELECT bsr.*, fr.name AS recipe_name, fr.version AS recipe_version,
                u.name AS authorized_by_name
@@ -241,7 +173,27 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY bsr.effective_from DESC
       `).all(id) as Array<Record<string, unknown>>;
 
-      // Application counts
+      const phaseHistory = db.prepare(`
+        SELECT ph.*, u.name AS transitioned_by_name
+        FROM cv_batch_phase_history ph
+        LEFT JOIN cv_users u ON u.id = ph.transitioned_by
+        WHERE ph.batch_id = ?
+        ORDER BY ph.transitioned_at ASC
+      `).all(id) as Array<Record<string, unknown>>;
+
+      const locationHistory = db.prepare(`
+        SELECT lh.*,
+               fl.name AS from_location_name,
+               tl.name AS to_location_name,
+               u.name AS moved_by_name
+        FROM cv_batch_location_history lh
+        LEFT JOIN cv_locations fl ON fl.location_id = lh.from_location_id
+        LEFT JOIN cv_locations tl ON tl.location_id = lh.to_location_id
+        LEFT JOIN cv_users u ON u.id = lh.moved_by
+        WHERE lh.batch_id = ?
+        ORDER BY lh.moved_at ASC
+      `).all(id) as Array<Record<string, unknown>>;
+
       const fertigationCount = (
         db.prepare('SELECT COUNT(*) as n FROM cv_applications_fertigation WHERE batch_id = ?').get(id) as { n: number } | undefined
       )?.n ?? 0;
@@ -256,6 +208,8 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ...row,
         plant_count_current: resolvedPlantCount(row),
         recipe_history: recipeHistory,
+        phase_history: phaseHistory,
+        location_history: locationHistory,
         application_counts: {
           fertigation: fertigationCount,
           foliar: foliarCount,
@@ -267,6 +221,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * POST / — create a new batch. Requires supervisor role.
+   * Writes the initial phase history (germ) and location history (Germ-01) records.
    */
   app.post<{ Body: BatchCreateBody }>(
     '/',
@@ -275,7 +230,6 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const { strain_id, sub_zone_id, plant_count_initial, sow_date, metrc_plant_batch_uid, notes } =
         request.body as BatchCreateBody;
 
-      // Validation
       if (!strain_id || isNaN(Number(strain_id))) {
         return reply.code(400).send({ error: 'strain_id is required' });
       }
@@ -288,51 +242,57 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       const db = getDB();
 
-      // Validate strain exists and is active
       const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(strain_id));
-      if (!strain) {
-        return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
-      }
+      if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
 
-      // Validate sub_zone_id if provided
       if (sub_zone_id) {
         const subZone = db.prepare('SELECT * FROM cv_sub_zones WHERE sub_zone_id = ?').get(sub_zone_id);
-        if (!subZone) {
-          return reply.code(400).send({ error: `sub_zone_id "${sub_zone_id}" does not exist` });
-        }
+        if (!subZone) return reply.code(400).send({ error: `sub_zone_id "${sub_zone_id}" does not exist` });
       }
 
       const now = new Date().toISOString();
       const userId = request.user.id;
 
-      const r = db.prepare(`
-        INSERT INTO cv_batches
-          (strain_id, sub_zone_id, plant_count_initial, sow_date, status, current_stage_since,
-           metrc_plant_batch_uid, notes, supervisor, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        Number(strain_id),
-        sub_zone_id ?? null,
-        Number(plant_count_initial),
-        sow_date,
-        sow_date, // current_stage_since = sow_date for new germination
-        metrc_plant_batch_uid ?? null,
-        notes ?? null,
-        userId,
-        userId,
-        now,
-        now,
-      );
+      const batchId = db.transaction(() => {
+        const r = db.prepare(`
+          INSERT INTO cv_batches
+            (strain_id, sub_zone_id, plant_count_initial, sow_date, status, current_stage_since,
+             current_location_id, metrc_plant_batch_uid, notes, supervisor, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          Number(strain_id),
+          sub_zone_id ?? null,
+          Number(plant_count_initial),
+          sow_date,
+          sow_date,
+          LOCATION.GERM,
+          metrc_plant_batch_uid ?? null,
+          notes ?? null,
+          userId, userId, now, now,
+        );
 
-      const batch = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        WHERE b.batch_id = ?
-      `).get(Number(r.lastInsertRowid)) as Record<string, unknown>;
+        const newBatchId = Number(r.lastInsertRowid);
+
+        // Initial phase record — from_status null = batch created in this state
+        db.prepare(`
+          INSERT INTO cv_batch_phase_history
+            (batch_id, from_status, to_status, transitioned_at, transitioned_by,
+             notes, metrc_sync_status, created_at)
+          VALUES (?, NULL, 'germ', ?, ?, ?, 'not_required', ?)
+        `).run(newBatchId, now, userId, notes ?? null, now);
+
+        // Initial location record — from_location_id null = initial placement
+        db.prepare(`
+          INSERT INTO cv_batch_location_history
+            (batch_id, from_location_id, to_location_id, moved_at, moved_by,
+             trigger, metrc_sync_status, created_at)
+          VALUES (?, NULL, ?, ?, ?, 'manual', 'not_required', ?)
+        `).run(newBatchId, LOCATION.GERM, now, userId, now);
+
+        return newBatchId;
+      })();
+
+      const batch = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(batchId) as Record<string, unknown>;
 
       return reply.code(201).send({
         ...batch,
@@ -341,13 +301,23 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         active_recipe_name: null,
         active_recipe_version: null,
         recipe_history: [],
+        phase_history: db.prepare('SELECT * FROM cv_batch_phase_history WHERE batch_id = ?').all(batchId),
+        location_history: db.prepare('SELECT * FROM cv_batch_location_history WHERE batch_id = ?').all(batchId),
         application_counts: { fertigation: 0, foliar: 0, pesticide: 0 },
       });
     },
   );
 
   /**
-   * PATCH /:id/transition — advance batch through lifecycle stages.
+   * PATCH /:id/transition — advance batch through lifecycle phases.
+   *
+   * Writes to cv_batch_phase_history for every transition.
+   * For transitions that imply a physical location move (germ→seedling,
+   * seedling→cult-hoop), also writes to cv_batch_location_history and
+   * updates current_location_id on the batch.
+   *
+   * cult-hoop → field-veg does NOT generate a location move here —
+   * that move is owned by the planting plan commit workflow.
    */
   app.patch<{ Params: IdParams; Body: TransitionBody }>(
     '/:id/transition',
@@ -372,72 +342,78 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const expectedNext = VALID_TRANSITIONS[currentStatus];
       if (!expectedNext || to_status !== expectedNext) {
         return reply.code(400).send({
-          error: `Invalid transition. Batch is currently "${currentStatus}". Next valid status is "${expectedNext ?? 'none'}"`,
+          error: `Invalid transition. Batch is "${currentStatus}". Next valid status is "${expectedNext ?? 'none'}"`,
         });
       }
 
-      // field-veg requires sub_zone_id to be set
       if (to_status === 'field-veg' && !batch['sub_zone_id']) {
         return reply.code(400).send({
-          error: 'Cannot move to field-veg: sub_zone_id must be set before moving to field. Update the batch first.',
+          error: 'Cannot move to field-veg: sub_zone_id must be set before moving to field',
+        });
+      }
+
+      // harvesting requires notes explaining the management decision
+      if (to_status === 'harvesting' && !notes?.trim()) {
+        return reply.code(400).send({
+          error: 'Transition to harvesting requires notes referencing the maturity observation evidence',
         });
       }
 
       const now = new Date().toISOString();
-      const updates: string[] = ['status = ?', 'current_stage_since = ?', 'updated_at = ?'];
-      const values: unknown[] = [to_status, now, now];
+      const userId = request.user.id;
 
-      // Set appropriate date columns
-      if (to_status === 'seedling') {
-        updates.push('transplant_date = ?');
-        values.push(now);
-      } else if (to_status === 'field-veg') {
-        updates.push('field_move_date = ?');
-        values.push(now);
-      } else if (to_status === 'harvest') {
-        updates.push('harvest_date = ?');
-        values.push(now);
-      } else if (to_status === 'closed') {
-        updates.push('closed_date = ?');
-        values.push(now);
-      }
+      const impliedMove = IMPLIED_LOCATION_MOVES[to_status];
+      const phaseMetrcStatus = METRC_PHASE_EVENT[to_status] ? 'pending' : 'not_required';
+      const locationMetrcStatus = METRC_LOCATION_EVENT[to_status] ? 'pending' : 'not_required';
 
-      // Append notes if provided
-      if (notes && notes.trim()) {
-        const existing = (batch['notes'] as string | null) ?? '';
-        const newNotes = existing
-          ? `${existing}\n[${to_status} transition ${now.slice(0, 10)}] ${notes.trim()}`
-          : `[${to_status} transition ${now.slice(0, 10)}] ${notes.trim()}`;
-        updates.push('notes = ?');
-        values.push(newNotes);
-      }
+      db.transaction(() => {
+        // Build batch UPDATE
+        const updates: string[] = ['status = ?', 'current_stage_since = ?', 'updated_at = ?'];
+        const values: unknown[] = [to_status, now, now];
 
-      values.push(id);
-      db.prepare(`UPDATE cv_batches SET ${updates.join(', ')} WHERE batch_id = ?`).run(...values);
+        if (to_status === 'seedling') {
+          updates.push('transplant_date = ?');
+          values.push(now);
+        } else if (to_status === 'field-veg') {
+          updates.push('field_move_date = ?');
+          values.push(now);
+        } else if (to_status === 'harvesting') {
+          updates.push('harvest_date = ?');
+          values.push(now);
+        } else if (to_status === 'closed') {
+          updates.push('closed_date = ?');
+          values.push(now);
+        }
 
-      // Fetch updated batch with enrichment
-      const row = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        WHERE b.batch_id = ?
-      `).get(id) as Record<string, unknown>;
+        if (impliedMove) {
+          updates.push('current_location_id = ?');
+          values.push(impliedMove.to_location_id);
+        }
+
+        values.push(id);
+        db.prepare(`UPDATE cv_batches SET ${updates.join(', ')} WHERE batch_id = ?`).run(...values);
+
+        // Phase history record
+        db.prepare(`
+          INSERT INTO cv_batch_phase_history
+            (batch_id, from_status, to_status, transitioned_at, transitioned_by,
+             notes, metrc_sync_status, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, currentStatus, to_status, now, userId, notes ?? null, phaseMetrcStatus, now);
+
+        // Location history record — only for transitions that imply a physical move
+        if (impliedMove) {
+          const fromLocationId = batch['current_location_id'] as number | null;
+          db.prepare(`
+            INSERT INTO cv_batch_location_history
+              (batch_id, from_location_id, to_location_id, moved_at, moved_by,
+               trigger, metrc_sync_status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'phase_transition', ?, ?)
+          `).run(id, fromLocationId ?? null, impliedMove.to_location_id, now, userId, locationMetrcStatus, now);
+        }
+      })();
+
+      const row = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(id) as Record<string, unknown>;
 
       const recipeHistory = db.prepare(`
         SELECT bsr.*, fr.name AS recipe_name, fr.version AS recipe_version,
@@ -449,10 +425,33 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY bsr.effective_from DESC
       `).all(id) as Array<Record<string, unknown>>;
 
+      const phaseHistory = db.prepare(`
+        SELECT ph.*, u.name AS transitioned_by_name
+        FROM cv_batch_phase_history ph
+        LEFT JOIN cv_users u ON u.id = ph.transitioned_by
+        WHERE ph.batch_id = ?
+        ORDER BY ph.transitioned_at ASC
+      `).all(id) as Array<Record<string, unknown>>;
+
+      const locationHistory = db.prepare(`
+        SELECT lh.*,
+               fl.name AS from_location_name,
+               tl.name AS to_location_name,
+               u.name AS moved_by_name
+        FROM cv_batch_location_history lh
+        LEFT JOIN cv_locations fl ON fl.location_id = lh.from_location_id
+        LEFT JOIN cv_locations tl ON tl.location_id = lh.to_location_id
+        LEFT JOIN cv_users u ON u.id = lh.moved_by
+        WHERE lh.batch_id = ?
+        ORDER BY lh.moved_at ASC
+      `).all(id) as Array<Record<string, unknown>>;
+
       return reply.send({
         ...row,
         plant_count_current: resolvedPlantCount(row),
         recipe_history: recipeHistory,
+        phase_history: phaseHistory,
+        location_history: locationHistory,
       });
     },
   );
@@ -487,32 +486,26 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if ('sub_zone_id' in body) {
-        const currentStatus = batch['status'] as string;
-        const lockedStatuses = ['field-veg', 'field-flower', 'flush', 'harvest', 'closed'];
-        if (lockedStatuses.includes(currentStatus)) {
+        const lockedStatuses = ['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting', 'closed'];
+        if (lockedStatuses.includes(batch['status'] as string)) {
           return reply.code(400).send({
-            error: `Cannot change sub_zone_id once batch is in "${currentStatus}" status`,
+            error: `Cannot change sub_zone_id once batch is in "${batch['status']}" status`,
           });
         }
         if (body.sub_zone_id) {
           const subZone = db.prepare('SELECT * FROM cv_sub_zones WHERE sub_zone_id = ?').get(body.sub_zone_id);
-          if (!subZone) {
-            return reply.code(400).send({ error: `sub_zone_id "${body.sub_zone_id}" does not exist` });
-          }
+          if (!subZone) return reply.code(400).send({ error: `sub_zone_id "${body.sub_zone_id}" does not exist` });
         }
         updates.push('sub_zone_id = ?');
         values.push(body.sub_zone_id ?? null);
       }
 
       if ('plant_count_initial' in body) {
-        // Only allowed if no plant_assignments exist yet
         const assignmentCount = (
           db.prepare('SELECT COUNT(*) as n FROM cv_plant_assignments WHERE batch_id = ?').get(id) as { n: number }
         ).n;
         if (assignmentCount > 0) {
-          return reply.code(400).send({
-            error: 'Cannot change plant_count_initial once plant assignments exist',
-          });
+          return reply.code(400).send({ error: 'Cannot change plant_count_initial once plant assignments exist' });
         }
         if (!body.plant_count_initial || body.plant_count_initial <= 0) {
           return reply.code(400).send({ error: 'plant_count_initial must be > 0' });
@@ -521,43 +514,15 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         values.push(Number(body.plant_count_initial));
       }
 
-      if (updates.length === 0) {
-        return reply.code(400).send({ error: 'No valid fields to update' });
-      }
+      if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });
 
       updates.push('updated_at = ?');
-      values.push(now);
-      values.push(id);
+      values.push(now, id);
 
       db.prepare(`UPDATE cv_batches SET ${updates.join(', ')} WHERE batch_id = ?`).run(...values);
 
-      const row = db.prepare(`
-        SELECT b.*,
-               s.name AS strain_name,
-               s.type AS strain_type,
-               bsr.recipe_id AS active_recipe_id,
-               fr.name AS active_recipe_name,
-               fr.version AS active_recipe_version,
-               fr.ec_target_low AS active_recipe_ec_low,
-               fr.ec_target_high AS active_recipe_ec_high,
-               fr.ph_target_low AS active_recipe_ph_low,
-               fr.ph_target_high AS active_recipe_ph_high,
-               COALESCE(
-                 (SELECT COUNT(*) FROM cv_plant_assignments pa WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL),
-                 0
-               ) AS active_assignment_count,
-               CAST(ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))) AS INTEGER) AS days_in_stage
-        FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
-        LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
-        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
-        WHERE b.batch_id = ?
-      `).get(id) as Record<string, unknown>;
-
-      return reply.send({
-        ...row,
-        plant_count_current: resolvedPlantCount(row),
-      });
+      const row = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(id) as Record<string, unknown>;
+      return reply.send({ ...row, plant_count_current: resolvedPlantCount(row) });
     },
   );
 
@@ -582,29 +547,24 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       if (!batch) return reply.code(404).send({ error: 'Batch not found' });
 
       const recipe = db.prepare('SELECT * FROM cv_fertigation_recipes WHERE recipe_id = ? AND active = 1').get(Number(recipe_id));
-      if (!recipe) {
-        return reply.code(400).send({ error: 'recipe_id does not exist or is not active' });
-      }
+      if (!recipe) return reply.code(400).send({ error: 'recipe_id does not exist or is not active' });
 
       const now = new Date().toISOString();
       const userId = request.user.id;
 
-      const assignRecipe = db.transaction(() => {
-        // Close any currently open recipe for this batch
+      const newId = db.transaction(() => {
         db.prepare(`
           UPDATE cv_batch_stage_recipes SET effective_to = ? WHERE batch_id = ? AND effective_to IS NULL
         `).run(now, id);
 
-        // Insert new active record
         const r = db.prepare(`
-          INSERT INTO cv_batch_stage_recipes (batch_id, recipe_id, effective_from, effective_to, authorized_by, notes, created_at)
+          INSERT INTO cv_batch_stage_recipes
+            (batch_id, recipe_id, effective_from, effective_to, authorized_by, notes, created_at)
           VALUES (?, ?, ?, NULL, ?, ?, ?)
         `).run(id, Number(recipe_id), now, userId, notes ?? null, now);
 
         return Number(r.lastInsertRowid);
-      });
-
-      const newId = assignRecipe();
+      })();
 
       const record = db.prepare(`
         SELECT bsr.*, fr.name AS recipe_name, fr.version AS recipe_version,

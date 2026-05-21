@@ -9,7 +9,7 @@
 
 | Question | Decision |
 |---|---|
-| Integration pattern | **Option A approved** — shared SQLite database at `/data/farmstock.db` |
+| Integration pattern | ~~Option A~~ → **Revised to Option B** (separate databases, cross-app API) — Railway volumes cannot be shared between services; cultivate uses `/data/cultivate.db` and fetches farmstock catalog data via API |
 | Crop inputs / items relationship | **Farmstock `items` is the master catalog**; cultivate's crop inputs are a subset of inventory, referenced directly from `items` — no separate `crop_inputs` table |
 | Auth | **Standalone auth for cultivate** (own `users` table, own PIN-based JWT, matching farmstock's pattern) — SSO across all siblings is a future initiative as the family matures |
 
