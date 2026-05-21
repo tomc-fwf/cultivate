@@ -53,6 +53,8 @@ export default function BatchNew() {
 
   function validate() {
     const errors = {};
+    if (metrcUid && !/^[A-Za-z0-9]{24}$/.test(metrcUid.trim()))
+      errors.metrcUid = 'METRC UID must be exactly 24 alphanumeric characters';
     if (!strainId) errors.strain = 'Strain is required';
     if (!plantCount || isNaN(Number(plantCount)) || Number(plantCount) <= 0)
       errors.plantCount = 'Plant count must be a positive number';
@@ -127,6 +129,43 @@ export default function BatchNew() {
           {err}
         </div>
       )}
+
+      {/* METRC Plant Batch UID — primary identifier */}
+      <div className="mb-6">
+        <label className="block text-sm font-semibold text-gray-800 mb-1">
+          METRC Plant Batch UID
+        </label>
+        <p className="text-xs text-gray-500 mb-2">
+          The 24-character UID assigned by METRC when the plant batch was created. This is the primary identifier linking this batch to METRC compliance records.
+        </p>
+        <input
+          type="text"
+          value={metrcUid}
+          onChange={e => { setMetrcUid(e.target.value.trim()); setFieldErrors(fe => ({ ...fe, metrcUid: undefined })); }}
+          placeholder="e.g. 1A4FF0300000222000001234"
+          className={`w-full border rounded-xl px-4 py-3 text-base font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-600 ${
+            fieldErrors.metrcUid ? 'border-red-400 bg-red-50' :
+            metrcUid.length === 24 ? 'border-green-500 bg-green-50' :
+            'border-gray-300'
+          }`}
+          style={{ minHeight: '56px' }}
+          maxLength={24}
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+        <div className="flex items-center justify-between mt-1">
+          {fieldErrors.metrcUid ? (
+            <p className="text-red-500 text-xs">{fieldErrors.metrcUid}</p>
+          ) : metrcUid.length > 0 && metrcUid.length < 24 ? (
+            <p className="text-amber-600 text-xs">{24 - metrcUid.length} characters remaining</p>
+          ) : metrcUid.length === 24 ? (
+            <p className="text-green-700 text-xs font-medium">✓ Valid format</p>
+          ) : (
+            <p className="text-gray-400 text-xs">Required before harvest. Can be added now or from the batch detail.</p>
+          )}
+          <span className="text-xs text-gray-400 font-mono">{metrcUid.length}/24</span>
+        </div>
+      </div>
 
       {/* Strain */}
       <div className="mb-5">
@@ -297,21 +336,6 @@ export default function BatchNew() {
         {fieldErrors.sowDate && (
           <p className="text-red-500 text-xs mt-1">{fieldErrors.sowDate}</p>
         )}
-      </div>
-
-      {/* METRC UID */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">METRC Plant Batch UID</label>
-        <input
-          type="text"
-          value={metrcUid}
-          onChange={e => setMetrcUid(e.target.value)}
-          placeholder="24-character UID — can be added later"
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-600"
-          style={{ minHeight: '56px' }}
-          maxLength={64}
-        />
-        <p className="text-xs text-gray-400 mt-1">Required before harvest. Add now or later from the batch detail view.</p>
       </div>
 
       {/* Notes */}

@@ -180,6 +180,17 @@ function BatchCard({ batch, onClick }) {
           Sow {batch.sow_date}
         </span>
       </div>
+
+      {/* METRC UID row */}
+      <div className="mt-2 pt-2 border-t border-gray-100">
+        {batch.metrc_plant_batch_uid ? (
+          <span className="text-xs font-mono text-gray-500 tracking-wide">
+            METRC <span className="text-gray-400">{batch.metrc_plant_batch_uid.slice(0, -4)}</span><span className="font-bold text-gray-700">{batch.metrc_plant_batch_uid.slice(-4)}</span>
+          </span>
+        ) : (
+          <span className="text-xs text-amber-600 font-medium">⚠ No METRC UID — required before harvest</span>
+        )}
+      </div>
     </div>
   );
 }

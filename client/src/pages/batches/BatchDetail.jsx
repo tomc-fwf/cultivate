@@ -142,14 +142,20 @@ export default function BatchDetail() {
             </span>
           </div>
         </div>
-        {batch.metrc_plant_batch_uid && (
+        {batch.metrc_plant_batch_uid ? (
           <button
             onClick={() => { navigator.clipboard?.writeText(batch.metrc_plant_batch_uid); }}
-            className="text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 font-mono hover:text-gray-600 transition-colors"
-            title="Copy METRC UID"
+            className="text-xs bg-green-50 border border-green-200 rounded-lg px-3 py-1.5 font-mono hover:bg-green-100 transition-colors text-left"
+            title="Tap to copy full METRC UID"
           >
-            {batch.metrc_plant_batch_uid.slice(0, 8)}…
+            <div className="text-[10px] text-green-700 font-sans font-semibold mb-0.5 uppercase tracking-wide">METRC Plant Batch</div>
+            <span className="text-gray-500">{batch.metrc_plant_batch_uid.slice(0, -4)}</span><span className="font-bold text-green-800">{batch.metrc_plant_batch_uid.slice(-4)}</span>
           </button>
+        ) : (
+          <div className="text-xs bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+            <div className="text-[10px] text-amber-700 font-semibold uppercase tracking-wide mb-0.5">METRC Plant Batch</div>
+            <span className="text-amber-700 font-medium">No UID — required before harvest</span>
+          </div>
         )}
       </div>
 
@@ -373,48 +379,75 @@ function MetrcEditInline({ batch, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
+  const isValid = value.length === 0 || /^[A-Za-z0-9]{24}$/.test(value.trim());
+
   if (!editing) {
     return (
-      <div className="flex items-center gap-2 mb-4 text-sm">
-        <span className="text-gray-500">METRC UID:</span>
-        <span className={`font-mono ${batch.metrc_plant_batch_uid ? 'text-gray-700' : 'text-amber-600 italic'}`}>
-          {batch.metrc_plant_batch_uid || 'Not set — required before harvest'}
-        </span>
-        <button onClick={() => setEditing(true)} className="text-xs text-green-700 underline hover:text-green-900">
-          Edit
-        </button>
-      </div>
+      <button
+        onClick={() => setEditing(true)}
+        className="w-full flex items-center justify-between mb-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 hover:border-green-400 transition-colors text-left"
+      >
+        <div>
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">METRC Plant Batch UID</div>
+          {batch.metrc_plant_batch_uid ? (
+            <span className="font-mono text-sm text-gray-700 tracking-wide">
+              {batch.metrc_plant_batch_uid}
+            </span>
+          ) : (
+            <span className="text-sm text-amber-600 font-medium">Not set — required before harvest</span>
+          )}
+        </div>
+        <span className="text-xs text-green-700 font-semibold ml-3 flex-shrink-0">Edit</span>
+      </button>
     );
   }
 
   return (
-    <div className="flex items-center gap-2 mb-4 flex-wrap">
+    <div className="mb-4 bg-gray-50 border border-green-300 rounded-xl px-4 py-3">
+      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">METRC Plant Batch UID</div>
       <input
-        className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono flex-1 min-w-0"
-        placeholder="24-character METRC UID"
+        className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-600 bg-white ${
+          !isValid && value.length > 0 ? 'border-red-400' : value.length === 24 ? 'border-green-500' : 'border-gray-300'
+        }`}
+        placeholder="e.g. 1A4FF0300000222000001234"
         value={value}
-        onChange={e => { setValue(e.target.value); setErr(''); }}
-        maxLength={64}
+        onChange={e => { setValue(e.target.value.trim()); setErr(''); }}
+        maxLength={24}
+        autoCapitalize="characters"
+        spellCheck={false}
       />
-      {err && <span className="text-red-600 text-xs w-full">{err}</span>}
-      <button
-        onClick={async () => {
-          setSaving(true);
-          try {
-            const updated = await api.updateBatch(batch.batch_id, { metrc_plant_batch_uid: value || null });
-            onSaved(updated);
-            setEditing(false);
-          } catch (e) { setErr(e.message); }
-          setSaving(false);
-        }}
-        disabled={saving}
-        className="bg-green-800 text-white text-sm font-semibold px-3 py-2 rounded-lg hover:bg-green-900 disabled:opacity-50"
-      >
-        {saving ? 'Saving…' : 'Save'}
-      </button>
-      <button onClick={() => { setEditing(false); setValue(batch.metrc_plant_batch_uid ?? ''); }} className="text-sm text-gray-500 hover:text-gray-700">
-        Cancel
-      </button>
+      <div className="flex items-center justify-between mt-1 mb-3">
+        {!isValid && value.length > 0 ? (
+          <span className="text-red-600 text-xs">Must be exactly 24 alphanumeric characters</span>
+        ) : value.length === 24 ? (
+          <span className="text-green-700 text-xs font-medium">✓ Valid format</span>
+        ) : (
+          <span className="text-gray-400 text-xs">{24 - value.length} characters remaining</span>
+        )}
+        <span className="text-xs text-gray-400 font-mono">{value.length}/24</span>
+      </div>
+      {err && <p className="text-red-600 text-xs mb-2">{err}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={async () => {
+            if (value.length > 0 && !isValid) { setErr('Must be exactly 24 alphanumeric characters'); return; }
+            setSaving(true);
+            try {
+              const updated = await api.updateBatch(batch.batch_id, { metrc_plant_batch_uid: value.trim() || null });
+              onSaved(updated);
+              setEditing(false);
+            } catch (e) { setErr(e.message); }
+            setSaving(false);
+          }}
+          disabled={saving || (value.length > 0 && !isValid)}
+          className="flex-1 bg-green-800 text-white text-sm font-semibold px-3 py-2.5 rounded-lg hover:bg-green-900 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={() => { setEditing(false); setValue(batch.metrc_plant_batch_uid ?? ''); setErr(''); }} className="text-sm text-gray-500 hover:text-gray-700 px-3">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
