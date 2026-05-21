@@ -139,7 +139,7 @@ export default function ContainerDashboard() {
   }
 
   async function handleBulkReset() {
-    if (!window.confirm('Reset all unoccupied containers (no active batch) to "Ready"? This will log a transition for each one.')) return;
+    if (!window.confirm('Hard reset ALL non-ready containers to "Ready"? This clears any batch linkage and logs a transition for each container. Use for initial setup or data correction only.')) return;
     setResetting(true);
     setResetMsg('');
     try {

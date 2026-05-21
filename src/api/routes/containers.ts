@@ -341,8 +341,8 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * POST /admin/bulk-reset-ready — admin only.
-   * Resets all containers with no current_batch_id to "ready" state.
-   * Use when the seed data is wrong or after a fresh deployment.
+   * Hard resets ALL non-ready containers to "ready" and clears current_batch_id.
+   * Use for initial setup or data correction when containers are in a wrong state.
    */
   app.post(
     '/admin/bulk-reset-ready',
@@ -354,18 +354,18 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
       const toReset = db.prepare(
         `SELECT container_id, current_state FROM cv_container_state
-         WHERE current_batch_id IS NULL AND current_state != 'ready'`,
+         WHERE current_state != 'ready'`,
       ).all() as Array<{ container_id: string; current_state: string }>;
 
       if (toReset.length === 0) {
-        return reply.send({ reset_count: 0, message: 'All unoccupied containers are already ready.' });
+        return reply.send({ reset_count: 0, message: 'All containers are already ready.' });
       }
 
       const doReset = db.transaction(() => {
         const upd = db.prepare(
           `UPDATE cv_container_state
-           SET current_state='ready', state_since=?, updated_at=?
-           WHERE container_id=? AND current_batch_id IS NULL`,
+           SET current_state='ready', state_since=?, current_batch_id=NULL, updated_at=?
+           WHERE container_id=?`,
         );
         const log = db.prepare(
           `INSERT INTO cv_container_state_transitions
