@@ -31,6 +31,11 @@ import REIDashboard from './pages/applications/REIDashboard';
 import ObservationLog from './pages/observations/ObservationLog';
 import ObservationNew from './pages/observations/ObservationNew';
 import ApplicationsHub from './pages/applications/ApplicationsHub';
+import HarvestDashboard from './pages/harvest/HarvestDashboard';
+import PartialHarvestForm from './pages/harvest/PartialHarvestForm';
+import FinalHarvestForm from './pages/harvest/FinalHarvestForm';
+import WasteTrimForm from './pages/harvest/WasteTrimForm';
+import WeatherEventClose from './pages/harvest/WeatherEventClose';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -106,6 +111,12 @@ export default function App() {
               <Route path="/rei" element={<Protected><REIDashboard /></Protected>} />
               <Route path="/observations" element={<Protected><ObservationLog /></Protected>} />
               <Route path="/observations/new" element={<Protected><ObservationNew /></Protected>} />
+              {/* Harvest routes — static segments first to beat :batchId */}
+              <Route path="/harvest/waste-trim/new" element={<Protected><WasteTrimForm /></Protected>} />
+              <Route path="/harvest/batches/:harvestBatchId/force-close" element={<Protected minRole="supervisor"><WeatherEventClose /></Protected>} />
+              <Route path="/harvest/:batchId" element={<Protected><HarvestDashboard /></Protected>} />
+              <Route path="/harvest/:batchId/partial" element={<Protected><PartialHarvestForm /></Protected>} />
+              <Route path="/harvest/:batchId/final" element={<Protected><FinalHarvestForm /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

@@ -126,6 +126,7 @@ export default function BatchDetail() {
   const [error, setError] = useState('');
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
+  const [readinessSummary, setReadinessSummary] = useState(null);
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -137,6 +138,14 @@ export default function BatchDetail() {
   }
 
   useEffect(() => { load(); }, [id]);
+
+  // Load readiness summary when batch is in harvest_window status
+  useEffect(() => {
+    if (batch?.status !== 'harvest_window') return;
+    api.getReadinessSummary(batch.batch_id)
+      .then(data => setReadinessSummary(data))
+      .catch(() => setReadinessSummary(null));
+  }, [batch?.status, batch?.batch_id]);
 
   if (loading) return <div className="max-w-2xl mx-auto px-4 py-6 text-gray-500 text-sm">Loading…</div>;
   if (error || !batch) {
@@ -299,11 +308,62 @@ export default function BatchDetail() {
         )}
       </div>
 
+      {/* ── Harvest Readiness Summary — shown during harvest_window ── */}
+      {batch.status === 'harvest_window' && (
+        <div className="bg-orange-50 border border-orange-200 rounded-2xl p-5 mb-4">
+          <h2 className="font-semibold text-orange-900 text-sm uppercase tracking-wide mb-3">Harvest Window — Readiness</h2>
+          {readinessSummary ? (
+            <div>
+              <div className="text-sm text-orange-800 font-semibold mb-2">
+                {readinessSummary.containers_assessed ?? 0} / {readinessSummary.total_containers ?? '?'} containers assessed
+              </div>
+              {readinessSummary.rows && readinessSummary.rows.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {readinessSummary.rows.map(r => (
+                    <div key={r.row_id} className="flex items-center gap-3 text-xs">
+                      <span className="font-mono font-semibold text-gray-700 w-16 flex-shrink-0">{r.row_id}</span>
+                      <div className="flex-1 bg-orange-200 rounded-full h-2">
+                        <div
+                          className="bg-orange-600 h-2 rounded-full"
+                          style={{ width: `${r.pct_ready ?? 0}%` }}
+                        />
+                      </div>
+                      <span className="text-orange-700 font-semibold w-12 text-right">{r.ready_count ?? 0}/{r.total_count ?? 0}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-orange-600">No readiness observations recorded yet.</div>
+          )}
+          <Link
+            to={`/observations/new?batch_id=${batch.batch_id}&category=harvest_readiness`}
+            className="mt-3 flex items-center gap-2 text-sm font-semibold text-orange-800 hover:text-orange-900"
+            style={{ textDecoration: 'none' }}
+          >
+            + Log Readiness Observation →
+          </Link>
+        </div>
+      )}
+
       {/* ── Quick actions for this batch ──────────────────────────────── */}
       {batch.status !== 'closed' && (
         <div className="mb-4">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Log for this batch</h2>
           <div className="flex flex-col gap-2">
+            {/* Harvest Dashboard — shown when harvesting */}
+            {batch.status === 'harvesting' && (
+              <Link
+                to={`/harvest/${batch.batch_id}`}
+                className="flex items-center justify-between w-full bg-green-800 text-white font-semibold rounded-2xl px-5 hover:bg-green-900 transition-colors shadow-sm"
+                style={{ minHeight: '64px', textDecoration: 'none' }}
+              >
+                <span className="flex items-center gap-2 text-base"><span>🌾</span>Harvest Dashboard</span>
+                <span className="text-green-300 text-lg">→</span>
+              </Link>
+            )}
+            {/* Fertigation — hidden during harvesting */}
             {batch.status !== 'harvesting' && (
               <Link
                 to={`/applications/fertigation/new?batch_id=${batch.batch_id}`}
@@ -342,6 +402,13 @@ export default function BatchDetail() {
                 style={{ minHeight: '56px', textDecoration: 'none' }}
               >
                 <span className="text-lg">🔍</span>Observe
+              </Link>
+              <Link
+                to={`/harvest/waste-trim/new?batch_id=${batch.batch_id}`}
+                className="flex items-center gap-2 px-4 py-3 bg-amber-50 border-2 border-amber-300 text-amber-900 font-semibold text-sm rounded-2xl hover:border-amber-500 transition-colors col-span-2"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span>✂️</span>Waste Trim
               </Link>
             </div>
           </div>

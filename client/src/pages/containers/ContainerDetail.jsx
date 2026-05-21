@@ -89,6 +89,9 @@ export default function ContainerDetail() {
   const [savingState, setSavingState] = useState(false);
   const [stateError, setStateError] = useState('');
 
+  // Harvest context — loaded lazily when batch is 'harvesting'
+  const [harvestCtx, setHarvestCtx] = useState(null);
+
   const isAdmin = user && user.role === 'admin';
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -100,6 +103,18 @@ export default function ContainerDetail() {
   }
 
   useEffect(() => { load(); }, [containerId]);
+
+  // Load harvest status when batch is in harvesting status and container is active/empty
+  useEffect(() => {
+    if (!data) return;
+    const { current_batch, current_state } = data;
+    const st = current_state?.current_state;
+    if (current_batch?.status !== 'harvesting') return;
+    if (st !== 'active' && st !== 'empty') return;
+    api.getHarvestStatus(current_batch.batch_id)
+      .then(d => setHarvestCtx(d))
+      .catch(() => setHarvestCtx(null));
+  }, [data]);
 
   async function saveNotes() {
     setSavingNotes(true);
@@ -303,6 +318,67 @@ export default function ContainerDetail() {
           >
             View Batch →
           </button>
+
+          {/* Waste Trim — available whenever container is active */}
+          {state === 'active' && (
+            <button
+              onClick={() => navigate(`/harvest/waste-trim/new?batch_id=${current_batch.batch_id}&container_id=${encodeURIComponent(container.container_id)}`)}
+              className="mt-3 flex items-center gap-2 w-full px-4 py-3 bg-amber-50 border-2 border-amber-200 text-amber-900 font-semibold text-sm rounded-2xl hover:border-amber-400 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              <span>✂️</span>Record Waste Trim
+            </button>
+          )}
+
+          {/* Harvest actions — when batch is harvesting and container is active or empty */}
+          {(state === 'active' || state === 'empty') && current_batch.status === 'harvesting' && (() => {
+            const activeHB = harvestCtx?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'harvest');
+            const activeMB = harvestCtx?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'manicure');
+            const containerAssignment = harvestCtx?.plant_assignments?.find(
+              a => a.container_id === container.container_id && a.unassigned_at === null && !a.has_final_harvest
+            );
+            if (!harvestCtx) return (
+              <div className="mt-3 text-xs text-gray-400">Loading harvest batches…</div>
+            );
+            return (
+              <div className="mt-3 flex flex-col gap-2">
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Harvest Actions</div>
+                <div className="flex gap-2">
+                  {activeMB && containerAssignment ? (
+                    <button
+                      onClick={() => navigate(`/harvest/${current_batch.batch_id}/partial?harvest_batch_id=${activeMB.harvest_batch_id}&assignment_id=${containerAssignment.assignment_id}`)}
+                      className="flex-1 py-3 bg-purple-50 border-2 border-purple-300 text-purple-800 font-semibold text-sm rounded-2xl hover:bg-purple-100 transition-colors"
+                      style={{ minHeight: '56px' }}
+                    >
+                      Partial Harvest
+                    </button>
+                  ) : (
+                    <div className="flex-1 py-3 text-center text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center"
+                      style={{ minHeight: '56px' }}>
+                      {!activeMB ? 'No MB active' : 'No active plant'}
+                    </div>
+                  )}
+                  {activeHB && containerAssignment ? (
+                    <button
+                      onClick={() => navigate(`/harvest/${current_batch.batch_id}/final?harvest_batch_id=${activeHB.harvest_batch_id}&assignment_id=${containerAssignment.assignment_id}`)}
+                      className="flex-1 py-3 bg-red-50 border-2 border-red-300 text-red-800 font-semibold text-sm rounded-2xl hover:bg-red-100 transition-colors"
+                      style={{ minHeight: '56px' }}
+                    >
+                      Final Harvest
+                    </button>
+                  ) : (
+                    <div className="flex-1 py-3 text-center text-xs text-gray-400 bg-gray-50 border border-gray-200 rounded-2xl flex items-center justify-center"
+                      style={{ minHeight: '56px' }}>
+                      {!activeHB ? 'No HB active' : 'No active plant'}
+                    </div>
+                  )}
+                </div>
+                {!containerAssignment && (
+                  <div className="text-xs text-gray-400 text-center">No active unharvested plant in this container</div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       )}
 
