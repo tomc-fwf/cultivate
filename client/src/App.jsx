@@ -36,6 +36,8 @@ import PartialHarvestForm from './pages/harvest/PartialHarvestForm';
 import FinalHarvestForm from './pages/harvest/FinalHarvestForm';
 import WasteTrimForm from './pages/harvest/WasteTrimForm';
 import WeatherEventClose from './pages/harvest/WeatherEventClose';
+import PlantLossForm from './pages/containers/PlantLossForm';
+import PlantReplacementForm from './pages/containers/PlantReplacementForm';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -98,6 +100,8 @@ export default function App() {
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
+              <Route path="/containers/:containerId/loss" element={<Protected><PlantLossForm /></Protected>} />
+              <Route path="/containers/:containerId/replacement" element={<Protected><PlantReplacementForm /></Protected>} />
               <Route path="/containers/:containerId" element={<Protected><ContainerDetail /></Protected>} />
               <Route path="/applications" element={<Protected><ApplicationsHub /></Protected>} />
               <Route path="/applications/fertigation" element={<Protected><FertigationLog /></Protected>} />

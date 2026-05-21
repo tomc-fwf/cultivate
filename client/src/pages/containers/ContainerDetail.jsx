@@ -330,6 +330,28 @@ export default function ContainerDetail() {
             </button>
           )}
 
+          {/* Plant Loss — available when container is active */}
+          {state === 'active' && (
+            <button
+              onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/loss?batch_id=${current_batch.batch_id}`)}
+              className="mt-2 flex items-center gap-2 w-full px-4 py-3 bg-red-50 border-2 border-red-200 text-red-900 font-semibold text-sm rounded-2xl hover:border-red-400 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              <span>🌿</span>Record Plant Loss
+            </button>
+          )}
+
+          {/* Assign Replacement Plant — available when container is empty within an active batch */}
+          {state === 'empty' && (
+            <button
+              onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/replacement?batch_id=${current_batch.batch_id}`)}
+              className="mt-2 flex items-center gap-2 w-full px-4 py-3 bg-green-50 border-2 border-green-200 text-green-900 font-semibold text-sm rounded-2xl hover:border-green-400 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              <span>🌱</span>Assign Replacement Plant
+            </button>
+          )}
+
           {/* Harvest actions — when batch is harvesting and container is active or empty */}
           {(state === 'active' || state === 'empty') && current_batch.status === 'harvesting' && (() => {
             const activeHB = harvestCtx?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'harvest');

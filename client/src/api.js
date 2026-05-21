@@ -125,6 +125,14 @@ export const api = {
   getWasteTrim: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/harvest/waste-trim${q ? '?' + q : ''}`); },
   disposeWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/dispose`, data),
 
+  // Tag assignments
+  getContainerAssignments: (containerId) => req('GET', `/tag-assignments/container/${encodeURIComponent(containerId)}`),
+
+  // Plant loss
+  recordPlantLoss: (data) => req('POST', '/plant-loss', data),
+  getPlantLoss: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/plant-loss${q ? '?' + q : ''}`); },
+  recordReplacement: (data) => req('POST', '/plant-loss/replacements', data),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();
