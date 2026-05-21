@@ -23,6 +23,8 @@ import FertigationLog from './pages/applications/FertigationLog';
 import FertigationNew from './pages/applications/FertigationNew';
 import FoliarLog from './pages/applications/FoliarLog';
 import FoliarNew from './pages/applications/FoliarNew';
+import AmendmentLog from './pages/containers/AmendmentLog';
+import AmendmentNew from './pages/containers/AmendmentNew';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -90,6 +92,8 @@ export default function App() {
               <Route path="/applications/fertigation/new" element={<Protected><FertigationNew /></Protected>} />
               <Route path="/applications/foliar" element={<Protected><FoliarLog /></Protected>} />
               <Route path="/applications/foliar/new" element={<Protected><FoliarNew /></Protected>} />
+              <Route path="/applications/amendments" element={<Protected><AmendmentLog /></Protected>} />
+              <Route path="/applications/amendments/new" element={<Protected><AmendmentNew /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

@@ -14,6 +14,7 @@ import batchesRoutes from './routes/batches.js';
 import containersRoutes from './routes/containers.js';
 import fertigationApplicationsRoutes from './routes/fertigation-applications.js';
 import foliarApplicationsRoutes from './routes/foliar-applications.js';
+import containerAmendmentsRoutes from './routes/container-amendments.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -61,6 +62,7 @@ export async function buildApp() {
   await app.register(containersRoutes, { prefix: '/api/containers' });
   await app.register(fertigationApplicationsRoutes, { prefix: '/api/applications/fertigation' });
   await app.register(foliarApplicationsRoutes, { prefix: '/api/applications/foliar' });
+  await app.register(containerAmendmentsRoutes, { prefix: '/api/applications/amendments' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

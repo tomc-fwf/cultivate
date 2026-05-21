@@ -87,6 +87,15 @@ export const api = {
   updateFoliarApplication: (id, data) => req('PATCH', `/applications/foliar/${id}`, data),
   deleteFoliarApplication: (id) => req('DELETE', `/applications/foliar/${id}`),
 
+  // Container amendments
+  getContainerAmendments: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/applications/amendments${q ? '?' + q : ''}`);
+  },
+  createContainerAmendment: (data) => req('POST', '/applications/amendments', data),
+  updateContainerAmendment: (id, data) => req('PATCH', `/applications/amendments/${id}`, data),
+  deleteContainerAmendment: (id) => req('DELETE', `/applications/amendments/${id}`),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();
