@@ -1109,6 +1109,65 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  const MetrcTagAssignmentsQuerySchema = z.object({
+    batch_id: z.string().optional(),
+    format: z.enum(['json', 'csv']).default('json'),
+  });
+
+  /**
+   * GET /metrc-tag-assignments — active plant tag assignments for METRC submission.
+   * Returns all active tagged assignments ordered by placed_at.
+   * Supports optional ?batch_id filter and ?format=csv.
+   */
+  app.get('/metrc-tag-assignments', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = MetrcTagAssignmentsQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { batch_id, format } = parsed.data;
+
+    const db = getDB();
+
+    const whereClause = batch_id
+      ? 'WHERE pa.metrc_plant_tag IS NOT NULL AND pa.unassigned_at IS NULL AND pa.batch_id = ?'
+      : 'WHERE pa.metrc_plant_tag IS NOT NULL AND pa.unassigned_at IS NULL';
+    const params = batch_id ? [Number(batch_id)] : [];
+
+    const rows = db.prepare(`
+      SELECT pa.assignment_id, pa.metrc_plant_tag, pa.placed_at, pa.tagged_at,
+             pa.metrc_sync_status, pa.container_id,
+             b.metrc_plant_batch_uid, b.batch_id,
+             s.name AS strain_name,
+             c.row_id
+      FROM cv_plant_assignments pa
+      JOIN cv_batches b ON b.batch_id = pa.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      JOIN cv_containers c ON c.container_id = pa.container_id
+      ${whereClause}
+      ORDER BY pa.placed_at ASC
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    if (format === 'csv') {
+      const columns = [
+        'assignment_id', 'metrc_plant_tag', 'metrc_plant_batch_uid', 'batch_id',
+        'strain_name', 'container_id', 'row_id', 'placed_at', 'tagged_at',
+        'metrc_sync_status',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="metrc-tag-assignments-${dateStr}.csv"`);
+      return reply.send(toCsv(rows, columns));
+    }
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      filter_batch_id: batch_id ? Number(batch_id) : null,
+      total: rows.length,
+      pending_sync: rows.filter(r => r['metrc_sync_status'] === 'pending').length,
+      assignments: rows,
+    });
+  });
+
   const MetrcPhasesQuerySchema = z.object({
     format: z.enum(['json', 'csv']).default('json'),
   });
