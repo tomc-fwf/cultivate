@@ -912,6 +912,82 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       });
     },
   );
+  /**
+   * GET /metrc-waste — aggregate plant waste trim and plant loss events in
+   * METRC waste report format (for Record Plant Destruction in METRC).
+   * Supports optional batch_id, date_from, date_to, format query params.
+   */
+  const MetrcWasteQuerySchema = z.object({
+    batch_id:  z.string().optional(),
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    format:    z.enum(['json', 'csv']).default('json'),
+  });
+
+  app.get('/metrc-waste', { preHandler: requireAuth }, async (request, reply) => {
+    const q = MetrcWasteQuerySchema.parse(request.query);
+    const db = getDB();
+
+    const trimWhere = buildDateBatchWhere('wt.trimmed_at', 'wt.batch_id', q.date_from, q.date_to, q.batch_id);
+    const lossWhere = buildDateBatchWhere('pl.occurred_at', 'pl.batch_id', q.date_from, q.date_to, q.batch_id);
+
+    const trimRows = db.prepare(`
+      SELECT wt.waste_trim_id AS event_id, 'waste_trim' AS event_type,
+             wt.trimmed_at AS event_date, wt.wet_weight, wt.weight_unit,
+             wt.trim_reason AS reason, wt.waste_status, wt.disposed_at,
+             wt.disposition, wt.metrc_sync_status,
+             wt.metrc_plant_tag AS metrc_tag,
+             b.metrc_plant_batch_uid, b.batch_id,
+             s.name AS strain_name,
+             pa.metrc_plant_tag AS assignment_tag,
+             u.name AS applicator_name
+      FROM cv_plant_waste_trim_events wt
+      LEFT JOIN cv_batches b ON b.batch_id = wt.batch_id
+      LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_plant_assignments pa ON pa.assignment_id = wt.plant_assignment_id
+      LEFT JOIN cv_users u ON u.id = wt.applicator
+      ${trimWhere.sql}
+      ORDER BY wt.trimmed_at DESC LIMIT 1000
+    `).all(...trimWhere.params) as Array<Record<string, unknown>>;
+
+    const lossRows = db.prepare(`
+      SELECT pl.loss_id AS event_id, 'plant_loss' AS event_type,
+             pl.occurred_at AS event_date, NULL AS wet_weight, NULL AS weight_unit,
+             pl.loss_type AS reason, pl.plant_disposition AS waste_status,
+             pl.occurred_at AS disposed_at, pl.plant_disposition AS disposition,
+             pl.metrc_sync_status,
+             pl.metrc_plant_tag AS metrc_tag,
+             b.metrc_plant_batch_uid, b.batch_id,
+             s.name AS strain_name,
+             pl.metrc_plant_tag AS assignment_tag,
+             u.name AS applicator_name
+      FROM cv_plant_loss_events pl
+      LEFT JOIN cv_batches b ON b.batch_id = pl.batch_id
+      LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_users u ON u.id = pl.reported_by
+      ${lossWhere.sql}
+      ORDER BY pl.occurred_at DESC LIMIT 1000
+    `).all(...lossWhere.params) as Array<Record<string, unknown>>;
+
+    const rows = [...trimRows, ...lossRows].sort((a, b) =>
+      String(b['event_date'] ?? '').localeCompare(String(a['event_date'] ?? ''))
+    );
+
+    if (q.format === 'csv') {
+      const cols = [
+        'event_date', 'event_type', 'metrc_plant_batch_uid', 'metrc_tag',
+        'strain_name', 'reason', 'wet_weight', 'weight_unit',
+        'waste_status', 'disposed_at', 'disposition', 'applicator_name',
+        'metrc_sync_status',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="metrc-waste-${dateStr}.csv"`);
+      return reply.send(toCsv(rows, cols));
+    }
+
+    return reply.send(rows);
+  });
 };
 
 export default exportsRoutes;

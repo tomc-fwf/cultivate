@@ -170,6 +170,8 @@ export const api = {
   getCultivationRecord: (batchId) => req('GET', `/exports/cultivation-record/${batchId}`),
   downloadMetrcCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-additives?${q}`); },
   downloadMdaCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/mda-pesticide?${q}`); },
+  getMetrcWasteExport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-waste${q ? '?' + q : ''}`); },
+  downloadMetrcWasteCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-waste?${q}`); },
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),
