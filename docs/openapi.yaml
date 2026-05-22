@@ -456,6 +456,365 @@ components:
         batch_strain_name: { type: string, nullable: true }
         editable: { type: boolean }
 
+    Observation:
+      type: object
+      description: >
+        Plant observation record enriched with batch strain, observer name, and batch
+        context. `editable` is true within 24 hours of observed_at.
+      properties:
+        observation_id: { type: integer }
+        batch_id: { type: integer }
+        row_id: { type: string, nullable: true, example: "Z1-A-R3" }
+        container_id: { type: string, nullable: true, example: "Z1-A-R3-C12" }
+        observed_at: { type: string, format: date-time }
+        category:
+          type: string
+          enum: [healthy, pest, deficiency, disease, damage, harvest_readiness, other]
+        severity:
+          type: string
+          nullable: true
+          enum: [low, medium, high]
+          description: Required for all categories except harvest_readiness
+        note: { type: string, nullable: true }
+        maturity_pct:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
+          description: Trichome/pistil maturity estimate 0–100. harvest_readiness category only.
+        ready_to_harvest:
+          type: integer
+          nullable: true
+          enum: [0, 1]
+          description: Staff judgment — is this plant ready to harvest now?
+        harvest_priority:
+          type: integer
+          nullable: true
+          description: Relative priority within row (1=highest) for harvest sequencing
+        triggered_app_id: { type: string, nullable: true }
+        resolved_at: { type: string, format: date-time, nullable: true }
+        resolution_note: { type: string, nullable: true }
+        observer: { type: integer }
+        observer_name: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        batch_strain_name: { type: string }
+        batch_sub_zone_id: { type: string, nullable: true }
+        batch_status: { type: string }
+        editable: { type: boolean }
+
+    FertigationRecipe:
+      type: object
+      description: >
+        Active fertigation recipe (one of 7 fixed names). List endpoint returns all
+        7 slots; unfilled slots have recipe_id=null and active=null.
+      properties:
+        recipe_id: { type: integer, nullable: true }
+        name:
+          type: string
+          enum: [BASE, SEEDLING, AUTO-VEG, AUTO-FLOWER, PHOTO-VEG, PHOTO-FLOWER, FLUSH]
+        version: { type: string, nullable: true, example: "1.0" }
+        active: { type: integer, nullable: true, enum: [0, 1] }
+        ec_target_low: { type: number, nullable: true }
+        ec_target_high: { type: number, nullable: true }
+        ph_target_low: { type: number, nullable: true }
+        ph_target_high: { type: number, nullable: true }
+        mixing_order: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        approved_by: { type: integer, nullable: true }
+        approved_at: { type: string, format: date-time, nullable: true }
+        created_by: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time, nullable: true }
+        ingredient_count: { type: integer }
+        version_count: { type: integer }
+
+    FertigationRecipeDetail:
+      allOf:
+        - $ref: '#/components/schemas/FertigationRecipe'
+        - type: object
+          description: Full recipe with ingredients enriched from farmstock and full version history.
+          properties:
+            ingredients:
+              type: array
+              items:
+                type: object
+                properties:
+                  recipe_id: { type: integer }
+                  input_id: { type: integer }
+                  item_name: { type: string, nullable: true, description: Resolved from farmstock; null if unavailable }
+                  rate_value: { type: number }
+                  rate_unit: { type: string, example: "ml_per_gal" }
+                  order_index: { type: integer }
+                  notes: { type: string, nullable: true }
+            version_history:
+              type: array
+              description: All versions of this recipe name, newest first
+              items:
+                type: object
+                properties:
+                  recipe_id: { type: integer }
+                  version: { type: string }
+                  active: { type: integer, enum: [0, 1] }
+                  created_at: { type: string, format: date-time }
+                  approved_at: { type: string, format: date-time, nullable: true }
+                  superseded_at: { type: string, format: date-time, nullable: true }
+                  created_by_name: { type: string, nullable: true }
+
+    FoliarRecipe:
+      type: object
+      description: >
+        Active foliar recipe. Unlike fertigation, there are no fixed name slots —
+        only operator-defined recipes are returned.
+      properties:
+        foliar_recipe_id: { type: integer }
+        name: { type: string }
+        version: { type: string, example: "1.0" }
+        active: { type: integer, enum: [0, 1] }
+        purpose: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        approved_by: { type: integer, nullable: true }
+        approved_at: { type: string, format: date-time, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        ingredient_count: { type: integer }
+        version_count: { type: integer }
+
+    FoliarRecipeDetail:
+      allOf:
+        - $ref: '#/components/schemas/FoliarRecipe'
+        - type: object
+          description: Full recipe with ingredients and version history.
+          properties:
+            ingredients:
+              type: array
+              items:
+                type: object
+                properties:
+                  foliar_recipe_id: { type: integer }
+                  input_id: { type: integer }
+                  item_name: { type: string, nullable: true }
+                  rate_value: { type: number }
+                  rate_unit: { type: string }
+                  order_index: { type: integer }
+                  notes: { type: string, nullable: true }
+            version_history:
+              type: array
+              items:
+                type: object
+                properties:
+                  foliar_recipe_id: { type: integer }
+                  version: { type: string }
+                  active: { type: integer }
+                  created_at: { type: string, format: date-time }
+                  approved_at: { type: string, format: date-time, nullable: true }
+                  superseded_at: { type: string, format: date-time, nullable: true }
+                  created_by_name: { type: string, nullable: true }
+
+    HarvestBatch:
+      type: object
+      description: >
+        Time-bounded harvest event grouping. Normally one per cultivation batch;
+        weather events force-close the current batch and create a new one
+        (sequence_number increments). `batch_type` is `harvest` or `manicure`
+        (METRC term for partial harvest — do not use "manicure" in UI).
+      properties:
+        harvest_batch_id: { type: integer }
+        batch_id: { type: integer }
+        batch_type: { type: string, enum: [harvest, manicure] }
+        sequence_number: { type: integer, description: "1 normally; increments on weather-event force-close" }
+        status: { type: string, enum: [in_progress, completed, force_closed] }
+        started_at: { type: string, format: date-time }
+        started_by: { type: integer }
+        completed_at: { type: string, format: date-time, nullable: true }
+        close_reason: { type: string, nullable: true, enum: [completed, weather_event, other] }
+        close_notes: { type: string, nullable: true }
+        ambient_temp_f: { type: number, nullable: true }
+        ambient_rh: { type: number, nullable: true }
+        wind_speed_mph: { type: number, nullable: true }
+        metrc_name: { type: string, nullable: true, description: "Computed METRC harvest batch name" }
+        closed_by: { type: integer, nullable: true }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    HarvestEvent:
+      type: object
+      description: >
+        Single plant harvest event. Partial harvest leaves the plant alive; final
+        harvest cuts the plant and triggers unassignment + container→teardown.
+        Do not use the term "manicure" in UI — use "partial harvest."
+      properties:
+        harvest_event_id: { type: integer }
+        harvest_batch_id: { type: integer }
+        batch_id: { type: integer }
+        plant_assignment_id: { type: integer }
+        container_id: { type: string }
+        event_type: { type: string, enum: [partial_harvest, final_harvest] }
+        harvested_at: { type: string, format: date-time }
+        product_type: { type: string, enum: [flower, larf, popcorn, trim_product, other] }
+        wet_weight: { type: number }
+        weight_unit: { type: string, example: "g" }
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        metrc_sync_status: { type: string, enum: [pending, synced, failed, not_required] }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    WasteTrimEvent:
+      type: object
+      description: >
+        Waste-generating trim event — distinct from harvest. Available at any batch
+        status. Generates waste not product. Waste lifecycle: collected → held →
+        disposed → reported.
+      properties:
+        waste_trim_id: { type: integer }
+        batch_id: { type: integer }
+        container_id: { type: string, nullable: true }
+        row_id: { type: string, nullable: true }
+        plant_assignment_id: { type: integer, nullable: true }
+        harvest_batch_id: { type: integer, nullable: true }
+        trimmed_at: { type: string, format: date-time }
+        trim_reason:
+          type: string
+          enum: [defoliation, lollipoping, ipm_removal, disease_removal, pest_damage, physical_damage, senescence, other]
+        trim_reason_notes: { type: string, nullable: true }
+        wet_weight: { type: number }
+        weight_unit: { type: string }
+        waste_status: { type: string, enum: [collected, held, disposed, reported] }
+        waste_status_updated_at: { type: string, format: date-time }
+        disposed_at: { type: string, format: date-time, nullable: true }
+        disposition: { type: string, nullable: true, enum: [composted, incinerated, quarantined, tested, other] }
+        disposed_by: { type: integer, nullable: true }
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        metrc_sync_status: { type: string, enum: [pending, synced, failed, not_required] }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+
+    PlantLossEvent:
+      type: object
+      description: >
+        First-class mid-batch plant loss record. Unassigns the plant, transitions
+        the container to `empty` if no active assignments remain, and queues a METRC
+        waste event.
+      properties:
+        loss_id: { type: integer }
+        batch_id: { type: integer }
+        container_id: { type: string }
+        plant_assignment_id: { type: integer }
+        metrc_plant_tag: { type: string, description: "Denormalized METRC tag at loss time. Empty string if plant was untagged." }
+        occurred_at: { type: string, format: date-time }
+        discovered_at: { type: string, format: date-time }
+        loss_type:
+          type: string
+          enum: [death_natural, death_disease, death_pest, physical_damage, removal_culled, removal_quality, accidental, other]
+        loss_cause: { type: string, nullable: true }
+        plant_disposition: { type: string, enum: [disposed_compost, disposed_waste, quarantined, tested, other] }
+        plant_count: { type: integer, default: 1 }
+        reported_by: { type: integer }
+        reported_by_name: { type: string, nullable: true }
+        metrc_sync_status: { type: string, enum: [pending, synced, failed, not_required] }
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        batch_status: { type: string, nullable: true }
+        strain_name: { type: string, nullable: true }
+
+    TagAssignment:
+      type: object
+      description: >
+        Enriched plant assignment (cv_plant_assignments) — the live mapping between
+        METRC plant tags and container positions. Includes container, row, sub-zone,
+        container state, and batch context.
+      properties:
+        assignment_id: { type: integer }
+        batch_id: { type: integer }
+        container_id: { type: string, example: "Z1-A-R3-C12" }
+        metrc_plant_tag: { type: string, nullable: true, description: "24-char METRC UID. Null until tag is assigned." }
+        placed_at: { type: string, format: date-time }
+        placed_by: { type: integer }
+        tagged_at: { type: string, format: date-time, nullable: true }
+        tagged_by: { type: integer, nullable: true }
+        unassigned_at: { type: string, format: date-time, nullable: true }
+        unassign_reason: { type: string, nullable: true, enum: [harvested, destroyed, died, moved, replaced, other] }
+        row_id: { type: string }
+        row_number: { type: integer }
+        sub_zone_id: { type: string }
+        container_state: { type: string, nullable: true }
+        batch_status: { type: string, nullable: true }
+        strain_name: { type: string, nullable: true }
+
+    PlantingPlan:
+      type: object
+      description: >
+        Versioned plan for placing plants into containers in a sub-zone.
+        Status lifecycle: draft → active (first commit) → superseded | cancelled.
+        Committed items are locked — they stay committed and are never rolled back.
+      properties:
+        plan_id: { type: integer }
+        batch_id: { type: integer }
+        sub_zone_id: { type: string, example: Z1A }
+        version: { type: integer }
+        status: { type: string, enum: [draft, active, superseded, cancelled] }
+        supersedes_plan_id: { type: integer, nullable: true }
+        plants_to_place: { type: integer }
+        activated_at: { type: string, format: date-time, nullable: true }
+        superseded_at: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        batch_status: { type: string }
+        strain_name: { type: string }
+        strain_type: { type: string, enum: [auto, photo] }
+        pot_size_gal: { type: integer }
+        sub_zone_container_count: { type: integer }
+        draft_count: { type: integer }
+        committed_count: { type: integer }
+        cancelled_count: { type: integer }
+
+    Sensor:
+      type: object
+      description: SensorPush environmental sensor with current location assignment and latest reading.
+      properties:
+        sensor_id: { type: string, description: SensorPush device ID }
+        device_name: { type: string }
+        label: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        active: { type: integer, enum: [0, 1] }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        battery_pct: { type: number, nullable: true }
+        current_location_id: { type: integer, nullable: true }
+        current_location_name: { type: string, nullable: true }
+        current_sub_zone_id: { type: string, nullable: true }
+        latest_reading:
+          type: object
+          nullable: true
+          properties:
+            observed_at: { type: string, format: date-time }
+            temp_f: { type: number, nullable: true }
+            humidity_rh: { type: number, nullable: true }
+            dew_point_f: { type: number, nullable: true }
+            vpd_kpa: { type: number, nullable: true }
+
+    SensorCurrentReading:
+      type: object
+      description: >
+        Current environmental conditions per assigned sensor. `age_seconds` is
+        elapsed time since last reading; sensor is considered offline when > 30 minutes.
+      properties:
+        sensor_id: { type: string }
+        sensor_label: { type: string, description: "`label` if set, otherwise `device_name`" }
+        location_id: { type: integer }
+        location_name: { type: string }
+        sub_zone_id: { type: string, nullable: true }
+        observed_at: { type: string, format: date-time, nullable: true }
+        age_seconds: { type: integer, nullable: true }
+        temp_f: { type: number, nullable: true }
+        humidity_rh: { type: number, nullable: true }
+        dew_point_f: { type: number, nullable: true }
+        vpd_kpa: { type: number, nullable: true }
+
 tags:
   - name: auth
     description: Authentication — PIN login, JWT refresh, user list
@@ -473,6 +832,24 @@ tags:
     description: EPA-registered pesticide application records with full PHI/REI/MDA compliance
   - name: container-amendments
     description: Container growing-media amendments (compost, nematodes, pH correctors, etc.)
+  - name: observations
+    description: Plant observation logging — pest sightings, deficiencies, harvest readiness assessments
+  - name: fertigation-recipes
+    description: Fertigation recipe library — 7 named slots, versioned and immutable once used in applications
+  - name: foliar-recipes
+    description: Foliar recipe library — operator-defined named mixes, versioned
+  - name: harvest
+    description: Harvest lifecycle — harvest batches, partial/final harvest events, waste trim, weather force-close
+  - name: exports
+    description: Compliance and regulatory exports — METRC additives, MDA pesticide report, cultivation record, compliance dashboard
+  - name: plant-loss
+    description: Mid-batch plant loss events and mid-batch replacement workflow
+  - name: tag-assignments
+    description: METRC plant tag assignment to container positions — single, bulk, and explicit reassignment
+  - name: planting-plans
+    description: Versioned field-placement plans — assigns plants to containers and triggers the cult-hoop → field-veg transition
+  - name: sensors
+    description: SensorPush environmental sensor integration — assignments, readings, current conditions
 
 paths:
   # ─── AUTH ────────────────────────────────────────────────────────────────────
@@ -2469,4 +2846,2764 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
-# TO BE CONTINUED — remaining routes in subsequent tasks
+  # ─── OBSERVATIONS ───────────────────────────────────────────────────────────
+
+  /observations/readiness-summary:
+    get:
+      tags: [observations]
+      summary: Harvest readiness summary per row
+      description: >
+        Returns per-row harvest readiness aggregates for a batch by summarising the
+        most recent `harvest_readiness` observation per container. Used to populate
+        the row-readiness progress bars on BatchDetail during `harvest_window` status.
+      parameters:
+        - name: batch_id
+          in: query
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Per-row readiness summary
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    row_id: { type: string, example: "Z1-A-R3" }
+                    observed_containers: { type: integer, description: Containers with at least one harvest_readiness observation }
+                    ready_count: { type: integer, description: Containers where most-recent observation has ready_to_harvest=1 }
+                    avg_maturity_pct: { type: number, nullable: true }
+                    last_observed_at: { type: string, format: date-time }
+        '400':
+          description: Missing or non-numeric batch_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /observations:
+    get:
+      tags: [observations]
+      summary: List observations
+      description: >
+        Returns observations enriched with batch strain, sub-zone, batch status, and
+        observer name. Default date filter is today. Each record includes `editable`
+        (true within 24 hours of observed_at).
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, example: today }
+          description: "`today` (default), `YYYY-MM-DD`, `7d`, or `30d`"
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [healthy, pest, deficiency, disease, damage, harvest_readiness, other]
+        - name: row_id
+          in: query
+          required: false
+          schema: { type: string, example: "Z1-A-R3" }
+        - name: container_id
+          in: query
+          required: false
+          schema: { type: string, example: "Z1-A-R3-C12" }
+        - name: unresolved
+          in: query
+          required: false
+          schema: { type: string, enum: ['1'] }
+          description: Pass `1` to return only unresolved observations
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 100, maximum: 1000 }
+      responses:
+        '200':
+          description: Array of observations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Observation'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [observations]
+      summary: Create an observation
+      description: >
+        Logs a plant or row observation. Batch must exist and not be closed.
+
+        **Business rules:**
+        - `severity` is required for all categories except `harvest_readiness`
+        - `harvest_readiness` category enables `maturity_pct`, `ready_to_harvest`, and
+          `harvest_priority` fields — these accumulate as evidence for the management
+          decision to begin harvesting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, category]
+              properties:
+                batch_id: { type: integer }
+                row_id: { type: string, nullable: true }
+                container_id: { type: string, nullable: true }
+                observed_at: { type: string, format: date-time, description: Defaults to now }
+                category:
+                  type: string
+                  enum: [healthy, pest, deficiency, disease, damage, harvest_readiness, other]
+                severity:
+                  type: string
+                  nullable: true
+                  enum: [low, medium, high]
+                  description: Required for all categories except harvest_readiness
+                note: { type: string, nullable: true }
+                maturity_pct: { type: integer, minimum: 0, maximum: 100, nullable: true }
+                ready_to_harvest: { type: number, nullable: true, description: "0 or 1" }
+                harvest_priority: { type: integer, nullable: true }
+                triggered_app_id: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Observation created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  observation_id: { type: integer }
+                  batch_id: { type: integer }
+                  category: { type: string }
+                  batch_status: { type: string }
+        '400':
+          description: Validation error, missing severity, batch not found, or batch closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /observations/{id}:
+    patch:
+      tags: [observations]
+      summary: Edit an observation (24h window)
+      description: >
+        Partial update of observation fields within 24 hours of observed_at.
+        Supports marking an observation resolved via `resolved_at` + `resolution_note`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                observed_at: { type: string, format: date-time }
+                category:
+                  type: string
+                  enum: [healthy, pest, deficiency, disease, damage, harvest_readiness, other]
+                severity: { type: string, nullable: true, enum: [low, medium, high] }
+                note: { type: string, nullable: true }
+                maturity_pct: { type: integer, minimum: 0, maximum: 100, nullable: true }
+                ready_to_harvest: { type: number, nullable: true }
+                harvest_priority: { type: integer, nullable: true }
+                resolved_at: { type: string, nullable: true, description: Set to mark resolved; null to un-resolve }
+                resolution_note: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated observation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Observation'
+        '400':
+          description: Validation error or no valid fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Observation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [observations]
+      summary: Delete an observation (admin, 24h window)
+      description: >
+        Hard-deletes the observation. Admin only, within 24 hours of observed_at.
+
+        **Note:** Deletion of compliance records violates business rule 5. Scheduled
+        for removal before production.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Observation deleted
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Observation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── FERTIGATION RECIPES ─────────────────────────────────────────────────────
+
+  /recipes/fertigation:
+    get:
+      tags: [fertigation-recipes]
+      summary: List all 7 fertigation recipe slots
+      description: >
+        Returns all 7 fixed recipe name slots (BASE, SEEDLING, AUTO-VEG, AUTO-FLOWER,
+        PHOTO-VEG, PHOTO-FLOWER, FLUSH) with the active version for each. Slots without
+        a recipe have `recipe_id: null` and `active: null`. Includes `ingredient_count`
+        and `version_count` per slot.
+      responses:
+        '200':
+          description: Array of 7 recipe slot objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FertigationRecipe'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [fertigation-recipes]
+      summary: Create first version of a recipe
+      description: >
+        Creates version 1.0 of a named recipe slot. Returns 409 if an active recipe
+        already exists for that name — use `POST /:id/version` to create a new version.
+        Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, ingredients]
+              properties:
+                name:
+                  type: string
+                  enum: [BASE, SEEDLING, AUTO-VEG, AUTO-FLOWER, PHOTO-VEG, PHOTO-FLOWER, FLUSH]
+                ec_target_low: { type: number, nullable: true }
+                ec_target_high: { type: number, nullable: true }
+                ph_target_low: { type: number, nullable: true }
+                ph_target_high: { type: number, nullable: true }
+                mixing_order: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                ingredients:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [input_id, rate_value, rate_unit, order_index]
+                    properties:
+                      input_id: { type: integer }
+                      rate_value: { type: number }
+                      rate_unit: { type: string, example: "ml_per_gal" }
+                      order_index: { type: integer }
+                      notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Recipe created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe_id: { type: integer }
+        '400':
+          description: Validation error or invalid recipe name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Active recipe for this name already exists — use POST /:id/version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /recipes/fertigation/by-name/{name}:
+    get:
+      tags: [fertigation-recipes]
+      summary: Get active recipe by name
+      description: >
+        Returns the active recipe for a given name with full ingredient list enriched
+        from farmstock (item_name). Useful for recipe display without knowing the recipe_id.
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [BASE, SEEDLING, AUTO-VEG, AUTO-FLOWER, PHOTO-VEG, PHOTO-FLOWER, FLUSH]
+          description: Case-insensitive — normalised to uppercase
+      responses:
+        '200':
+          description: Active recipe with ingredients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FertigationRecipeDetail'
+        '400':
+          description: Invalid recipe name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: No active recipe for this name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /recipes/fertigation/{id}:
+    get:
+      tags: [fertigation-recipes]
+      summary: Get recipe by ID (any version)
+      description: >
+        Returns a specific recipe version (active or superseded) with full ingredients
+        and version history for the same name.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Recipe with ingredients and version history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FertigationRecipeDetail'
+        '400':
+          description: Invalid (non-numeric) recipe ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Recipe not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [fertigation-recipes]
+      summary: Delete a recipe (admin — only if unused)
+      description: >
+        Hard-deletes the recipe and all its ingredients. Blocked with 409 if the
+        recipe has been used in any fertigation application or batch stage record —
+        immutability is required for compliance. Requires admin role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Recipe deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '400':
+          description: Invalid (non-numeric) recipe ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Recipe not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Recipe has been used in applications or batch stage records — cannot delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /recipes/fertigation/{id}/version:
+    post:
+      tags: [fertigation-recipes]
+      summary: Create a new version of an existing recipe
+      description: >
+        Supersedes the given active recipe (sets active=0, superseded_at=now) and
+        creates a new version with the next version string (e.g. "1.0" → "1.1").
+        Both operations happen in a single transaction. Existing applications
+        continue to reference the superseded version. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+          description: The active recipe ID to supersede
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ingredients]
+              properties:
+                ec_target_low: { type: number, nullable: true }
+                ec_target_high: { type: number, nullable: true }
+                ph_target_low: { type: number, nullable: true }
+                ph_target_high: { type: number, nullable: true }
+                mixing_order: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                ingredients:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [input_id, rate_value, rate_unit, order_index]
+                    properties:
+                      input_id: { type: integer }
+                      rate_value: { type: number }
+                      rate_unit: { type: string }
+                      order_index: { type: integer }
+                      notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: New recipe version created; previous version superseded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe_id: { type: integer }
+        '400':
+          description: Validation error or no ingredients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Active recipe not found with that ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── FOLIAR RECIPES ──────────────────────────────────────────────────────────
+
+  /recipes/foliar:
+    get:
+      tags: [foliar-recipes]
+      summary: List active foliar recipes
+      description: >
+        Returns all active foliar recipes with ingredient_count and version_count.
+        Unlike fertigation, there are no fixed name slots — only operator-defined
+        recipes are returned.
+      responses:
+        '200':
+          description: Array of active foliar recipes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FoliarRecipe'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [foliar-recipes]
+      summary: Create a new foliar recipe
+      description: >
+        Creates version 1.0 of a new named foliar recipe. Returns 409 if a recipe
+        with the same name already exists — use `POST /:id/version` to revise.
+        Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, ingredients]
+              properties:
+                name: { type: string, description: Operator-defined name (e.g. "Weekly Preventive Foliar") }
+                purpose: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                ingredients:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [input_id, rate_value, rate_unit, order_index]
+                    properties:
+                      input_id: { type: integer }
+                      rate_value: { type: number }
+                      rate_unit: { type: string }
+                      order_index: { type: integer }
+                      notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Foliar recipe created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  foliar_recipe_id: { type: integer }
+        '400':
+          description: Validation error or missing name/ingredients
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Active recipe with this name already exists — use POST /:id/version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /recipes/foliar/{id}:
+    get:
+      tags: [foliar-recipes]
+      summary: Get foliar recipe by ID
+      description: Returns a recipe with full ingredient list and version history.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Recipe with ingredients and version history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoliarRecipeDetail'
+        '400':
+          description: Invalid (non-numeric) recipe ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Recipe not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [foliar-recipes]
+      summary: Delete a foliar recipe (admin — only if unused)
+      description: >
+        Hard-deletes the recipe. Blocked with 409 if the recipe has been used in
+        any foliar application. Requires admin role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Recipe deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Recipe not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Recipe has been used in foliar applications — cannot delete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /recipes/foliar/{id}/version:
+    post:
+      tags: [foliar-recipes]
+      summary: Create a new version of a foliar recipe
+      description: >
+        Supersedes the active recipe and creates a new version (e.g. "1.0" → "1.1")
+        in a single transaction. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+          description: The active foliar_recipe_id to supersede
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ingredients]
+              properties:
+                purpose: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+                ingredients:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [input_id, rate_value, rate_unit, order_index]
+                    properties:
+                      input_id: { type: integer }
+                      rate_value: { type: number }
+                      rate_unit: { type: string }
+                      order_index: { type: integer }
+                      notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: New version created; previous version superseded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  foliar_recipe_id: { type: integer }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Active recipe not found with that ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── HARVEST ─────────────────────────────────────────────────────────────────
+
+  /harvest/batch/{batchId}:
+    get:
+      tags: [harvest]
+      summary: Harvest status for a cultivation batch
+      description: >
+        Returns the full harvest context for a batch: all harvest batches (with
+        partial and final harvest event counts), all plant assignments with
+        `has_final_harvest` flag, current `plant_count_current`, and batch status.
+        Used by the Harvest Dashboard to show what has been harvested and what remains.
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Harvest status for the batch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  batch_id: { type: integer }
+                  status: { type: string }
+                  plant_count_current: { type: integer }
+                  harvest_batches:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/HarvestBatch'
+                        - type: object
+                          properties:
+                            partial_harvest_count: { type: integer }
+                            final_harvest_count: { type: integer }
+                  plant_assignments:
+                    type: array
+                    items:
+                      type: object
+                      description: cv_plant_assignments row with has_final_harvest flag
+                      properties:
+                        assignment_id: { type: integer }
+                        container_id: { type: string }
+                        metrc_plant_tag: { type: string, nullable: true }
+                        has_final_harvest: { type: integer, enum: [0, 1] }
+        '400':
+          description: Invalid (non-numeric) batch ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /harvest/batches:
+    post:
+      tags: [harvest]
+      summary: Create a harvest batch
+      description: >
+        Creates an in-progress harvest batch for a cultivation batch. The cultivation
+        batch must be in `harvesting` status. Only one `harvest` type batch can be
+        in-progress at a time (multiple `manicure` batches are permitted).
+        Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, batch_type]
+              properties:
+                batch_id: { type: integer }
+                batch_type:
+                  type: string
+                  enum: [harvest, manicure]
+                  description: "`harvest` for product runs; `manicure` for METRC partial harvest batches"
+                ambient_temp_f: { type: number, nullable: true }
+                ambient_rh: { type: number, nullable: true }
+                wind_speed_mph: { type: number, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Harvest batch created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HarvestBatch'
+        '400':
+          description: >
+            Validation error, batch not found, batch not in `harvesting` status,
+            or a harvest batch already in progress (force-close it first)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /harvest/batches/{harvestBatchId}/events:
+    post:
+      tags: [harvest]
+      summary: Record a harvest event (partial or final)
+      description: >
+        Records a product-generating harvest event against an active harvest batch.
+
+        **`partial_harvest`** — plant remains alive; multiple allowed per plant per
+        harvest batch.
+
+        **`final_harvest`** — cuts the plant; triggers:
+        1. Plant assignment unassigned (reason: `harvested`)
+        2. Container → `teardown` state transition
+        3. If all plants in the cultivation batch are now final-harvested:
+           batch status → `closed`, harvest batch status → `completed`
+
+        The harvest batch must have `status = in_progress`. The `plant_assignment_id`
+        must be an active assignment belonging to the cultivation batch.
+      parameters:
+        - name: harvestBatchId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plant_assignment_id, event_type, product_type, wet_weight, weight_unit]
+              properties:
+                plant_assignment_id: { type: integer }
+                event_type: { type: string, enum: [partial_harvest, final_harvest] }
+                product_type: { type: string, enum: [flower, larf, popcorn, trim_product, other] }
+                wet_weight: { type: number, exclusiveMinimum: 0 }
+                weight_unit: { type: string, example: "g" }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Harvest event recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HarvestEvent'
+        '400':
+          description: >
+            Validation error, harvest batch not in_progress, assignment not found or
+            not active, or final_harvest already recorded for this assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Harvest batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /harvest/batches/{harvestBatchId}/force-close:
+    post:
+      tags: [harvest]
+      summary: Force-close a harvest batch (weather event)
+      description: >
+        Force-closes the current in-progress harvest batch due to a weather event.
+        In a single transaction:
+        1. Current batch → `force_closed` with `close_reason: weather_event`
+        2. A new harvest batch (sequence_number+1) is created as `in_progress`
+
+        The cultivation batch remains in `harvesting` status — harvest continues
+        under the new batch. Requires supervisor role.
+      parameters:
+        - name: harvestBatchId
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [close_notes]
+              properties:
+                close_notes:
+                  type: string
+                  minLength: 10
+                  description: Required description of the weather event
+                ambient_temp_f: { type: number, nullable: true, description: Conditions for the new batch }
+                ambient_rh: { type: number, nullable: true }
+                wind_speed_mph: { type: number, nullable: true }
+      responses:
+        '201':
+          description: Force-closed batch and new harvest batch
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  closed_batch:
+                    $ref: '#/components/schemas/HarvestBatch'
+                  new_batch:
+                    $ref: '#/components/schemas/HarvestBatch'
+        '400':
+          description: Validation error or harvest batch not in_progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Harvest batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /harvest/waste-trim:
+    get:
+      tags: [harvest]
+      summary: List waste trim events
+      description: >
+        Returns waste trim events with optional filters. Results are not paginated —
+        use `batch_id` or `container_id` to scope queries. Sorted by `trimmed_at` DESC.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: container_id
+          in: query
+          required: false
+          schema: { type: string, example: "Z1-A-R3-C12" }
+        - name: waste_status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [collected, held, disposed, reported]
+          description: Filter by disposal lifecycle status
+      responses:
+        '200':
+          description: Array of waste trim events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WasteTrimEvent'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [harvest]
+      summary: Record a waste trim event
+      description: >
+        Records material removed from a plant and disposed of as waste. Available
+        at any batch status — not gated on `harvesting`. Creates the event with
+        `waste_status: collected` and `metrc_sync_status: pending`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, trim_reason, wet_weight, weight_unit]
+              properties:
+                batch_id: { type: integer }
+                container_id: { type: string, nullable: true }
+                row_id: { type: string, nullable: true }
+                plant_assignment_id: { type: integer, nullable: true }
+                harvest_batch_id: { type: integer, nullable: true }
+                trim_reason:
+                  type: string
+                  enum: [defoliation, lollipoping, ipm_removal, disease_removal, pest_damage, physical_damage, senescence, other]
+                trim_reason_notes: { type: string, nullable: true }
+                wet_weight: { type: number, exclusiveMinimum: 0 }
+                weight_unit: { type: string, example: "g" }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Waste trim event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WasteTrimEvent'
+        '400':
+          description: Validation error or batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /harvest/waste-trim/{id}/dispose:
+    patch:
+      tags: [harvest]
+      summary: Mark waste trim as disposed
+      description: >
+        Records disposal of collected waste trim material. Sets `waste_status:
+        disposed`, `disposition`, `disposed_at`, and `disposed_by`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [disposition, disposed_at]
+              properties:
+                disposition:
+                  type: string
+                  enum: [composted, incinerated, quarantined, tested, other]
+                disposed_at: { type: string, format: date-time }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated waste trim event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WasteTrimEvent'
+        '400':
+          description: Validation error or invalid waste trim ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Waste trim event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── EXPORTS ─────────────────────────────────────────────────────────────────
+
+  /exports/compliance-dashboard:
+    get:
+      tags: [exports]
+      summary: Real-time compliance posture snapshot (8-panel RAG dashboard)
+      description: >
+        Returns an aggregated JSON object with 8 RAG-status panels:
+        - **active_reis** — RED if any active REI
+        - **phi_watch** — RED if PHI-non-compliant pesticide on a `harvesting` batch; AMBER otherwise
+        - **metrc_pending** — AMBER if any pending METRC sync records
+        - **metrc_failed** — RED if any failed METRC sync records
+        - **untagged_plants** — AMBER if active assignments without a METRC tag
+        - **batches_no_metrc_uid** — AMBER if non-closed batches without a METRC batch UID
+        - **plant_losses_unsynced** — AMBER if pending plant loss METRC sync
+        - **waste_pending_disposal** — AMBER if `collected` or `held` waste trim events
+
+        Overall status is the worst status across all panels.
+      responses:
+        '200':
+          description: Compliance dashboard snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [red, amber, green] }
+                  generated_at: { type: string, format: date-time }
+                  panels: { type: object, description: "8 panels keyed by name; each has `status`, `count`, and optional `items` or `by_type`" }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/plant-inventory:
+    get:
+      tags: [exports]
+      summary: Current plant inventory for inspector handoff
+      description: >
+        Returns all non-closed batches with current plant counts, tagged counts, METRC
+        UID status, active REI flag, current recipe, days in stage, and computed
+        `metrc_name`. Includes summary totals at the top level.
+      responses:
+        '200':
+          description: Plant inventory snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at: { type: string, format: date-time }
+                  total_active_batches: { type: integer }
+                  total_active_plants: { type: integer }
+                  total_tagged_plants: { type: integer }
+                  batches:
+                    type: array
+                    items: { type: object, description: "Enriched batch row with plant_count_current, tagged_count, has_active_rei, metrc_uid_status, days_in_stage, metrc_name" }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/tag-verification:
+    get:
+      tags: [exports]
+      summary: Active plant-to-container tag mapping for walk-through verification
+      description: >
+        Returns all active plant assignments with container position, sub-zone, row,
+        METRC tag (full UID + `last_4`), and `tagged` boolean. Supports optional
+        `sub_zone_id` filter. Responds as JSON or CSV.
+      parameters:
+        - name: sub_zone_id
+          in: query
+          required: false
+          schema: { type: string, example: Z1A }
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [json, csv], default: json }
+      responses:
+        '200':
+          description: Tag verification data (JSON or CSV)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at: { type: string, format: date-time }
+                  filter_sub_zone: { type: string, nullable: true }
+                  total_assigned: { type: integer }
+                  total_tagged: { type: integer }
+                  total_untagged: { type: integer }
+                  assignments: { type: array, items: { type: object } }
+            text/csv:
+              schema: { type: string }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/metrc-reconciliation:
+    get:
+      tags: [exports]
+      summary: METRC sync status across all trackable event types
+      description: >
+        Returns pending/failed/synced counts with oldest pending timestamps for each
+        tracked event type (phase history, location history, harvest events, waste trim,
+        plant loss). Includes batches missing a METRC UID. Pending and failed item
+        details are included (up to 50 per type) for action planning.
+      responses:
+        '200':
+          description: METRC reconciliation report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at: { type: string, format: date-time }
+                  summary:
+                    type: object
+                    properties:
+                      total_pending: { type: integer }
+                      total_failed: { type: integer }
+                      oldest_pending_record: { type: string, format: date-time, nullable: true }
+                      batches_missing_metrc_uid: { type: integer }
+                  by_type: { type: object, description: "Per event type: counts, pending items, failed items" }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/metrc-additives:
+    get:
+      tags: [exports]
+      summary: METRC Record Additives unified export
+      description: >
+        Aggregates all four application types (fertigation, foliar, pesticide,
+        amendment) into a single flat list formatted for METRC "Record Additives"
+        manual entry. Product names are resolved from farmstock (falls back to
+        "Input #N" if farmstock is unavailable). Responds as JSON or CSV.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: date_from
+          in: query
+          required: false
+          schema: { type: string, example: "2026-03-01", description: "YYYY-MM-DD" }
+        - name: date_to
+          in: query
+          required: false
+          schema: { type: string, example: "2026-03-31", description: "YYYY-MM-DD" }
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [json, csv], default: json }
+      responses:
+        '200':
+          description: Flat list of additive records (JSON or CSV attachment)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    application_type: { type: string, enum: [fertigation, foliar, pesticide, amendment] }
+                    applied_at: { type: string, format: date-time }
+                    batch_name: { type: string }
+                    product_name: { type: string }
+                    lot_number: { type: string, nullable: true }
+                    rate: { type: number, nullable: true }
+                    rate_unit: { type: string, nullable: true }
+                    volume_applied: { type: number, nullable: true }
+                    volume_unit: { type: string, nullable: true }
+                    applicator_name: { type: string, nullable: true }
+                    location: { type: string, nullable: true }
+                    notes: { type: string, nullable: true }
+            text/csv:
+              schema: { type: string }
+        '400':
+          description: Validation error (invalid date format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/mda-pesticide:
+    get:
+      tags: [exports]
+      summary: MDA pesticide report (MN Statute 18B.37)
+      description: >
+        Returns all pesticide applications in the date range formatted to MN MDA
+        standards per Statute 18B.37. Product names and EPA registration numbers are
+        resolved from farmstock. Responds as JSON or CSV.
+
+        **Note:** The operation is not currently a commercial applicator — MDA reporting
+        is not mandatory. This export supports future licensing and defensive
+        recordkeeping.
+      parameters:
+        - name: date_from
+          in: query
+          required: true
+          schema: { type: string, example: "2026-03-01", description: "YYYY-MM-DD — required" }
+        - name: date_to
+          in: query
+          required: true
+          schema: { type: string, example: "2026-03-31", description: "YYYY-MM-DD — required" }
+        - name: format
+          in: query
+          required: false
+          schema: { type: string, enum: [json, csv], default: json }
+      responses:
+        '200':
+          description: MDA-formatted pesticide records (JSON or CSV attachment)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    application_date: { type: string, format: date }
+                    applicator_name: { type: string, nullable: true }
+                    applicator_license: { type: string, nullable: true }
+                    crop: { type: string, nullable: true }
+                    site: { type: string, nullable: true }
+                    product_name: { type: string }
+                    epa_reg_no: { type: string, nullable: true }
+                    rate_value: { type: number }
+                    rate_unit: { type: string }
+                    volume_applied: { type: number }
+                    volume_unit: { type: string }
+                    application_method: { type: string }
+                    target_pest: { type: string }
+                    ambient_temp_f: { type: number }
+                    wind_speed_mph: { type: number }
+                    wind_direction: { type: string, nullable: true }
+                    rei_expires_at: { type: string, format: date-time, nullable: true }
+                    phi_compliant: { type: integer, nullable: true, enum: [0, 1] }
+                    batch_name: { type: string }
+            text/csv:
+              schema: { type: string }
+        '400':
+          description: Missing or invalid date_from / date_to
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /exports/cultivation-record/{batchId}:
+    get:
+      tags: [exports]
+      summary: Full per-batch cultivation record (MN Statute 342.25)
+      description: >
+        Returns a comprehensive JSON object covering every aspect of the batch for
+        regulatory audit. Includes batch metadata, all four application types (with
+        recipe ingredients), all observations, harvest batches + events, waste trim
+        events, plant assignments, and plant loss events.
+
+        This is the authoritative cultivation record for MN Statute 342.25 purposes.
+        A PDF export layer is planned for Phase 3.
+      parameters:
+        - name: batchId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Full cultivation record JSON
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generated_at: { type: string, format: date-time }
+                  batch_id: { type: integer }
+                  record_version: { type: string, example: "1.0" }
+                  data:
+                    type: object
+                    properties:
+                      batch: { type: object, description: "Batch row + phase_history, location_history, recipe_history" }
+                      applications:
+                        type: object
+                        properties:
+                          fertigation: { type: array, items: { type: object } }
+                          foliar: { type: array, items: { type: object } }
+                          pesticide: { type: array, items: { type: object } }
+                          amendments: { type: array, items: { type: object } }
+                      observations: { type: array, items: { type: object } }
+                      harvest:
+                        type: object
+                        properties:
+                          harvest_batches: { type: array, items: { type: object } }
+                          harvest_events: { type: array, items: { type: object } }
+                          waste_trim_events: { type: array, items: { type: object } }
+                      plant_assignments: { type: array, items: { type: object } }
+                      plant_losses: { type: array, items: { type: object } }
+        '400':
+          description: Invalid (non-numeric) batch ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── PLANT LOSS ──────────────────────────────────────────────────────────────
+
+  /plant-loss:
+    get:
+      tags: [plant-loss]
+      summary: List plant loss events
+      description: >
+        Returns plant loss events enriched with batch status, strain name, and
+        reporter name. Not paginated — filter by batch_id or container_id.
+        Sorted by occurred_at DESC.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: container_id
+          in: query
+          required: false
+          schema: { type: string, example: "Z1-A-R3-C12" }
+        - name: metrc_sync_status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [pending, synced, failed, not_required]
+          description: Filter by METRC sync status — use `pending` to find unsynced losses
+      responses:
+        '200':
+          description: Array of plant loss events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlantLossEvent'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [plant-loss]
+      summary: Record a plant loss event
+      description: >
+        Records a mid-batch plant loss. In a single transaction:
+        1. Inserts `cv_plant_loss_events`
+        2. Unassigns the `plant_assignment` (reason mapped from loss_type)
+        3. If no active assignments remain in the container → container transitions
+           `active` → `empty`
+
+        The batch must not be closed. The assignment must be active and belong to
+        the specified batch and container. The container must be in `active` state.
+
+        Loss type → unassign reason mapping:
+        - `death_*` → `died`
+        - `physical_damage` / `removal_*` → `destroyed`
+        - `accidental` / `other` → `other`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, container_id, plant_assignment_id, loss_type, plant_disposition]
+              properties:
+                batch_id: { type: integer }
+                container_id: { type: string, example: "Z1-A-R3-C12" }
+                plant_assignment_id: { type: integer }
+                loss_type:
+                  type: string
+                  enum: [death_natural, death_disease, death_pest, physical_damage, removal_culled, removal_quality, accidental, other]
+                loss_cause: { type: string, nullable: true, description: Free text cause description }
+                plant_disposition:
+                  type: string
+                  enum: [disposed_compost, disposed_waste, quarantined, tested, other]
+                occurred_at: { type: string, format: date-time, description: Defaults to now }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Plant loss event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlantLossEvent'
+        '400':
+          description: >
+            Validation error, batch closed, assignment not found or already unassigned,
+            assignment/batch/container mismatch, or container not in active state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch or container state not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /plant-loss/replacements:
+    post:
+      tags: [plant-loss]
+      summary: Assign a replacement plant to an empty container
+      description: >
+        Assigns a new untagged plant placement to an empty container mid-batch.
+        Creates a `cv_plant_assignments` row with `metrc_plant_tag = NULL` and
+        transitions the container `empty` → `active`. The METRC tag must be assigned
+        separately via `POST /tag-assignments`.
+
+        Constraints:
+        - Batch must not be closed
+        - Container must be in `empty` state
+        - Container must be associated with the specified batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, container_id]
+              properties:
+                batch_id: { type: integer }
+                container_id: { type: string, example: "Z1-A-R3-C12" }
+                placed_at: { type: string, format: date-time, description: Defaults to now }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Replacement assignment created; container transitioned to active
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Raw cv_plant_assignments row with metrc_plant_tag=null
+                properties:
+                  assignment_id: { type: integer }
+                  batch_id: { type: integer }
+                  container_id: { type: string }
+                  metrc_plant_tag: { type: string, nullable: true }
+                  placed_at: { type: string, format: date-time }
+        '400':
+          description: Validation error, batch closed, container not empty, or batch mismatch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch or container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── TAG ASSIGNMENTS ─────────────────────────────────────────────────────────
+
+  /tag-assignments/untagged:
+    get:
+      tags: [tag-assignments]
+      summary: List placements awaiting a METRC tag
+      description: >
+        Returns active plant assignments where `metrc_plant_tag IS NULL`, grouped by
+        row. Primary feed for the walk-through tagging workflow. Sorted by
+        sub_zone_id, row_number, position.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: sub_zone_id
+          in: query
+          required: false
+          schema: { type: string, example: Z1A }
+      responses:
+        '200':
+          description: Untagged placements grouped by row
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_untagged: { type: integer }
+                  rows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        row_id: { type: string }
+                        row_number: { type: integer }
+                        sub_zone_id: { type: string }
+                        placements:
+                          type: array
+                          items:
+                            $ref: '#/components/schemas/TagAssignment'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tag-assignments/container/{containerId}:
+    get:
+      tags: [tag-assignments]
+      summary: Active assignments for a container
+      description: >
+        Returns all currently active plant assignments for a container with
+        tagged/untagged counts and enriched context.
+      parameters:
+        - name: containerId
+          in: path
+          required: true
+          schema: { type: string, example: "Z1-A-R3-C12" }
+      responses:
+        '200':
+          description: Active assignments for the container
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  container_id: { type: string }
+                  active_count: { type: integer }
+                  tagged_count: { type: integer }
+                  untagged_count: { type: integer }
+                  assignments:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TagAssignment'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /tag-assignments:
+    post:
+      tags: [tag-assignments]
+      summary: Assign a METRC tag to a single untagged placement
+      description: >
+        Assigns a 24-character METRC plant tag to the oldest untagged active
+        assignment in the specified container. If the container has multiple untagged
+        assignments (plants_per_container > 1), `assignment_id` must be provided to
+        disambiguate.
+
+        Returns **409 TAG_ALREADY_ASSIGNED** if the tag is currently active on any
+        other assignment — use `POST /tag-assignments/reassign` to move it explicitly.
+        No silent reassignment is permitted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [container_id, metrc_plant_tag]
+              properties:
+                container_id: { type: string, example: "Z1-A-R3-C12" }
+                metrc_plant_tag:
+                  type: string
+                  pattern: '^[A-Za-z0-9]{24}$'
+                  description: Must be exactly 24 alphanumeric characters per METRC format
+                assignment_id:
+                  type: integer
+                  nullable: true
+                  description: Required when the container has more than one untagged placement
+      responses:
+        '201':
+          description: Tag assigned — returns updated enriched assignment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagAssignment'
+        '400':
+          description: >
+            Validation error, container not found, no untagged placement found,
+            or multiple untagged placements without assignment_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Tag already assigned to another container
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, enum: [TAG_ALREADY_ASSIGNED] }
+                  message: { type: string }
+                  existing_assignment:
+                    $ref: '#/components/schemas/TagAssignment'
+
+  /tag-assignments/bulk:
+    post:
+      tags: [tag-assignments]
+      summary: Bulk-assign tags to multiple placements
+      description: >
+        Assigns tags to multiple container placements in a single transaction.
+        All items are validated before any writes; if any item fails (bad format,
+        tag already assigned, container not found), the **entire batch is rejected**
+        with a per-item error report. Partial assignment is intentionally not supported
+        as it would leave the batch in an ambiguous state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignments]
+              properties:
+                assignments:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [container_id, metrc_plant_tag]
+                    properties:
+                      container_id: { type: string }
+                      metrc_plant_tag:
+                        type: string
+                        pattern: '^[A-Za-z0-9]{24}$'
+                      assignment_id: { type: integer, nullable: true }
+      responses:
+        '201':
+          description: All tags assigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assigned_count: { type: integer }
+                  assignments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index: { type: integer }
+                        container_id: { type: string }
+                        assignment_id: { type: integer }
+                        metrc_plant_tag: { type: string }
+        '400':
+          description: Validation error (duplicate tags within batch, bad format, etc.)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        index: { type: integer }
+                        container_id: { type: string }
+                        error: { type: string }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Transaction rolled back — entire batch rejected
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  message: { type: string }
+                  failed_index: { type: integer }
+                  failed_container_id: { type: string }
+                  existing_assignment: { type: object, nullable: true }
+
+  /tag-assignments/reassign:
+    post:
+      tags: [tag-assignments]
+      summary: Move an active tag from one assignment to another
+      description: >
+        Explicitly moves a METRC tag from its current assignment to a different
+        untagged placement. Called after a 409 TAG_ALREADY_ASSIGNED response, or to
+        correct a mis-scan. Physical plants do not move — only the METRC tag metadata
+        is corrected. Both changes happen in a single transaction.
+
+        The `reason` is stored on the source assignment's `unassign_notes` for audit.
+        This endpoint enforces the "no silent reassignment" business rule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [metrc_plant_tag, from_assignment_id, to_container_id, reason]
+              properties:
+                metrc_plant_tag:
+                  type: string
+                  pattern: '^[A-Za-z0-9]{24}$'
+                from_assignment_id:
+                  type: integer
+                  description: The assignment currently holding this tag
+                to_container_id:
+                  type: string
+                  description: Target container with an untagged active assignment
+                to_assignment_id:
+                  type: integer
+                  nullable: true
+                  description: Required when to_container_id has multiple untagged placements
+                reason:
+                  type: string
+                  description: Why the tag is being moved (required for audit trail)
+      responses:
+        '200':
+          description: Tag moved — returns both updated assignments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrc_plant_tag: { type: string }
+                  reason: { type: string }
+                  from_assignment:
+                    $ref: '#/components/schemas/TagAssignment'
+                  to_assignment:
+                    $ref: '#/components/schemas/TagAssignment'
+        '400':
+          description: Validation error, source assignment doesn't hold the tag, or no untagged placement at destination
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: from_assignment_id not found or already unassigned, or to_container_id not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── PLANTING PLANS ──────────────────────────────────────────────────────────
+
+  /planting-plans:
+    get:
+      tags: [planting-plans]
+      summary: List planting plans
+      description: >
+        Returns planting plans enriched with batch, strain, sub-zone, and draft/
+        committed/cancelled item counts. Sorted by created_at DESC.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: sub_zone_id
+          in: query
+          required: false
+          schema: { type: string, example: Z1A }
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [draft, active, superseded, cancelled]
+      responses:
+        '200':
+          description: Array of planting plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlantingPlan'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [planting-plans]
+      summary: Create a new draft planting plan
+      description: >
+        Creates a new version 1 draft plan for a batch/sub-zone combination. Only
+        one `draft` or `active` plan is allowed per batch at a time — supersede the
+        existing plan to create a new version. Batch must be in germ, seedling,
+        cult-hoop, or field-veg status. Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, sub_zone_id, plants_to_place]
+              properties:
+                batch_id: { type: integer }
+                sub_zone_id: { type: string, example: Z1A }
+                plants_to_place: { type: integer, minimum: 1 }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Draft plan created with empty items array
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PlantingPlan'
+                  - type: object
+                    properties:
+                      items: { type: array, items: {}, description: Empty at creation }
+        '400':
+          description: Validation error, batch not found, invalid sub_zone_id, or invalid batch status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Batch already has a draft or active plan — supersede it first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}:
+    get:
+      tags: [planting-plans]
+      summary: Get plan detail with items
+      description: Returns the plan with all items enriched with container current state, row, and sub-zone.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Plan with items
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/PlantingPlan'
+                  - type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            item_id: { type: integer }
+                            plan_id: { type: integer }
+                            container_id: { type: string }
+                            plants_count: { type: integer }
+                            status: { type: string, enum: [draft, committed, cancelled] }
+                            notes: { type: string, nullable: true }
+                            committed_at: { type: string, format: date-time, nullable: true }
+                            committed_by: { type: integer, nullable: true }
+                            plant_assignment_id: { type: integer, nullable: true }
+                            container_current_state: { type: string, nullable: true }
+                            row_id: { type: string }
+                            row_number: { type: integer }
+                            sub_zone_id: { type: string }
+        '400':
+          description: Invalid plan ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}/items:
+    post:
+      tags: [planting-plans]
+      summary: Add containers to a draft plan
+      description: >
+        Adds one or more containers to a draft plan. All items are validated in a
+        single transaction — any error rolls back the entire batch. Containers must:
+        - Exist and belong to the plan's sub_zone_id
+        - Be in `ready` state
+        - Not already appear in another active/draft plan
+        - Not be duplicates within this plan
+
+        Accepts either `{ items: [...] }` or a raw array body.
+        Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [container_id]
+                    properties:
+                      container_id: { type: string }
+                      plants_count:
+                        type: integer
+                        description: Defaults to batch.plants_per_container
+                      notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Items added — returns updated plan with all items
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Full plan + items + inserted_ids array
+        '400':
+          description: Plan not in draft status, container validation errors, or no items provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}/items/{itemId}:
+    delete:
+      tags: [planting-plans]
+      summary: Remove a draft item from the plan
+      description: >
+        Soft-deletes a draft item (sets status to `cancelled`). Only `draft` items
+        can be removed — `committed` items are locked. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+        - name: itemId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Item cancelled
+        '400':
+          description: Item not in draft status or invalid IDs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Item not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}/commit:
+    post:
+      tags: [planting-plans]
+      summary: Commit draft items (triggers plant placement)
+      description: >
+        For each committed item (all draft items if `item_ids` omitted):
+        1. Creates one `cv_plant_assignments` row per `plants_count` (no METRC tag)
+        2. Transitions container `ready` → `active`
+        3. Marks plan item `committed`
+        4. Activates plan (status → `active`) on first commit
+
+        **If the batch is still in `cult-hoop`** (first field placement):
+        - Batch transitions to `field-veg`
+        - Writes `cv_batch_phase_history` (METRC sync: pending)
+        - Writes `cv_batch_location_history` (METRC sync: pending)
+
+        Containers are re-validated as `ready` at commit time. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_ids:
+                  type: array
+                  items: { type: integer }
+                  description: Specific item IDs to commit. Omit or pass empty to commit all draft items.
+      responses:
+        '200':
+          description: Updated plan + items + committed_assignment_ids
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Full plan + items + committed_assignment_ids array
+        '400':
+          description: >
+            Plan not in draft/active status, item_ids not found/not draft,
+            no draft items to commit, container no longer ready, or field location not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}/supersede:
+    post:
+      tags: [planting-plans]
+      summary: Create a new version of the plan
+      description: >
+        Copies uncommitted (draft) items from the current plan into a new plan at
+        version+1. Marks the current plan `superseded` and cancels its remaining
+        draft items. Committed items are not carried forward. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes: { type: string, nullable: true, description: Notes for the new version; defaults to prior plan notes }
+      responses:
+        '201':
+          description: New plan version created with copied draft items
+          content:
+            application/json:
+              schema:
+                type: object
+                description: New plan + items
+        '400':
+          description: Plan not in draft or active status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /planting-plans/{id}/cancel:
+    patch:
+      tags: [planting-plans]
+      summary: Cancel a draft plan
+      description: >
+        Cancels all draft items and sets plan status to `cancelled`. Only allowed
+        when plan is in `draft` status (no committed items). Use `supersede` instead
+        if any items have already been committed. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Plan cancelled
+        '400':
+          description: >
+            Plan not in draft status (use supersede for active plans) or already cancelled/superseded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Plan not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── SENSORS ─────────────────────────────────────────────────────────────────
+
+  /sensors:
+    get:
+      tags: [sensors]
+      summary: List all sensors with current assignment and latest reading
+      description: >
+        Returns all sensors in cv_sensors with their current location assignment
+        (if any) and the most recent reading. Sorted by device_name.
+      responses:
+        '200':
+          description: Array of sensors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sensor'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/sync:
+    post:
+      tags: [sensors]
+      summary: Sync sensors from SensorPush API
+      description: >
+        Fetches the sensor list from the SensorPush API and upserts records into
+        `cv_sensors` (INSERT OR REPLACE). Returns counts of new and updated sensors.
+        Requires admin role.
+      responses:
+        '200':
+          description: Sync result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  synced: { type: integer }
+                  new: { type: integer }
+                  updated: { type: integer }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/assignments:
+    get:
+      tags: [sensors]
+      summary: List current sensor-to-location assignments
+      description: Returns all active sensor location assignments enriched with device name, location name, and assigned_by name.
+      responses:
+        '200':
+          description: Array of active assignments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    assignment_id: { type: integer }
+                    sensor_id: { type: string }
+                    sensor_device_name: { type: string }
+                    sensor_label: { type: string, nullable: true }
+                    location_id: { type: integer }
+                    location_name: { type: string }
+                    sub_zone_id: { type: string, nullable: true }
+                    assigned_at: { type: string, format: date-time }
+                    assigned_by_name: { type: string, nullable: true }
+                    notes: { type: string, nullable: true }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [sensors]
+      summary: Assign a sensor to a location
+      description: >
+        Assigns a sensor to a grow location. If the sensor already has an active
+        assignment, it is automatically closed (unassigned) before the new assignment
+        is created. Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sensor_id, location_id]
+              properties:
+                sensor_id: { type: string, description: SensorPush device ID }
+                location_id: { type: integer }
+                sub_zone_id: { type: string, nullable: true, description: Optional sub-zone refinement within the location }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Assignment created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assignment_id: { type: integer }
+                  sensor_id: { type: string }
+                  location_id: { type: integer }
+                  location_name: { type: string }
+                  sub_zone_id: { type: string, nullable: true }
+                  assigned_at: { type: string, format: date-time }
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Sensor or location not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/assignments/{assignmentId}:
+    delete:
+      tags: [sensors]
+      summary: Unassign a sensor from its location
+      description: Sets `unassigned_at` and `unassigned_by` on the active assignment. Requires supervisor role.
+      parameters:
+        - name: assignmentId
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Assignment unassigned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Assignment not found or already unassigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/current:
+    get:
+      tags: [sensors]
+      summary: Current environmental readings for assigned sensors
+      description: >
+        Returns the most recent reading within the past 30 minutes for each active
+        sensor assignment. If a sensor's last reading is older than 5 minutes
+        (configurable), an on-demand poll to SensorPush is attempted (Option C
+        behavior — silently falls back to DB data on failure).
+
+        Optional filters narrow to a specific location or sub-zone.
+      parameters:
+        - name: location_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: sub_zone_id
+          in: query
+          required: false
+          schema: { type: string, example: Z1A }
+      responses:
+        '200':
+          description: Current readings per sensor assignment
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SensorCurrentReading'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/{sensorId}/readings:
+    get:
+      tags: [sensors]
+      summary: Historical readings for a sensor
+      description: >
+        Returns raw or hourly-aggregated readings for a sensor over a specified
+        date range.
+
+        **`raw` resolution:** Full-resolution readings at ~1-minute intervals.
+        Limited to a 7-day range maximum to prevent unbounded results.
+
+        **`hourly` resolution:** Hourly aggregates (avg/min/max) with no range limit.
+        Use for Phase 3 trend charts.
+      parameters:
+        - name: sensorId
+          in: path
+          required: true
+          schema: { type: string }
+          description: SensorPush device ID
+        - name: start
+          in: query
+          required: true
+          schema: { type: string, format: date-time }
+        - name: end
+          in: query
+          required: false
+          schema: { type: string, format: date-time, description: Defaults to now }
+        - name: resolution
+          in: query
+          required: false
+          schema: { type: string, enum: [raw, hourly], default: raw }
+      responses:
+        '200':
+          description: Readings array (raw or hourly)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  description: "Raw: reading_id, observed_at, temp_f, humidity_rh, dew_point_f, vpd_kpa. Hourly: hourly_id, hour_at, *_avg, *_min, *_max, sample_count."
+        '400':
+          description: Validation error or raw range exceeds 7 days
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Sensor not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sensors/poll:
+    post:
+      tags: [sensors]
+      summary: Manually trigger a sensor poll cycle (admin)
+      description: >
+        Runs a full `pollSensors()` cycle: fetches samples from SensorPush for all
+        tracked sensors, inserts new readings (INSERT OR IGNORE for idempotency),
+        updates battery/last_seen metadata, and runs the hourly downsampler.
+
+        Requires `SENSORPUSH_EMAIL` environment variable to be configured.
+        Requires admin role.
+      responses:
+        '200':
+          description: Poll result summary
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Result returned by pollSensors() — readings inserted, sensors updated, etc.
+        '400':
+          description: SENSORPUSH_EMAIL not configured
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
