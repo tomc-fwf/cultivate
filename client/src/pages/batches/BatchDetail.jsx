@@ -139,6 +139,8 @@ export default function BatchDetail() {
   const [error, setError] = useState('');
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
+  const [showBulkTeardownModal, setShowBulkTeardownModal] = useState(false);
+  const [bulkTeardownLoading, setBulkTeardownLoading] = useState(false);
   const [readinessSummary, setReadinessSummary] = useState(null);
   const [batchPlan, setBatchPlan] = useState(null);
   const [toast, setToast] = useState(null);
@@ -196,6 +198,21 @@ export default function BatchDetail() {
       load();
     } catch (e) {
       setError(e.message);
+    }
+  }
+
+  async function handleBulkTeardown() {
+    setBulkTeardownLoading(true);
+    try {
+      const result = await api.bulkTeardown(batch.batch_id);
+      setShowBulkTeardownModal(false);
+      setToast({ message: `Teardown started for ${result.transitioned_count} container${result.transitioned_count !== 1 ? 's' : ''} ✓`, type: 'success' });
+      load();
+    } catch (e) {
+      setShowBulkTeardownModal(false);
+      setToast({ message: e.message, type: 'error' });
+    } finally {
+      setBulkTeardownLoading(false);
     }
   }
 
@@ -513,6 +530,19 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {/* Bulk teardown — shown for closed batches with eligible containers */}
+      {batch.status === 'closed' && isSupervisor && (batch.teardown_eligible_count ?? 0) > 0 && (
+        <div className="mb-4">
+          <button
+            onClick={() => setShowBulkTeardownModal(true)}
+            className="w-full py-4 bg-amber-700 text-white font-semibold rounded-2xl hover:bg-amber-800 transition-colors text-sm shadow-sm"
+            style={{ minHeight: '56px' }}
+          >
+            Start Teardown for All Containers ({batch.teardown_eligible_count})
+          </button>
+        </div>
+      )}
+
       {/* Application counts */}
       {(batch.application_counts?.fertigation > 0 || batch.application_counts?.foliar > 0 || batch.application_counts?.pesticide > 0) && (
         <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
@@ -561,6 +591,15 @@ export default function BatchDetail() {
             setShowTransitionModal(false);
             handleTransition(nextStatus, notes, subZoneId);
           }}
+        />
+      )}
+
+      {showBulkTeardownModal && (
+        <BulkTeardownModal
+          containerCount={batch.teardown_eligible_count ?? 0}
+          loading={bulkTeardownLoading}
+          onClose={() => setShowBulkTeardownModal(false)}
+          onConfirm={handleBulkTeardown}
         />
       )}
     </div>
@@ -877,6 +916,49 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
             style={{ minHeight: '56px' }}
           >
             {saving ? 'Moving…' : actionLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkTeardownModal({ containerCount, loading, onClose, onConfirm }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-10">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
+            Start Bulk Teardown
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <p className="text-sm text-gray-600 mb-2">
+          This will create a teardown record for{' '}
+          <strong>{containerCount} container{containerCount !== 1 ? 's' : ''}</strong> currently
+          in <em>active</em> or <em>empty</em> state for this batch.
+        </p>
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 mb-5">
+          Each container's teardown checklist (plant removal, cleaning, soil sample) will still need to be
+          completed individually via the container record. This action starts the teardown workflow for all of them at once.
+        </p>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 py-3 bg-amber-700 text-white rounded-xl text-sm font-semibold hover:bg-amber-800 disabled:opacity-50"
+            style={{ minHeight: '56px' }}
+          >
+            {loading ? 'Starting…' : `Start Teardown for ${containerCount} Container${containerCount !== 1 ? 's' : ''}`}
           </button>
         </div>
       </div>

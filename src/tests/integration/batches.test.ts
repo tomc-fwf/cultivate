@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, teardownTestContext, type TestContext } from '../helpers/db.js';
 import { authHeader } from '../helpers/auth.js';
-import { createTestStrain, createTestBatch } from '../helpers/fixtures.js';
+import { createTestStrain, createTestBatch, advanceBatchTo, putContainerActive, putContainerEmpty } from '../helpers/fixtures.js';
 
 describe('Batch status transitions — valid paths', () => {
   let ctx: TestContext;
@@ -305,6 +305,114 @@ describe('Batch creation', () => {
         sow_date: '2026-05-01',
       },
     });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('Bulk teardown', () => {
+  let ctx: TestContext;
+  beforeEach(async () => { ctx = await createTestContext(); });
+  afterEach(async () => { await teardownTestContext(ctx); });
+
+  it('transitions active and empty containers to teardown for a closed batch', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
+    advanceBatchTo(ctx.db, b.batch_id, 'closed');
+
+    putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'supervisor'),
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(201);
+    const body = JSON.parse(res.body);
+    expect(body.transitioned_count).toBe(2);
+    expect(body.teardown_ids).toHaveLength(2);
+
+    const state1 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C1') as { current_state: string };
+    const state2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C2') as { current_state: string };
+    expect(state1.current_state).toBe('teardown');
+    expect(state2.current_state).toBe('teardown');
+  });
+
+  it('creates teardown_events for each transitioned container', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
+    advanceBatchTo(ctx.db, b.batch_id, 'closed');
+    putContainerActive(ctx.db, 'Z1-A-R1-C3', b.batch_id);
+
+    await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'supervisor'),
+      payload: {},
+    });
+
+    const events = ctx.db.prepare('SELECT * FROM cv_teardown_events WHERE container_id = ?').all('Z1-A-R1-C3') as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(1);
+    expect(events[0]['batch_id']).toBe(b.batch_id);
+  });
+
+  it('creates state transition log entries', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
+    advanceBatchTo(ctx.db, b.batch_id, 'closed');
+    putContainerActive(ctx.db, 'Z1-A-R1-C4', b.batch_id);
+
+    await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'supervisor'),
+      payload: {},
+    });
+
+    const transitions = ctx.db.prepare(
+      "SELECT * FROM cv_container_state_transitions WHERE container_id = ? AND to_state = 'teardown'"
+    ).all('Z1-A-R1-C4') as Array<Record<string, unknown>>;
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]['trigger_event']).toBe('batch_closed');
+  });
+
+  it('returns transitioned_count 0 when no eligible containers exist', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
+    advanceBatchTo(ctx.db, b.batch_id, 'closed');
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'supervisor'),
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(JSON.parse(res.body).transitioned_count).toBe(0);
+  });
+
+  it('rejects bulk teardown when batch is not closed', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'supervisor'),
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects bulk teardown by grower role (requires supervisor)', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
+
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: {},
+    });
+
     expect(res.statusCode).toBe(403);
   });
 });

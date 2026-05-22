@@ -236,6 +236,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         db.prepare('SELECT COUNT(*) as n FROM cv_applications_pesticide WHERE batch_id = ?').get(id) as { n: number } | undefined
       )?.n ?? 0;
 
+      const teardownEligibleCount = (
+        db.prepare(`
+          SELECT COUNT(*) as n FROM cv_container_state
+          WHERE current_batch_id = ? AND current_state IN ('active', 'empty')
+        `).get(id) as { n: number } | undefined
+      )?.n ?? 0;
+
       return reply.send(enrichBatch({
         ...row,
         plant_count_current: resolvedPlantCount(row),
@@ -247,6 +254,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           foliar: foliarCount,
           pesticide: pesticideCount,
         },
+        teardown_eligible_count: teardownEligibleCount,
       }));
     },
   );
@@ -614,6 +622,83 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).get(newId);
 
       return reply.code(201).send(record);
+    },
+  );
+
+  /**
+   * POST /:id/bulk-teardown — transition all active/empty containers for a closed batch to teardown.
+   * Creates a teardown_event for each container and updates container state in a single transaction.
+   * Requires supervisor role. Batch must be 'closed' (or 'harvesting' with zero active assignments).
+   */
+  app.post<{ Params: IdParams }>(
+    '/:id/bulk-teardown',
+    { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const db = getDB();
+      const batch = db.prepare('SELECT * FROM cv_batches WHERE batch_id = ?').get(id) as Record<string, unknown> | undefined;
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      const status = batch['status'] as string;
+      if (status !== 'closed') {
+        if (status !== 'harvesting') {
+          return reply.code(400).send({ error: `Batch must be 'closed' to run bulk teardown; currently: "${status}"` });
+        }
+        const activeCount = (
+          db.prepare('SELECT COUNT(*) as n FROM cv_plant_assignments WHERE batch_id = ? AND unassigned_at IS NULL').get(id) as { n: number }
+        ).n;
+        if (activeCount > 0) {
+          return reply.code(400).send({
+            error: `Batch has ${activeCount} active plant assignment(s). Close the batch before running bulk teardown.`,
+          });
+        }
+      }
+
+      const now = new Date().toISOString();
+      const today = now.slice(0, 10);
+      const userId = request.user.id;
+
+      const containers = db.prepare(`
+        SELECT container_id, current_state FROM cv_container_state
+        WHERE current_batch_id = ? AND current_state IN ('active', 'empty')
+      `).all(id) as Array<{ container_id: string; current_state: string }>;
+
+      if (containers.length === 0) {
+        return reply.send({ transitioned_count: 0, teardown_ids: [] });
+      }
+
+      const teardownIds: number[] = [];
+
+      db.transaction(() => {
+        for (const c of containers) {
+          const ins = db.prepare(`
+            INSERT INTO cv_teardown_events
+              (container_id, batch_id, started_at, plant_removed, debris_disposed,
+               container_cleaned, soil_sample_collected, performed_by, notes, created_at, created_by)
+            VALUES (?, ?, ?, 0, 0, 0, 0, ?, NULL, ?, ?)
+          `).run(c.container_id, id, now, userId, now, userId);
+          teardownIds.push(Number(ins.lastInsertRowid));
+
+          db.prepare(`
+            UPDATE cv_container_state
+            SET current_state = 'teardown', state_since = ?, last_teardown_date = ?, updated_at = ?
+            WHERE container_id = ?
+          `).run(now, today, now, c.container_id);
+
+          db.prepare(`
+            INSERT INTO cv_container_state_transitions
+              (container_id, from_state, to_state, transitioned_at, transitioned_by, batch_id, trigger_event, created_at)
+            VALUES (?, ?, 'teardown', ?, ?, ?, 'batch_closed', ?)
+          `).run(c.container_id, c.current_state, now, userId, id, now);
+        }
+      })();
+
+      return reply.code(201).send({
+        transitioned_count: containers.length,
+        teardown_ids: teardownIds,
+      });
     },
   );
 
