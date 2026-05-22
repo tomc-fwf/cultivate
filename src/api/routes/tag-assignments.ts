@@ -72,6 +72,33 @@ interface AssignmentMoveParams { assignmentId: string }
 
 const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
 
+  // ── GET / — list active assignments, optionally filtered by batch/sub-zone ─
+  // Used by the audit workflow to walk containers and verify METRC tags.
+  // Filters: ?batch_id, ?sub_zone_id
+  // Returns assignments sorted by sub_zone → row_number → container position.
+
+  app.get('/', { preHandler: requireAuth }, async (request, reply) => {
+    const q = request.query as { batch_id?: string; sub_zone_id?: string };
+    const db = getDB();
+
+    const conditions = ['pa.unassigned_at IS NULL'];
+    const params: unknown[] = [];
+
+    if (q.batch_id) { conditions.push('pa.batch_id = ?'); params.push(Number(q.batch_id)); }
+    if (q.sub_zone_id) { conditions.push('r.sub_zone_id = ?'); params.push(q.sub_zone_id); }
+
+    const rows = db.prepare(`
+      ${ASSIGNMENT_SELECT}
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY r.sub_zone_id, r.row_number, c.position
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    return reply.send({
+      total: rows.length,
+      assignments: rows,
+    });
+  });
+
   // ── GET /untagged — list placements awaiting a METRC tag ─────────────────
   // Primary feed for the walk-through tagging workflow. Returns active
   // plant_assignments where metrc_plant_tag IS NULL, grouped by row.

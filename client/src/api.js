@@ -143,6 +143,7 @@ export const api = {
   disposeWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/dispose`, data),
 
   // Tag assignments
+  getTagAssignments: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/tag-assignments${q ? '?' + q : ''}`); },
   getContainerAssignments: (containerId) => req('GET', `/tag-assignments/container/${encodeURIComponent(containerId)}`),
   getUntaggedAssignments: (params = {}) => {
     const q = new URLSearchParams(params).toString();
