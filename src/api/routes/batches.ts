@@ -157,7 +157,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
    * status=closed: only closed
    * status=all: everything
    */
-  app.get('/', { preHandler: requireAuth }, async (request, reply) => {
+  app.get('/', { preHandler: requireAuthOrServiceKey }, async (request, reply) => {
     const { status = 'active' } = request.query as { status?: string };
     const db = getDB();
 
@@ -697,6 +697,76 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).get(newId);
 
       return reply.code(201).send(record);
+    },
+  );
+
+  /**
+   * GET /:id/labor-summary — aggregate labor hours from Timetrack for this batch.
+   * Calls Timetrack's /api/time-entries?cv_batch_id=<id> using a shared service key.
+   * Returns { batch_id, total_hours, by_activity, by_worker, date_range } on success,
+   * or { error: 'TIMETRACK_UNAVAILABLE' } with HTTP 200 if Timetrack is unreachable.
+   */
+  app.get<{ Params: IdParams }>(
+    '/:id/labor-summary',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const timetracUrl = process.env.TIMETRACK_URL || 'http://localhost:3000';
+      const serviceKey = process.env.TIMETRACK_SERVICE_KEY;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (serviceKey) headers['x-service-key'] = serviceKey;
+
+      try {
+        const r = await fetch(`${timetracUrl}/api/time-entries?cv_batch_id=${id}`, {
+          headers,
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!r.ok) return reply.send({ error: 'TIMETRACK_UNAVAILABLE' });
+
+        const entries = await r.json() as Array<Record<string, unknown>>;
+
+        let totalMinutes = 0;
+        const byActivity: Record<string, number> = {};
+        const byWorkerMap: Record<string, { name: string; minutes: number }> = {};
+        let minDate: string | null = null;
+        let maxDate: string | null = null;
+
+        for (const e of entries) {
+          const mins = Number(e['duration_minutes'] ?? 0);
+          totalMinutes += mins;
+
+          const code = String(e['activity_code'] ?? 'unknown');
+          byActivity[code] = (byActivity[code] ?? 0) + mins;
+
+          const wid = String(e['worker_id']);
+          if (!byWorkerMap[wid]) byWorkerMap[wid] = { name: String(e['worker_name'] ?? wid), minutes: 0 };
+          byWorkerMap[wid].minutes += mins;
+
+          const d = String(e['date'] ?? '');
+          if (d) {
+            if (!minDate || d < minDate) minDate = d;
+            if (!maxDate || d > maxDate) maxDate = d;
+          }
+        }
+
+        return reply.send({
+          batch_id: id,
+          total_hours: Math.round(totalMinutes / 60 * 100) / 100,
+          by_activity: Object.entries(byActivity).map(([activity_code, mins]) => ({
+            activity_code,
+            hours: Math.round(mins / 60 * 100) / 100,
+          })),
+          by_worker: Object.values(byWorkerMap).map(w => ({
+            name: w.name,
+            hours: Math.round(w.minutes / 60 * 100) / 100,
+          })),
+          date_range: minDate && maxDate ? { start: minDate, end: maxDate } : null,
+        });
+      } catch {
+        return reply.send({ error: 'TIMETRACK_UNAVAILABLE' });
+      }
     },
   );
 };
