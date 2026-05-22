@@ -1730,3 +1730,30 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - The `docs/backlog.md` P1 items are the next priority: MDA time/lot# fix, METRC UID gate, updated_at migration, PDF cultivation record
 - Phase 2 features are specified in `docs/roadmap-phase2-4.md`; sub-zone field maps (Feature 2.1) is the recommended first Phase 2 feature
 - `src/tests/integration/data-integrity.test.ts` was committed by a prior Felix session (315 tests); the test count in CLAUDE.md still says 287 — that will auto-update as tasks proceed
+
+---
+
+## Task: Photo management discovery
+**Completed:** 2026-05-22
+
+### What Was Done
+- Audited all 10 tables with `photo_urls TEXT` columns across migrations 003–009
+- Confirmed no upload endpoint, no file storage library, no client-side photo code exists anywhere
+- `photo_urls` is always NULL in all rows today — the column is a pure placeholder
+- Produced `docs/photo-management-design.md` covering current state, storage options, upload flow design, compliance requirements, recommended approach, API contract changes, and open questions
+
+### Key Decisions
+- Recommended **Cloudflare R2** over Railway Volume (separate disk from DB, no egress cost via Cloudflare network) and AWS S3 (egress cost)
+- Recommended **server-proxy upload** for Phase 1 over presigned URLs (simpler auth, lower client complexity)
+- Compliance approach: application-layer append-only enforcement rather than R2 Object Lock in Phase 1; Object Lock deferred until a regulator requires WORM storage
+- Serving approach: proxy through app server (`GET /api/photos/:key`) in Phase 1; presigned URLs in Phase 2
+- Key structure: `photos/{YYYY}/{MM}/{record-type}/{record-id}/{uuid}.{ext}` — context-encoded for future audit tooling
+
+### Files Modified/Created
+- `docs/photo-management-design.md` (new — design document only, no code changes)
+
+### Notes for Next Tasks
+- Before implementing photo upload: decide on HEIC transcoding approach (iOS default format — needs either client-side polyfill or server-side `sharp` transcode)
+- Before implementing photo upload: define the "wrong photo voiding" workflow — the `corrects_id` append-only pattern needs an equivalent for photo metadata
+- Offline photo queue (base64 in localStorage → sync on reconnect) should be scoped in Phase 2 alongside presigned URLs
+- Implementation entry points: add `@fastify/multipart` + `@aws-sdk/client-s3` to backend; add `photo_urls?: string[]` to all write Zod schemas; add `JSON.parse(photo_urls)` to all read routes; add `<PhotoUpload>` component to ObservationNew first (highest value)
