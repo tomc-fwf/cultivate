@@ -1,3 +1,34 @@
+## Task: Schema + performance audit
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read all 14 migrations (001–014) and all 18 route files
+- Produced `docs/audit-schema-performance.md` covering:
+  - Schema completeness table for all 37 tables (created_at, updated_at, created_by, FK constraints, enum enforcement, down() reversibility)
+  - 29 missing index recommendations with impact ratings
+  - N+1 query risk inventory (6 cases identified)
+  - Unbounded query list (waste-trim, plant-loss, exports have no LIMIT)
+  - PRAGMA configuration analysis (busy_timeout=0 is a bug; synchronous=FULL is suboptimal)
+  - Full migration content for `015_indexes.ts` (29 indexes + PRAGMA changes)
+
+### Key Decisions
+- Documented `cv_batch_stage_recipes.recipe_id` as a missing FK (comment in 003 says 006 would add it, but 006 doesn't). Flagged but not fixed — that's a schema change requiring a separate migration.
+- The deferred FKs on `cv_teardown_events.soil_sample_id` and `cv_container_amendments.soil_sample_id` are flagged as never-completed.
+- The migration content in the doc includes PRAGMA changes in `up()` but notes they only affect the migration-time connection — companion change to `initDB()` is required.
+
+### Files Modified/Created
+- `docs/audit-schema-performance.md` — new file (primary deliverable)
+- `.claude/session_context.md` — appended this entry
+
+### Notes for Next Tasks
+- Migration `015_indexes.ts` is ready to implement from the doc — content is in Section 6
+- `initDB()` in `src/db/index.ts` needs 5 additional PRAGMA lines (synchronous, busy_timeout, cache_size, temp_store, mmap_size)
+- `GET /harvest/waste-trim` needs a LIMIT added — currently unbounded
+- `GET /containers/summary` should move its JS aggregation to SQL GROUP BY for performance
+- `cv_batch_stage_recipes.recipe_id` missing FK should be patched in a separate migration
+
+---
+
 ## Task: 8. QR scanner + container label printing (features 15 & 17)
 **Completed:** 2026-05-21
 
