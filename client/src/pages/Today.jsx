@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { api } from '../api';
+import CurrentConditionsCard from '../components/CurrentConditionsCard';
 
 function formatDate(d) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -49,6 +50,7 @@ export default function Today() {
   const [reiLoading, setReiLoading] = useState(true);
   const [batches, setBatches] = useState([]);
   const [batchesLoading, setBatchesLoading] = useState(true);
+  const [conditionsExpanded, setConditionsExpanded] = useState(false);
 
   useEffect(() => {
     // Load active REIs
@@ -120,6 +122,16 @@ export default function Today() {
           </div>
         )}
       </div>
+
+      {/* ── CURRENT CONDITIONS ────────────────────────────────────────────── */}
+      {!batchesLoading && batches.length > 0 && (
+        <CurrentConditionsSection
+          batches={batches}
+          expanded={conditionsExpanded}
+          onToggle={() => setConditionsExpanded(e => !e)}
+          onViewAll={() => navigate('/admin/sensors')}
+        />
+      )}
 
       {/* ── QUICK ACTIONS ─────────────────────────────────────────────────── */}
       <div className="mb-5">
@@ -206,6 +218,47 @@ function QuickAction({ label, color, icon, onClick }) {
       <span className="text-xl">{icon}</span>
       <span>{label}</span>
     </button>
+  );
+}
+
+function CurrentConditionsSection({ batches, expanded, onToggle, onViewAll }) {
+  // Deduplicate by sub_zone_id — one card per sub-zone
+  const subZones = [];
+  const seen = new Set();
+  for (const b of batches) {
+    if (b.sub_zone_id && !seen.has(b.sub_zone_id)) {
+      seen.add(b.sub_zone_id);
+      subZones.push({ subZoneId: b.sub_zone_id, batchStage: b.status });
+    }
+  }
+  if (subZones.length === 0) return null;
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <button
+          onClick={onToggle}
+          className="flex items-center gap-2 text-sm font-bold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+          style={{ minHeight: '44px' }}
+        >
+          <span className={`transition-transform text-xs ${expanded ? 'rotate-90' : ''}`}>▶</span>
+          Current Conditions
+        </button>
+        <button onClick={onViewAll} className="text-xs text-green-700 font-semibold hover:text-green-900">
+          View all sensors →
+        </button>
+      </div>
+      {/* Always expanded on tablet (md+), collapsed on mobile unless toggled */}
+      <div className={`${expanded ? 'block' : 'hidden md:block'} flex flex-col gap-2`}>
+        {subZones.map(({ subZoneId, batchStage }) => (
+          <CurrentConditionsCard
+            key={subZoneId}
+            subZoneId={subZoneId}
+            batchStage={batchStage}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -20,15 +20,19 @@ export function useCurrentConditions(locationId, subZoneId) {
   return { conditions, loading };
 }
 
-export function SensorBadge({ reading }) {
-  if (!reading || reading.age_seconds == null) return null;
+export function SensorBadge({ reading, manual = false }) {
+  if (!reading) return null;
+  if (manual) {
+    return <span className="text-xs mt-1 block text-gray-400">✏ Manual entry</span>;
+  }
+  if (reading.age_seconds == null) return null;
   const minutes = Math.round(reading.age_seconds / 60);
-  const label = minutes < 1 ? 'just now' : `${minutes} min ago`;
-  const stale = reading.age_seconds > 600;
+  const timeLabel = minutes < 1 ? 'just now' : `${minutes} min ago`;
+  const stale = reading.age_seconds > 1800;
 
   return (
-    <span className={`text-xs mt-1 block ${stale ? 'text-amber-600' : 'text-gray-400'}`}>
-      {stale ? '⚠ Sensor data stale — ' : ''}Auto-filled from sensor · {label}
+    <span className={`text-xs mt-1 block ${stale ? 'text-amber-600' : 'text-green-600'}`}>
+      {stale ? '⚠ Stale — ' : '📡 '}Auto-filled · {timeLabel}
     </span>
   );
 }

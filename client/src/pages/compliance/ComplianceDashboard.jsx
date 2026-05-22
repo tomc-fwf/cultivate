@@ -2,6 +2,18 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
+// VPD optimal ranges by batch stage (kPa)
+const VPD_RANGES = {
+  'germ':           { low: 0.4, high: 0.8 },
+  'seedling':       { low: 0.4, high: 0.8 },
+  'cult-hoop':      { low: 0.6, high: 1.0 },
+  'field-veg':      { low: 0.8, high: 1.2 },
+  'field-flower':   { low: 1.0, high: 1.5 },
+  'flush':          { low: 1.0, high: 2.0 },
+  'harvest_window': { low: 1.0, high: 2.0 },
+  'harvesting':     { low: 1.0, high: 2.0 },
+};
+
 function StatusDot({ status }) {
   const colors = { green: 'bg-green-500', amber: 'bg-amber-400', red: 'bg-red-500' };
   return <span className={`inline-block w-3 h-3 rounded-full flex-shrink-0 ${colors[status] ?? 'bg-gray-400'}`} />;
@@ -81,13 +93,64 @@ export default function ComplianceDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [lastRefresh, setLastRefresh] = useState(null);
+  const [envAlerts, setEnvAlerts] = useState([]);
 
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    api.getComplianceDashboard()
-      .then(d => { setData(d); setLastRefresh(new Date()); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
+    Promise.all([
+      api.getComplianceDashboard(),
+      api.getCurrentConditions().catch(() => []),
+      api.getBatches({ status: 'active', limit: '20' }).catch(() => []),
+    ]).then(([dashboard, conditions, batches]) => {
+      setData(dashboard);
+      setLastRefresh(new Date());
+      setLoading(false);
+
+      // Build sub_zone → batch stage map
+      const stageByZone = {};
+      for (const b of (Array.isArray(batches) ? batches : [])) {
+        if (b.sub_zone_id) stageByZone[b.sub_zone_id] = b.status;
+      }
+
+      // Compute environmental alerts
+      const alerts = [];
+      const readings = Array.isArray(conditions) ? conditions : [];
+      for (const r of readings) {
+        const lbl = r.label ?? r.sub_zone_id ?? r.location_name ?? r.sensor_id;
+        const ageSec = r.age_seconds;
+        // Offline: no reading in 30+ min
+        if (ageSec == null || ageSec > 1800) {
+          const hoursAgo = ageSec != null ? Math.round(ageSec / 3600) : null;
+          alerts.push({
+            level: 'amber',
+            message: `Sensor offline: ${lbl}${hoursAgo != null ? ` — last seen ${hoursAgo}h ago` : ''}`,
+          });
+          continue;
+        }
+        // VPD out of range
+        if (r.vpd_kpa != null && r.sub_zone_id) {
+          const stage = stageByZone[r.sub_zone_id];
+          const range = stage ? VPD_RANGES[stage] : null;
+          if (range) {
+            const margin = (range.high - range.low) * 0.2;
+            if (r.vpd_kpa < range.low - margin || r.vpd_kpa > range.high + margin) {
+              const dir = r.vpd_kpa < range.low ? 'low' : 'high';
+              const stageLabel = stage.replace(/-/g, ' ').replace(/_/g, ' ');
+              alerts.push({
+                level: r.vpd_kpa > range.high + margin ? 'red' : 'amber',
+                message: `VPD alert: ${r.sub_zone_id} ${r.vpd_kpa.toFixed(2)} kPa (${dir} for ${stageLabel})`,
+              });
+            }
+          }
+        }
+        // Low battery (< 20%)
+        if (r.battery_pct != null && r.battery_pct < 20) {
+          alerts.push({ level: 'amber', message: `Low battery: ${lbl} (${r.battery_pct}%)` });
+        }
+      }
+      setEnvAlerts(alerts);
+    }).catch(e => { setError(e.message); setLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -312,6 +375,40 @@ export default function ComplianceDashboard() {
                 </span>
               )}
             </Panel>
+          </div>
+
+          {/* Environmental Alerts */}
+          <div className="mb-4">
+            <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Environmental Alerts</h2>
+            <div className={`rounded-2xl border-2 overflow-hidden ${envAlerts.length === 0 ? 'border-green-200' : envAlerts.some(a => a.level === 'red') ? 'border-red-300' : 'border-amber-300'}`}>
+              <div className={`px-4 py-3 flex items-center gap-2 ${envAlerts.length === 0 ? 'bg-green-50' : envAlerts.some(a => a.level === 'red') ? 'bg-red-50' : 'bg-amber-50'}`}>
+                <StatusDot status={envAlerts.length === 0 ? 'green' : envAlerts.some(a => a.level === 'red') ? 'red' : 'amber'} />
+                <span className="font-bold text-sm text-gray-800">Environmental</span>
+                <span className="ml-auto font-mono text-sm font-bold text-gray-700">{envAlerts.length}</span>
+              </div>
+              <div className="px-4 py-3 bg-white border-t border-gray-100 text-xs text-gray-600">
+                {envAlerts.length === 0 ? (
+                  <span className="text-green-700 font-semibold">All sensors reporting — no VPD or battery alerts</span>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {envAlerts.map((a, i) => (
+                      <li key={i} className={`flex items-start gap-2 ${a.level === 'red' ? 'text-red-700' : 'text-amber-700'}`}>
+                        <span className="flex-shrink-0 mt-0.5">{a.level === 'red' ? '🔴' : '🟡'}</span>
+                        <span>{a.message}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button
+                onClick={() => navigate('/admin/sensors')}
+                className="w-full px-4 py-2.5 text-xs font-semibold text-gray-600 border-t border-gray-100 bg-white hover:bg-gray-50 text-left flex items-center justify-between transition-colors"
+                style={{ minHeight: '44px' }}
+              >
+                <span>Sensor Management →</span>
+                <span>→</span>
+              </button>
+            </div>
           </div>
 
           {/* Quick Links */}

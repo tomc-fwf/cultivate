@@ -277,6 +277,8 @@ export default function PesticideNew() {
   // Sensor auto-fill
   const { conditions: sensorConditions } = useCurrentConditions(null, (lockedBatch || selectedBatch)?.sub_zone_id ?? null);
   const [sensorReadingUsed, setSensorReadingUsed] = useState(null);
+  const [tempEdited, setTempEdited] = useState(false);
+  const [rhEdited, setRhEdited] = useState(false);
 
   // Auto-fill ambient conditions from sensor when batch is selected and fields are empty
   useEffect(() => {
@@ -285,6 +287,8 @@ export default function PesticideNew() {
       setAmbientTempF(String(sensorConditions.temp_f.toFixed(1)));
       setAmbientRh(String(Math.round(sensorConditions.humidity_rh)));
       setSensorReadingUsed(sensorConditions);
+      setTempEdited(false);
+      setRhEdited(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sensorConditions]);
@@ -806,11 +810,11 @@ export default function PesticideNew() {
             <div>
               <label className="block text-xs text-gray-500 mb-1 font-medium">Ambient temp (°F) *</label>
               <input type="number" inputMode="decimal" step="0.1" placeholder="—"
-                value={ambientTempF} onChange={e => { setAmbientTempF(e.target.value); setSensorReadingUsed(null); }}
+                value={ambientTempF} onChange={e => { setAmbientTempF(e.target.value); setTempEdited(true); }}
                 className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
                 style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
               />
-              {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} />}
+              {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={tempEdited} />}
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1 font-medium">Wind speed (mph) *</label>
@@ -852,10 +856,11 @@ export default function PesticideNew() {
               <div>
                 <label className="block text-xs text-gray-500 mb-1 font-medium">RH (%)</label>
                 <input type="number" inputMode="decimal" step="1" min="0" max="100" placeholder="—"
-                  value={ambientRh} onChange={e => { setAmbientRh(e.target.value); setSensorReadingUsed(null); }}
+                  value={ambientRh} onChange={e => { setAmbientRh(e.target.value); setRhEdited(true); }}
                   className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
                   style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
                 />
+                {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={rhEdited} />}
               </div>
 
               {/* Pest pressure */}

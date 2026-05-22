@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import CurrentConditionsCard from '../../components/CurrentConditionsCard';
 
 // ─── Status / phase maps ───────────────────────────────────────────────────
 
@@ -276,6 +277,13 @@ export default function BatchDetail() {
       {/* METRC UID edit */}
       {batch.status !== 'closed' && isSupervisor && (
         <MetrcEditInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
+      )}
+
+      {/* Current Environmental Conditions — shown when batch is in the field */}
+      {batch.sub_zone_id && (
+        <div className="mb-4">
+          <CurrentConditionsCard subZoneId={batch.sub_zone_id} batchStage={batch.status} />
+        </div>
       )}
 
       {/* Fertigation recipe */}

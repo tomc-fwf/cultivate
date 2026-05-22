@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
 function formatRelative(isoStr) {
@@ -122,6 +123,7 @@ function AssignModal({ sensor, onClose, onSave }) {
 }
 
 export default function SensorManagement() {
+  const navigate = useNavigate();
   const [sensors, setSensors] = useState([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -192,9 +194,18 @@ export default function SensorManagement() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-24">
-      <h1 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: 'Fraunces, serif' }}>
-        Sensor Management
-      </h1>
+      <div className="flex items-start justify-between mb-1">
+        <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
+          Sensor Management
+        </h1>
+        <button
+          onClick={() => navigate('/admin/environmental-history')}
+          className="text-xs text-green-700 font-semibold hover:text-green-900 flex-shrink-0 mt-1"
+          style={{ minHeight: '36px' }}
+        >
+          View History →
+        </button>
+      </div>
       <p className="text-sm text-gray-500 mb-6">SensorPush environmental monitors · Admin only</p>
 
       {/* Action bar */}

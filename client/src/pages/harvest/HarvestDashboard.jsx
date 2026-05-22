@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
 
 function fmtDate(ts) {
   if (!ts) return '—';
@@ -46,6 +47,30 @@ export default function HarvestDashboard() {
   const [createError, setCreateError] = useState('');
   const [toast, setToast] = useState(null);
 
+  // Harvest batch conditions
+  const [hbAmbientTemp, setHbAmbientTemp] = useState('');
+  const [hbAmbientRh, setHbAmbientRh] = useState('');
+  const [hbWindSpeed, setHbWindSpeed] = useState('');
+  const [hbTempEdited, setHbTempEdited] = useState(false);
+  const [hbRhEdited, setHbRhEdited] = useState(false);
+  const [showConditions, setShowConditions] = useState(false);
+
+  // Sensor auto-fill for harvest batch conditions
+  const { conditions: sensorConditions } = useCurrentConditions(null, batch?.sub_zone_id ?? null);
+  const [sensorReadingUsed, setSensorReadingUsed] = useState(null);
+
+  useEffect(() => {
+    if (!sensorConditions || !sensorConditions.temp_f) return;
+    if (hbAmbientTemp === '' && hbAmbientRh === '') {
+      setHbAmbientTemp(String(sensorConditions.temp_f.toFixed(1)));
+      setHbAmbientRh(String(Math.round(sensorConditions.humidity_rh)));
+      setSensorReadingUsed(sensorConditions);
+      setHbTempEdited(false);
+      setHbRhEdited(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorConditions, batch?.sub_zone_id]);
+
   function load() {
     setLoading(true);
     setError('');
@@ -84,7 +109,13 @@ export default function HarvestDashboard() {
     setCreating(true);
     setCreateError('');
     try {
-      await api.createHarvestBatch({ batch_id: Number(batchId), batch_type: batchType });
+      await api.createHarvestBatch({
+        batch_id: Number(batchId),
+        batch_type: batchType,
+        ambient_temp_f: hbAmbientTemp !== '' ? parseFloat(hbAmbientTemp) : null,
+        ambient_rh: hbAmbientRh !== '' ? parseFloat(hbAmbientRh) : null,
+        wind_speed_mph: hbWindSpeed !== '' ? parseFloat(hbWindSpeed) : null,
+      });
       load();
       setToast({ message: `${batchType === 'harvest' ? 'Harvest Batch (HB)' : 'Manicure Batch (MB)'} created`, type: 'success' });
     } catch (e) {
@@ -164,32 +195,84 @@ export default function HarvestDashboard() {
 
         {/* Create buttons — supervisor only */}
         {isSupervisor && (
-          <div className="flex gap-2 mb-3">
-            <button
-              onClick={() => handleCreateBatch('harvest')}
-              disabled={creating || !!activeHB}
-              className={`flex-1 py-3 rounded-2xl text-sm font-semibold border-2 transition-colors ${
-                activeHB
-                  ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
-                  : 'border-green-600 bg-green-50 text-green-900 hover:bg-green-100 active:bg-green-200'
-              }`}
-              style={{ minHeight: '56px' }}
-            >
-              {creating ? '…' : activeHB ? '✓ HB Active' : '+ Create Harvest Batch (HB)'}
-            </button>
-            <button
-              onClick={() => handleCreateBatch('manicure')}
-              disabled={creating || !!activeMB}
-              className={`flex-1 py-3 rounded-2xl text-sm font-semibold border-2 transition-colors ${
-                activeMB
-                  ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
-                  : 'border-purple-600 bg-purple-50 text-purple-900 hover:bg-purple-100 active:bg-purple-200'
-              }`}
-              style={{ minHeight: '56px' }}
-            >
-              {creating ? '…' : activeMB ? '✓ MB Active' : '+ Create Manicure Batch (MB)'}
-            </button>
-          </div>
+          <>
+            {/* Conditions for new harvest batch */}
+            <div className="mb-3">
+              <button
+                onClick={() => setShowConditions(s => !s)}
+                className="flex items-center gap-1.5 text-xs text-gray-500 font-medium hover:text-gray-700 mb-2"
+                style={{ minHeight: '36px' }}
+              >
+                <span className={`transition-transform text-[10px] ${showConditions ? 'rotate-90' : ''}`}>▶</span>
+                Harvest conditions {hbAmbientTemp ? `(${hbAmbientTemp}°F / ${hbAmbientRh}% RH)` : '(optional)'}
+              </button>
+              {showConditions && (
+                <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3 flex flex-col gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Ambient temp (°F)</label>
+                      <input
+                        type="number" inputMode="decimal" step="0.1" placeholder="—"
+                        value={hbAmbientTemp}
+                        onChange={e => { setHbAmbientTemp(e.target.value); setHbTempEdited(true); }}
+                        className="w-full border border-gray-300 rounded-xl px-3 text-base text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                        style={{ minHeight: '48px', fontFamily: 'JetBrains Mono, monospace' }}
+                      />
+                      {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={hbTempEdited} />}
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Wind speed (mph)</label>
+                      <input
+                        type="number" inputMode="decimal" step="0.1" placeholder="—"
+                        value={hbWindSpeed}
+                        onChange={e => setHbWindSpeed(e.target.value)}
+                        className="w-full border border-gray-300 rounded-xl px-3 text-base text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                        style={{ minHeight: '48px', fontFamily: 'JetBrains Mono, monospace' }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">RH (%)</label>
+                    <input
+                      type="number" inputMode="decimal" step="1" min="0" max="100" placeholder="—"
+                      value={hbAmbientRh}
+                      onChange={e => { setHbAmbientRh(e.target.value); setHbRhEdited(true); }}
+                      className="w-full border border-gray-300 rounded-xl px-3 text-base text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+                      style={{ minHeight: '48px', fontFamily: 'JetBrains Mono, monospace' }}
+                    />
+                    {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={hbRhEdited} />}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => handleCreateBatch('harvest')}
+                disabled={creating || !!activeHB}
+                className={`flex-1 py-3 rounded-2xl text-sm font-semibold border-2 transition-colors ${
+                  activeHB
+                    ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                    : 'border-green-600 bg-green-50 text-green-900 hover:bg-green-100 active:bg-green-200'
+                }`}
+                style={{ minHeight: '56px' }}
+              >
+                {creating ? '…' : activeHB ? '✓ HB Active' : '+ Create Harvest Batch (HB)'}
+              </button>
+              <button
+                onClick={() => handleCreateBatch('manicure')}
+                disabled={creating || !!activeMB}
+                className={`flex-1 py-3 rounded-2xl text-sm font-semibold border-2 transition-colors ${
+                  activeMB
+                    ? 'border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed'
+                    : 'border-purple-600 bg-purple-50 text-purple-900 hover:bg-purple-100 active:bg-purple-200'
+                }`}
+                style={{ minHeight: '56px' }}
+              >
+                {creating ? '…' : activeMB ? '✓ MB Active' : '+ Create Manicure Batch (MB)'}
+              </button>
+            </div>
+          </>
         )}
 
         {createError && (

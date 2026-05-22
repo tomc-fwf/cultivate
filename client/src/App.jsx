@@ -52,6 +52,7 @@ import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
 import ContainerScanner from './pages/containers/ContainerScanner';
 import ContainerLabels from './pages/admin/ContainerLabels';
 import SensorManagement from './pages/admin/SensorManagement';
+import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -149,6 +150,7 @@ export default function App() {
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />
+              <Route path="/admin/environmental-history" element={<Protected minRole="admin"><EnvironmentalHistory /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
