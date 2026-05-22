@@ -21,11 +21,21 @@ export function createTestStrain(
 export function createTestBatch(
   db: Database.Database,
   strainId: number,
-  opts: { status?: string; sub_zone_id?: string; plant_count_initial?: number } = {},
+  opts: {
+    status?: string;
+    sub_zone_id?: string;
+    plant_count_initial?: number;
+    metrc_plant_batch_uid?: string | null;
+  } = {},
 ): { batch_id: number; strain_id: number; status: string; sub_zone_id: string } {
   const status = opts.status ?? 'germ';
   const sub_zone_id = opts.sub_zone_id ?? 'Z1A';
   const plant_count_initial = opts.plant_count_initial ?? 3;
+  // Default to a valid 24-char UID so harvest-event tests pass the METRC gate.
+  // Pass null explicitly to test the missing-UID path.
+  const metrc_uid = opts.metrc_plant_batch_uid !== undefined
+    ? opts.metrc_plant_batch_uid
+    : 'TESTUID000000000000000A';
   const now = new Date().toISOString();
   const sowDate = now.slice(0, 10);
 
@@ -33,9 +43,10 @@ export function createTestBatch(
     INSERT INTO cv_batches
       (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date,
        status, current_stage_since, current_location_id, supervisor,
+       metrc_plant_batch_uid,
        created_by, created_at, updated_at)
-    VALUES (?, ?, ?, 1, ?, ?, ?, 1, 1, 1, ?, ?)
-  `).run(strainId, sub_zone_id, plant_count_initial, sowDate, status, now, now, now);
+    VALUES (?, ?, ?, 1, ?, ?, ?, 1, 1, ?, 1, ?, ?)
+  `).run(strainId, sub_zone_id, plant_count_initial, sowDate, status, now, metrc_uid, now, now);
 
   const batchId = Number(r.lastInsertRowid);
 
