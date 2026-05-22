@@ -2005,3 +2005,106 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - No frontend page was built for this export (task scope was backend + API client only)
 - Consider adding a MetrcHarvestExport page to BatchDetail or MetrcReconciliation UI in a future task
+
+---
+
+## Task: Sub-zone Field Maps (P2-01)
+**Completed:** 2026-05-22
+
+### What Was Done
+- **GET /api/containers**: Added two computed fields via correlated subqueries in `src/api/routes/containers.ts`:
+  - `has_open_observation` (0|1): COUNT from cv_observations WHERE container_id matches AND resolved_at IS NULL
+  - `rei_active_until` (ISO string|null): MAX(rei_expires_at) from cv_applications_pesticide WHERE (container_id OR row_id matches) AND rei_expires_at > now AND rei_cleared_at IS NULL
+- **SubZoneFieldMap.jsx** (`client/src/pages/containers/SubZoneFieldMap.jsx`): New page at `/containers/map/:subZoneId`. Loads containers via api.getContainers({ sub_zone_id }). Shows: header with sub-zone ID, pot size, state count chips, REI/obs alert badges; color-coded container grid (5 rows, horizontally scrollable strips); red dot overlay for active REI, amber dot for open observations; tap → /containers/:containerId; 300ms long-press → QuickActionSheet with links to Observe, Foliar, Pesticide, Record Loss.
+- **App.jsx**: Added import + route `/containers/map/:subZoneId` (no minRole).
+- **ContainerDashboard.jsx**: Added `Link` import, added "Field Map →" link in each sub-zone card footer alongside "View Grid →".
+- **LocationView.jsx**: Added `Link` import, added "Field Map →" link in desktop FieldSubZoneCard header.
+- **client/src/api.js**: Added comment documenting the new computed fields in getContainers response.
+- `npx tsc --noEmit` passes clean; `npm run build` passes (chunk size warning is pre-existing).
+
+### Key Decisions
+- Used correlated subqueries in the SQL SELECT rather than a post-query loop — cleaner and SQLite handles them fine at this data scale (max ~300 containers per sub-zone).
+- Long-press threshold is 300ms (per spec), implemented via setTimeout + mousedown/touchstart handlers; `didLongPress.current` ref prevents the tap handler from also firing after a long-press.
+- Did not modify the `api.getContainers()` signature — it already accepts arbitrary params and passes them as query strings. The new fields come back in the response automatically.
+- State color palette in SubZoneFieldMap matches the task spec exactly (green-700, yellow-500, orange-500, blue-500, green-200, gray-400) — note this differs slightly from ContainerDashboard's palette for intentional visual differentiation.
+
+### Files Modified/Created
+- `src/api/routes/containers.ts` — added has_open_observation + rei_active_until subqueries
+- `client/src/pages/containers/SubZoneFieldMap.jsx` — new file
+- `client/src/App.jsx` — import + route
+- `client/src/pages/containers/ContainerDashboard.jsx` — Link import + Field Map link per card
+- `client/src/pages/locations/LocationView.jsx` — Link import + Field Map link per sub-zone card
+- `client/src/api.js` — documentation comment
+
+### Notes for Next Tasks
+- The quick-action sheet in SubZoneFieldMap uses query params (?container_id=...) to pre-fill forms — verify FoliarNew, PesticideNew, ObservationNew read these params if they haven't been wired yet.
+- SubZoneFieldMap row strips are horizontally scrollable — on tablet in landscape this should display well; no special tablet layout needed for now.
+- Phase 2 next items: Inspection Mode (tablet row-walk), Offline Mode hardening, Bulk Teardown/Startup.
+
+## Task: Soil Sample Tracker Dashboard (P2-06)
+**Completed:** 2026-05-22T00:00:00Z
+
+### What Was Done
+- Added `GET /api/soil-samples?status=` endpoint as a named export (`soilSamplesTrackerRoutes`) in `src/api/routes/container-lifecycle.ts`, registered at `/api/soil-samples` prefix in `app.ts`
+- Three status modes:
+  - `awaiting_collection`: containers in `current_state='teardown'` where the most recent teardown has `soil_sample_collected=0`; joins cv_container_state → cv_containers → cv_rows for sub_zone_id
+  - `at_lab`: cv_soil_samples where `results_received=0` AND `lab_sent_at IS NOT NULL`; computes `days_waiting` via `julianday()` SQLite function
+  - `results_received`: cv_soil_samples where `results_received=1` AND `lab_results_at >= datetime('now', '-90 days')`; fetches pH and EC key results in a second query for summary display
+- Added `getGlobalSoilSamples(params)` to `client/src/api.js`
+- Created `client/src/pages/containers/SoilSampleTracker.jsx` at route `/soil-samples`:
+  - Three-tab layout using URL `?status=` query param for tab state
+  - Awaiting Collection: orange "No sample" badge, shows days-in-teardown
+  - At Lab: days_waiting badge; amber "Overdue" label when > 14 days
+  - Results In: pH/EC chips colored by interpretation (deficient→red, optimal→green, etc.)
+  - All rows navigate to `/containers/:containerId` on tap
+- Added "Soil Samples →" link to ContainerDashboard header (all-zones view)
+- Added route `/soil-samples` to App.jsx
+
+### Key Decisions
+- Named export pattern: `soilSamplesTrackerRoutes` added to `container-lifecycle.ts` so related soil lifecycle code stays together; registered at separate `/api/soil-samples` prefix (not under `/api/containers`) since this is a cross-container dashboard, not a per-container route
+- `days_waiting` computed in SQL via `julianday('now') - julianday(lab_sent_at)` cast to INTEGER — avoids JS date math on string timestamps
+- Key results (pH, EC) loaded in a second query after the main sample list to avoid N+1; only fetches those two parameters for the summary display; full results available via ContainerDetail
+- Tab state stored in URL query param (`?status=`) so browser back button works
+
+### Files Modified/Created
+- `src/api/routes/container-lifecycle.ts` — `soilSamplesTrackerRoutes` named export added (85 lines)
+- `src/api/app.ts` — import updated + `soilSamplesTrackerRoutes` registered at `/api/soil-samples`
+- `client/src/api.js` — `getGlobalSoilSamples` method added
+- `client/src/pages/containers/SoilSampleTracker.jsx` — new file (230 lines)
+- `client/src/App.jsx` — import + `/soil-samples` route
+- `client/src/pages/containers/ContainerDashboard.jsx` — "Soil Samples →" link in header
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes clean; chunk size warning is pre-existing
+- The tracker links to ContainerDetail for entering results — SoilSampleForm is reachable from ContainerDetail when state is 'teardown'
+- `lab_sent_at` field is set on cv_soil_samples but there's no PATCH endpoint to update it after collection — operators would need a UI to mark "sent to lab" if that workflow is needed
+- Phase 2 next: Inspection Mode, Offline Mode hardening, Bulk Teardown/Startup
+
+---
+
+## Task: Bulk Teardown trigger from closed batch (P2-08)
+**Completed:** 2026-05-22
+
+### What Was Done
+- **GET /api/batches/:id** — added `teardown_eligible_count` field: COUNT of containers in `cv_container_state` where `current_batch_id = batch_id AND current_state IN ('active', 'empty')`. Included in every GET /:id response so the frontend can display the count in the confirmation modal without an extra round-trip.
+- **POST /api/batches/:id/bulk-teardown** — supervisor-only route. Validates batch is `closed` (or `harvesting` with no active plant assignments). Runs a single transaction that: (1) INSERTs a `cv_teardown_events` row per eligible container, (2) UPDATEs `cv_container_state` to `teardown`, (3) INSERTs `cv_container_state_transitions` with `trigger_event='batch_closed'`. Returns `{ transitioned_count, teardown_ids[] }`.
+- **client/src/api.js** — added `bulkTeardown(batchId)` method.
+- **BatchDetail.jsx** — when `batch.status === 'closed'` and `isSupervisor` and `teardown_eligible_count > 0`: shows amber "Start Teardown for All Containers (N)" button. Button opens `BulkTeardownModal` (new bottom-sheet sub-component) showing the count, a clarifying note that individual checklist items still need completion, and Cancel/Confirm buttons. On confirm: calls `api.bulkTeardown`, shows "Teardown started for N containers ✓" toast, refreshes batch.
+- **src/tests/integration/batches.test.ts** — 6 new integration tests: transitions active+empty containers, creates teardown_events, creates state transition log entries, returns count=0 when no eligible containers, rejects non-closed batch (400), rejects grower role (403).
+
+### Key Decisions
+- `teardown_eligible_count` added to GET /:id response rather than requiring a separate pre-fetch or dry-run mode — the count is always relevant for closed batches and cheap to compute.
+- The modal button text mirrors the count from the batch response (no spinner/pre-fetch click pattern needed).
+- Route returns HTTP 200 (not 201) for the zero-eligible case — no record was created, nothing to 201 about.
+- Each container gets its own `cv_teardown_events` row (matching the single-container teardown pattern) — operators must still complete the per-container checklists (plant removal, cleaning, soil sample) individually via the container record.
+
+### Files Modified/Created
+- `src/api/routes/batches.ts` — `teardown_eligible_count` in GET /:id + `POST /:id/bulk-teardown` route
+- `client/src/api.js` — `bulkTeardown` method
+- `client/src/pages/batches/BatchDetail.jsx` — state, handleBulkTeardown, button, BulkTeardownModal sub-component
+- `src/tests/integration/batches.test.ts` — 6 new tests (advanceBatchTo + putContainerActive/Empty imports added)
+
+### Notes for Next Tasks
+- 321 tests passing (up from 315); `npx tsc --noEmit` clean; committed 5270970 and pushed to origin/master
+- The `teardown_eligible_count` field is included in every GET /batches/:id response for all batch statuses — it will be 0 for non-closed batches since their containers won't have `current_batch_id` pointing to them in teardown-eligible states
+- Bulk Startup (transitioning teardown → startup for a batch) is a natural follow-on; not built yet
