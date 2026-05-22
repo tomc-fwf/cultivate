@@ -1,0 +1,912 @@
+openapi: 3.0.3
+info:
+  title: Cultivate API
+  description: Cannabis cultivation tracking and compliance API — MN licensed operator
+  version: 1.0.0
+servers:
+  - url: https://cultivate.hatstak.app/api
+    description: Production
+  - url: http://localhost:3000/api
+    description: Development
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    ValidationError:
+      type: object
+      properties:
+        error: { type: string }
+        issues: { type: array, items: { type: object } }
+    User:
+      type: object
+      description: Active cultivation staff member (applicator / observer)
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        role:
+          type: string
+          enum: [grower, supervisor, admin]
+    LoginResponse:
+      type: object
+      required: [token, worker]
+      properties:
+        token:
+          type: string
+          description: JWT bearer token; include as Authorization header on subsequent requests
+        worker:
+          type: object
+          properties:
+            id: { type: integer }
+            name: { type: string }
+            role:
+              type: string
+              enum: [grower, supervisor, admin]
+    Batch:
+      type: object
+      description: >
+        Plant batch enriched with strain, location, active recipe, and computed fields.
+        `plant_count_current` is derived from active plant_assignments (not stored).
+        `metrc_batch_name` and `metrc_phase` are computed at read time from strain/sow_date/status.
+      properties:
+        batch_id: { type: integer }
+        strain_id: { type: integer }
+        strain_name: { type: string }
+        strain_type:
+          type: string
+          enum: [auto, photo]
+        sub_zone_id:
+          type: string
+          nullable: true
+          example: Z1A
+          description: Physical sub-zone (Z1A–Z4B). Required before field-veg transition.
+        plant_count_initial: { type: integer }
+        plant_count_current:
+          type: integer
+          description: Derived from count of active plant_assignments; not editable
+        plants_per_container:
+          type: integer
+          default: 1
+          description: Intended planting density; 2 is common for autoflowers
+        sow_date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [germ, seedling, cult-hoop, field-veg, field-flower, flush, harvest_window, harvesting, closed]
+        current_stage_since:
+          type: string
+          format: date-time
+          description: Timestamp when current status was entered
+        current_location_id: { type: integer, nullable: true }
+        current_location_name: { type: string, nullable: true }
+        current_location_type: { type: string, nullable: true }
+        metrc_plant_batch_uid:
+          type: string
+          nullable: true
+          description: 24-char METRC plant batch name. Optional at creation; required before harvest.
+        active_recipe_id: { type: integer, nullable: true }
+        active_recipe_name: { type: string, nullable: true }
+        active_recipe_version: { type: string, nullable: true }
+        active_recipe_ec_low: { type: number, nullable: true }
+        active_recipe_ec_high: { type: number, nullable: true }
+        active_recipe_ph_low: { type: number, nullable: true }
+        active_recipe_ph_high: { type: number, nullable: true }
+        active_assignment_count: { type: integer }
+        days_in_stage:
+          type: integer
+          description: Calendar days since current_stage_since (America/Chicago)
+        metrc_batch_name:
+          type: string
+          nullable: true
+          description: Computed METRC plant batch name (Strain | MM/DD/YYYY | Auto|Photo)
+        metrc_phase:
+          type: string
+          nullable: true
+          description: Computed METRC growth phase string (e.g. "Vegetative", "Flowering")
+        transplant_date: { type: string, format: date-time, nullable: true }
+        field_move_date: { type: string, format: date-time, nullable: true }
+        harvest_date: { type: string, format: date-time, nullable: true }
+        closed_date: { type: string, format: date-time, nullable: true }
+        notes: { type: string, nullable: true }
+        supervisor:
+          type: integer
+          description: FK → cv_users; user who created/supervises this batch
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BatchDetail:
+      allOf:
+        - $ref: '#/components/schemas/Batch'
+        - type: object
+          description: Batch with full audit history. Returned by POST, GET /:id, and PATCH /:id/transition.
+          properties:
+            recipe_history:
+              type: array
+              description: All fertigation recipe assignments, newest first
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  batch_id: { type: integer }
+                  recipe_id: { type: integer }
+                  recipe_name: { type: string }
+                  recipe_version: { type: string }
+                  effective_from: { type: string, format: date-time }
+                  effective_to: { type: string, format: date-time, nullable: true }
+                  authorized_by: { type: integer }
+                  authorized_by_name: { type: string, nullable: true }
+                  notes: { type: string, nullable: true }
+            phase_history:
+              type: array
+              description: Batch lifecycle transitions, oldest first
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  batch_id: { type: integer }
+                  from_status: { type: string, nullable: true }
+                  to_status: { type: string }
+                  transitioned_at: { type: string, format: date-time }
+                  transitioned_by: { type: integer }
+                  transitioned_by_name: { type: string, nullable: true }
+                  notes: { type: string, nullable: true }
+                  metrc_sync_status: { type: string }
+            location_history:
+              type: array
+              description: Physical location moves, oldest first
+              items:
+                type: object
+                properties:
+                  id: { type: integer }
+                  batch_id: { type: integer }
+                  from_location_id: { type: integer, nullable: true }
+                  from_location_name: { type: string, nullable: true }
+                  to_location_id: { type: integer }
+                  to_location_name: { type: string, nullable: true }
+                  moved_at: { type: string, format: date-time }
+                  moved_by: { type: integer }
+                  moved_by_name: { type: string, nullable: true }
+                  trigger: { type: string }
+                  metrc_sync_status: { type: string }
+            application_counts:
+              type: object
+              description: Count of logged applications per type
+              properties:
+                fertigation: { type: integer }
+                foliar: { type: integer }
+                pesticide: { type: integer }
+    RecipeAssignment:
+      type: object
+      description: Active fertigation recipe assignment for a batch (cv_batch_stage_recipes row)
+      properties:
+        id: { type: integer }
+        batch_id: { type: integer }
+        recipe_id: { type: integer }
+        recipe_name: { type: string }
+        recipe_version: { type: string }
+        effective_from: { type: string, format: date-time }
+        effective_to: { type: string, format: date-time, nullable: true }
+        authorized_by: { type: integer }
+        authorized_by_name: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    Strain:
+      type: object
+      properties:
+        strain_id: { type: integer }
+        name: { type: string }
+        type:
+          type: string
+          enum: [auto, photo]
+        genetics: { type: string, nullable: true }
+        notes: { type: string, nullable: true }
+        active:
+          type: integer
+          enum: [0, 1]
+          description: Soft-delete flag; list endpoints only return active=1 strains
+        batch_count:
+          type: integer
+          description: Count of non-closed batches referencing this strain
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+tags:
+  - name: auth
+    description: Authentication — PIN login, JWT refresh, user list
+  - name: batches
+    description: Plant batch lifecycle management
+  - name: strains
+    description: Strain catalog
+
+paths:
+  # ─── AUTH ────────────────────────────────────────────────────────────────────
+
+  /auth/users:
+    get:
+      tags: [auth]
+      summary: List active users (applicator picker)
+      description: >
+        Returns id, name, and role for all active users. Used to populate
+        applicator/observer pickers on application entry forms.
+
+        **Security note:** This endpoint currently has no auth requirement — this is
+        a known finding (docs/audit-api-security.md CRIT-01). It will be gated behind
+        requireAuth in a future fix.
+      security: []
+      responses:
+        '200':
+          description: Array of active users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: PIN-based login
+      description: >
+        Authenticates a user with their numeric PIN. Returns a signed JWT on success.
+        After 5 consecutive failures the account is locked for 15 minutes; during lockout
+        the endpoint returns 423 with `locked_until` in the response body.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id, pin]
+              properties:
+                user_id:
+                  type: integer
+                  description: User's numeric ID (from the user list)
+                pin:
+                  type: string
+                  minLength: 4
+                  maxLength: 8
+                  description: User's numeric PIN (4–8 characters)
+            example:
+              user_id: 3
+              pin: "1234"
+      responses:
+        '200':
+          description: Login successful — JWT token returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Validation error (missing or malformed fields)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Incorrect PIN
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  attempts_remaining:
+                    type: integer
+                    description: Remaining attempts before lockout
+        '404':
+          description: User not found or inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '423':
+          description: Account locked after 5 failed attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  locked_until:
+                    type: string
+                    format: date-time
+                    description: ISO-8601 UTC timestamp when lock expires
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh JWT token
+      description: >
+        Issues a new JWT for the currently authenticated user. Call before the
+        current token expires to maintain a session without re-entering the PIN.
+      responses:
+        '200':
+          description: New JWT issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+                    description: New signed JWT
+        '401':
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── BATCHES ─────────────────────────────────────────────────────────────────
+
+  /batches:
+    get:
+      tags: [batches]
+      summary: List plant batches
+      description: >
+        Returns batches enriched with strain, location, active recipe, and computed
+        fields. Sorted by lifecycle stage (active stages first, by STATUS_ORDER) then
+        by sow_date descending within each stage. The `status=active` default excludes
+        closed batches.
+      parameters:
+        - name: status
+          in: query
+          description: >
+            Filter by lifecycle status group.
+            `active` (default) = all non-closed batches;
+            `closed` = only closed batches;
+            `all` = no filter.
+          required: false
+          schema:
+            type: string
+            enum: [active, closed, all]
+            default: active
+      responses:
+        '200':
+          description: Array of enriched batches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Batch'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [batches]
+      summary: Create a new plant batch
+      description: >
+        Creates a batch in `germ` status. Writes the initial phase history record
+        (germ, from_status=null) and location history record (Germ-01) in a single
+        transaction.
+
+        `metrc_plant_batch_uid` is optional at creation but required before harvest
+        events can be recorded. Sub_zone_id is optional here but required before the
+        `cult-hoop → field-veg` transition.
+
+        Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [strain_id, plant_count_initial, sow_date]
+              properties:
+                strain_id:
+                  type: integer
+                  description: Must reference an active strain (active=1)
+                sub_zone_id:
+                  type: string
+                  nullable: true
+                  example: Z1A
+                  description: Optional at creation. Required before field-veg transition.
+                plant_count_initial:
+                  type: integer
+                  minimum: 1
+                plants_per_container:
+                  type: integer
+                  minimum: 1
+                  default: 1
+                  description: Intended density; 2 is common for autoflowers
+                sow_date:
+                  type: string
+                  format: date
+                  example: "2026-03-15"
+                metrc_plant_batch_uid:
+                  type: string
+                  minLength: 24
+                  maxLength: 24
+                  pattern: '^[A-Za-z0-9]+$'
+                  nullable: true
+                  description: 24-char alphanumeric METRC batch UID. Optional at creation.
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Batch created with initial history records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchDetail'
+        '400':
+          description: Validation error or invalid strain_id / sub_zone_id reference
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /batches/{id}:
+    get:
+      tags: [batches]
+      summary: Get batch detail with full history
+      description: >
+        Returns the enriched batch record including recipe_history, phase_history,
+        location_history, and application_counts (fertigation, foliar, pesticide).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Batch ID
+      responses:
+        '200':
+          description: Full batch detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchDetail'
+        '400':
+          description: Invalid (non-numeric) batch ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    patch:
+      tags: [batches]
+      summary: Update mutable batch fields
+      description: >
+        Partial update of mutable fields. At least one field must be provided.
+
+        Business rules enforced:
+        - `sub_zone_id` is locked once batch reaches `field-veg` or later
+        - `plant_count_initial` cannot be changed once any plant_assignments exist
+
+        Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                metrc_plant_batch_uid:
+                  type: string
+                  minLength: 24
+                  maxLength: 24
+                  pattern: '^[A-Za-z0-9]+$'
+                  nullable: true
+                notes:
+                  type: string
+                  nullable: true
+                sub_zone_id:
+                  type: string
+                  nullable: true
+                  description: Locked once batch is field-veg, field-flower, flush, harvest_window, harvesting, or closed
+                plant_count_initial:
+                  type: integer
+                  minimum: 1
+                  description: Cannot be changed once any plant_assignments exist for this batch
+      responses:
+        '200':
+          description: Updated batch (base fields only, no history arrays)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Batch'
+        '400':
+          description: Validation error, no valid fields provided, or business rule violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /batches/{id}/transition:
+    patch:
+      tags: [batches]
+      summary: Advance batch lifecycle status
+      description: >
+        Advances the batch to exactly the next status in the fixed sequence:
+        `germ → seedling → cult-hoop → field-veg → field-flower → flush →
+        harvest_window → harvesting → closed`.
+
+        Only the exact next status is accepted — no skipping, no reversing.
+
+        **Side effects per transition:**
+        | to_status | Extra writes | METRC event queued |
+        |---|---|---|
+        | `seedling` | sets transplant_date; location move → Seedlings | location move |
+        | `cult-hoop` | location move → Cult-Hoop | location move |
+        | `field-veg` | sets field_move_date; requires sub_zone_id on batch | phase change (Immature→Vegetative) |
+        | `field-flower` | — | phase change (Vegetative→Flowering) |
+        | `harvesting` | sets harvest_date; notes required | — |
+        | `closed` | sets closed_date | — |
+
+        Note: `cult-hoop → field-veg` does NOT auto-generate a location move here;
+        that move is owned by the planting plan commit workflow.
+
+        Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_status]
+              properties:
+                to_status:
+                  type: string
+                  enum: [seedling, cult-hoop, field-veg, field-flower, flush, harvest_window, harvesting, closed]
+                  description: Must be exactly the next status in the sequence
+                notes:
+                  type: string
+                  nullable: true
+                  description: Required when to_status is `harvesting` (must reference maturity observation evidence)
+      responses:
+        '200':
+          description: Updated batch with full history (same shape as GET /:id)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchDetail'
+        '400':
+          description: >
+            Invalid transition (wrong status, skipped stage, or batch already closed),
+            missing sub_zone_id for field-veg, or notes required for harvesting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /batches/{id}/recipe:
+    patch:
+      tags: [batches]
+      summary: Assign or change active fertigation recipe
+      description: >
+        Closes the current active recipe assignment (sets effective_to to now) and
+        creates a new one, both in a single transaction. Previous assignments are
+        preserved in recipe_history for audit purposes. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [recipe_id]
+              properties:
+                recipe_id:
+                  type: integer
+                  description: Must reference an active fertigation recipe (active=1)
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: New recipe assignment created; previous assignment closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecipeAssignment'
+        '400':
+          description: Validation error or recipe_id does not exist / is not active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Batch not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── STRAINS ─────────────────────────────────────────────────────────────────
+
+  /strains:
+    get:
+      tags: [strains]
+      summary: List active strains
+      description: >
+        Returns all strains where active=1, with batch_count (non-closed batches
+        referencing the strain). Ordered alphabetically by name.
+      responses:
+        '200':
+          description: Array of active strains
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Strain'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [strains]
+      summary: Create a new strain
+      description: Requires supervisor role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name:
+                  type: string
+                  description: Cultivar name (e.g. "Northern Lights Auto")
+                type:
+                  type: string
+                  enum: [auto, photo]
+                genetics:
+                  type: string
+                  nullable: true
+                  description: Parent genetics or breeder notes
+                notes:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Strain created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Strain'
+        '400':
+          description: Missing or invalid name/type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /strains/{id}:
+    put:
+      tags: [strains]
+      summary: Update a strain
+      description: Full replacement of mutable strain fields (name, type, genetics, notes). Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string }
+                type:
+                  type: string
+                  enum: [auto, photo]
+                genetics: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated strain with batch_count
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Strain'
+        '400':
+          description: Invalid ID or missing/invalid name/type
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Strain not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [strains]
+      summary: Deactivate or delete a strain
+      description: >
+        Hard-deletes the strain if it has never been used in any batch (safe to remove).
+        Soft-deletes (sets active=0) if any batches reference it (preserves referential
+        integrity). The `action` field in the response indicates which occurred.
+
+        Requires admin role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Strain deactivated or deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  action:
+                    type: string
+                    enum: [deactivated, deleted]
+                    description: "`deleted` = hard delete (never used); `deactivated` = soft delete (batches reference it)"
+        '400':
+          description: Invalid (non-numeric) strain ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Strain not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+# TO BE CONTINUED — remaining routes in subsequent tasks
