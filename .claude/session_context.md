@@ -1158,6 +1158,44 @@
 
 ---
 
+## Task: Planting plans UI (features: plan list, new plan, plan builder)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added 6 write methods to `client/src/api.js`: createPlantingPlan, addPlantingPlanItem, removePlantingPlanItem, commitPlantingPlan, supersedePlantingPlan, cancelPlantingPlan
+- Created `client/src/pages/planting-plans/PlantingPlanList.jsx` — route `/planting-plans` (supervisor). Status filter tabs (draft/active/superseded/all). Cards show strain, sub-zone, version, committed/draft counts.
+- Created `client/src/pages/planting-plans/PlantingPlanNew.jsx` — route `/planting-plans/new?batch_id=X` (supervisor). Loads batch from query param + container summary for ready-count badges on each sub-zone. Draft persistence via `cv_draft_planting_plan_new`.
+- Created `client/src/pages/planting-plans/PlantingPlanDetail.jsx` — route `/planting-plans/:id` (supervisor). Container grid grouped by row, color-coded (green=ready/addable, blue=draft, amber=committed, gray=n/a). Click green to add, click blue to toggle selection. Draft items list with checkboxes. "Commit Selected (N)" and "Commit All (N)" fixed bottom action bar. "New Version" and "Cancel Plan" secondary buttons.
+- Updated `client/src/pages/batches/BatchDetail.jsx`: added planting plan section for germ/seedling/cult-hoop/field-veg statuses. Loads most recent plan via api.getPlantingPlans({ batch_id }). Shows status badge, committed/draft counts, and "Open Plan Builder →" link (supervisor). Shows "Create" link when no plan exists.
+- Updated `client/src/App.jsx`: 3 imports + 3 routes (all minRole="supervisor").
+
+### Key Decisions
+- All planting-plan routes require `minRole="supervisor"` — matches backend `requireRole('supervisor')` on all write endpoints
+- `addPlantingPlanItem` wraps single item in `{ items: [item] }` format per the bulk endpoint contract
+- Container grid uses horizontal overflow-x-scroll per row (30 containers/row × 44px = too wide for mobile, scrollable on tablet)
+- "Commit All" passes `{}` body (omitted item_ids = commit all draft items per backend logic)
+- "Commit Selected" passes `{ item_ids: [...] }` for the checked subset
+- After `removePlantingPlanItem` (204 response), state is updated optimistically by filtering items array
+- BatchDetail loads batchPlan lazily in a useEffect gated on eligible status + batch_id
+
+### Files Modified/Created
+- `client/src/api.js` (6 planting plan write methods added)
+- `client/src/pages/planting-plans/PlantingPlanList.jsx` (new)
+- `client/src/pages/planting-plans/PlantingPlanNew.jsx` (new)
+- `client/src/pages/planting-plans/PlantingPlanDetail.jsx` (new)
+- `client/src/App.jsx` (3 imports + 3 routes)
+- `client/src/pages/batches/BatchDetail.jsx` (planting plan section + batchPlan state + useEffect)
+
+### Notes for Next Tasks
+- 287 tests pass; `npx tsc --noEmit` clean; `npm run build` clean
+- The chunk size warning (925 KB) is pre-existing, not caused by this change
+- `api.getContainerSummary()` call in PlantingPlanNew uses the `/containers/summary` endpoint which requires no sub_zone_id param — returns all 8 sub-zones with state counts
+- Plan builder scrolls horizontally per row — works well on tablet (supervisor device). Phone users would need to scroll each row separately.
+- After a commit, the batch transitions from cult-hoop → field-veg automatically (handled by the commit endpoint, not the UI)
+- The `batchPlan` state in BatchDetail is only the most recent plan (index 0 from sorted DESC list). Older superseded plans are visible from `/planting-plans?batch_id=X`.
+
+---
+
 ## Task: Pest identification agent — discovery and design
 **Completed:** 2026-05-21
 
@@ -1386,3 +1424,224 @@
 - The walkthrough supports `?sub_zone_id=Y` filter via the backend (`getUntaggedAssignments` passes all params through) but there's no UI for sub-zone filtering yet — could be added as a second select
 - Bulk assign (`bulkAssignTags`) is wired in api.js but has no UI yet — walkthrough uses one-at-a-time via `assignTagRaw`
 - BatchDetail page could benefit from a "Tag Plants →" button linking to `/tag-assignments?batch_id=X` when untagged placements exist — not built yet
+
+---
+
+## Task: Location View UI
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `client/src/pages/locations/LocationView.jsx` — read-only location overview at `/locations`
+- Added `getPlantingPlans` and `getPlantingPlan` to `client/src/api.js`
+- Registered `/locations` route in `App.jsx`
+- Added MapPin "Locations" nav item to `NavBar.jsx`
+
+### Key Decisions
+- Pre-field section maps batches using `batch.current_location_type` (germination/seedling/veg) and `batch.current_location_name` to Germ-01, Seedlings, Cult-Hoop
+- Field section matches `batch.current_location_name` to sub-zone IDs (Z1A–Z4B) — field location names equal sub_zone_id
+- "Plan Field Placement" / "View Field Plan" button on cult-hoop batches: loads all planting plans, takes the most recent with status=draft or status=active for that batch_id; links to `/planting-plans/:id` or `/planting-plans/new?batch_id=X`
+- Mobile accordion uses `window.innerWidth < 768` with resize listener; desktop shows 4-column zone grid with A/B sub-zones stacked
+
+### Files Modified/Created
+- `client/src/pages/locations/LocationView.jsx` (new)
+- `client/src/api.js` — added getPlantingPlans, getPlantingPlan
+- `client/src/App.jsx` — import + route `/locations`
+- `client/src/components/NavBar.jsx` — MapPin import + Locations nav link
+
+### Notes for Next Tasks
+- `/planting-plans/:id` and `/planting-plans/new` routes are not registered in App.jsx and no page components exist — the Planting Plans UI is still pending
+
+---
+
+## Task: Phase 1 P0 backlog fixes
+**Completed:** 2026-05-22
+
+### What Was Done
+All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
+
+- **CRIT-01** (`8972045`): Added `requireAuth` to `GET /api/auth/users`; added public `GET /api/auth/login-users` returning only `{id, name}` for the login picker; `api.getUsers()` updated to call the new endpoint.
+- **CRIT-02**: Already committed prior to this session — DELETE endpoints removed from `cv_applications_fertigation`, `cv_applications_foliar`, `cv_applications_pesticide`.
+- **CRIT-03** (`fa8af2f`): METRC additives export now emits one row per `cv_fertigation_recipe_ingredients` ingredient (with product name from farmstock) rather than one recipe-level row. Cultivation record export now includes an `ingredients` array on each fertigation application.
+- **CRIT-04** (`eaa1e3c`): Migration `018_product_name_snapshots.ts` adds `product_name_snapshot` and `epa_reg_no_snapshot` nullable columns to `cv_applications_pesticide`, `cv_applications_foliar`, `cv_container_amendments`. POST handlers snapshot from farmstock at save time.
+- **CRIT-05** (`30e71c8`): `GET /api/exports/metrc-waste` added to exports.ts — aggregates `cv_plant_waste_trim_events` and `cv_plant_loss_events` in METRC waste format. JSON + CSV. `api.getMetrcWasteExport()` and `api.downloadMetrcWasteCsv()` added.
+- **CRIT-06**: Already committed prior to this session — harvest.ts Rule 34 cascade transitions all EMPTY containers to TEARDOWN when batch auto-closes.
+- **CRIT-07** (`9b27b37`): Full-screen REI gate added to `ContainerDetail.jsx` (blocks record render until acknowledged) and `ContainerScanner.jsx` (checks REI before navigation, shows gate, then navigates on dismiss).
+- **CRIT-08** (`89b4a62`): `Today.jsx` now shows amber retry banner on API load failure instead of silently showing empty state.
+- **CRIT-09** (`21030fb`): BatchDetail amendment quick-action link now passes `?batch_id=` — fixes missing `plant_batch_id` on container amendments logged from batch context.
+- **CRIT-10** (`4c39379`): `PesticideNew.jsx` now handles `Failed to fetch` / `NetworkError` with amber toast and `pendingSync` indicator, matching the FertigationNew offline pattern.
+
+### Key Decisions
+- CRIT-01: Created separate `/login-users` public endpoint (no role exposed) rather than making `/users` public; avoids role enumeration pre-auth.
+- CRIT-03: METRC additives export flattens to ingredient-level rows; cultivation record keeps nested `ingredients` array per application — different shapes for different consumer needs.
+- CRIT-04: Snapshot is best-effort (null if farmstock unavailable) — never fails the application save.
+- CRIT-07: ContainerDetail does the REI check after data loads (single API call); ContainerScanner does a container fetch + REI check before navigation (two API calls but correct per backlog requirement).
+
+### Files Modified/Created
+- `src/api/routes/auth.ts` — public login-users route + requireAuth on /users
+- `src/api/routes/exports.ts` — fertigation ingredient expansion + metrc-waste route
+- `src/api/routes/pesticide-applications.ts` — product snapshot capture
+- `src/api/routes/foliar-applications.ts` — product snapshot capture
+- `src/api/routes/container-amendments.ts` — product snapshot capture
+- `src/db/migrations/018_product_name_snapshots.ts` — new migration
+- `client/src/api.js` — getUsers → /login-users; getUsersAdmin → /users; new export/waste methods
+- `client/src/pages/Today.jsx` — error state + retry
+- `client/src/pages/batches/BatchDetail.jsx` — amendment batch_id fix
+- `client/src/pages/applications/PesticideNew.jsx` — offline handling
+- `client/src/pages/containers/ContainerDetail.jsx` — REI pre-entry gate
+- `client/src/pages/containers/ContainerScanner.jsx` — REI pre-navigation check
+
+### Notes for Next Tasks
+- All P0 items resolved; Phase 2 is now unblocked per the backlog gate ("Phase 2 cannot begin until all 10 CRITICAL items are resolved")
+- 287 tests passing; `npx tsc --noEmit` clean; pushed to origin/master
+- Remaining pending work in working tree: `sensors.ts` Zod validation improvements (uncommitted, unrelated to CRITs)
+- The `docs/backlog.md` HIGH (P1) items are next: MDA time/lot# fix (HIGH-01/02), METRC UID gate before harvest (HIGH-03), updated_at migration (HIGH-04), planting plans UI (HIGH-09)
+- `sensors.ts` has uncommitted changes (pre-existing) — unrelated to this task
+
+---
+
+## Task: Regulatory compliance test coverage — Tier 1 gaps
+**Completed:** 2026-05-22
+
+### What Was Done
+- Implemented Rule 34 (batch close cascade) in `harvest.ts`: when the last plant is final-harvested and batch auto-closes, all EMPTY containers in the batch are now transitioned to TEARDOWN with `batch_closed` trigger
+- Removed DELETE endpoints from `fertigation-applications.ts`, `foliar-applications.ts`, `pesticide-applications.ts` (Business Rule 5 — 5-year retention, no deletion of audit records)
+- Added test for `cult-hoop` status blocking `partial_harvest` to `harvest.test.ts`
+- Created `src/tests/integration/regulatory-gaps.test.ts` — 24 new tests covering:
+  - (4) Batch close cascades empty containers to TEARDOWN (3 tests)
+  - (5) plants_per_container=2 — multi-plant containers (3 tests)
+  - (6) DELETE on compliance endpoints returns 404 (3 tests)
+  - (7) Waste trim lifecycle: collected → disposed (5 tests)
+  - (8) plant_count_current derived from active assignments (3 tests)
+  - (9) METRC tag format validation — reject non-24-char, special chars; accept valid (6 tests)
+
+### Key Decisions
+- DELETE test uses `expect([404, 405]).toContain(res.statusCode)` — Fastify returns 404 when no handler is registered; 405 is also acceptable
+- Rule 34 cascade only fires when `remainingActive === 0` (batch auto-close) — individual final harvests do NOT cascade other containers
+- Waste trim 'held' and 'reported' states have no dedicated transition endpoints in Phase 1; tests cover what's implemented (collected → disposed)
+
+### Files Modified/Created
+- `src/api/routes/harvest.ts` — Rule 34 cascade logic added
+- `src/api/routes/fertigation-applications.ts` — DELETE endpoint removed
+- `src/api/routes/foliar-applications.ts` — DELETE endpoint removed
+- `src/api/routes/pesticide-applications.ts` — DELETE endpoint removed
+- `src/tests/integration/harvest.test.ts` — cult-hoop test added
+- `src/tests/integration/regulatory-gaps.test.ts` (new — 24 tests)
+
+### Notes for Next Tasks
+- Test count: 287 tests passing (was 263 before this task)
+- All items 1-10 from the task brief are now covered by tests (some pre-existed)
+- Items not fully implemented: waste trim 'held'/'reported' states need dedicated PATCH endpoints
+- The `sensors.ts` file has pre-existing uncommitted changes (from a pre-existing sensor task) — unrelated to this task
+
+---
+
+## Task: SSO Phase 1 — shared JWT cookie for hatstak.app cross-subdomain auth
+**Completed:** 2026-05-22
+
+### What Was Done
+- Installed `@fastify/cookie@^11.0.2` as a runtime dependency
+- Registered `fastifyCookie` plugin in `src/api/app.ts` (no cookie signing secret — JWT is already signed)
+- Updated `src/api/middleware/auth.middleware.ts`: checks `request.cookies?.hatstak_token` before falling back to `Authorization: Bearer` header; imports `'@fastify/cookie'` for TypeScript type augmentation
+- Updated `src/api/routes/auth.ts`:
+  - Login and refresh both call `setHatStackCookie()` — sets `hatstak_token` httpOnly cookie with `domain=.hatstak.app` in prod, `sameSite=lax`, `maxAge=7d`; `domain: undefined` in dev (localhost)
+  - Refresh now re-validates user is still active in DB and returns `{ token, worker }` (previously only `{ token }`)
+  - Added `POST /logout` endpoint that clears the cookie (no auth required — safe)
+  - Added `Cache-Control: no-store, private` header on all three auth response handlers
+- Updated `client/src/App.jsx`: always calls `api.refreshToken()` on init (no longer gated on localStorage presence) — cookie from farmstock/ff-dcs auto-logs user in; `logout()` now calls `api.logout()` fire-and-forget to clear cookie
+- Updated `client/src/pages/Login.jsx`: tries cookie auto-login via `refreshToken()` on mount before loading user picker; if `worker` is returned, logs in and navigates to `/` immediately
+- Updated `client/src/api.js`: added `logout()` method (POST /auth/logout)
+
+### Key Decisions
+- Cookie helpers use `(reply as any).setCookie/clearCookie` to avoid complex generic types with `@fastify/cookie`'s FastifyReply augmentation
+- `refreshToken` now returns `{ token, worker }` — backward-compatible since existing callers only destructure `{ token }`
+- Logout has no auth requirement — clearing a cookie for a non-existent session is a safe no-op
+- localStorage remains primary offline credential; cookie is the SSO bridge for cross-subdomain sessions
+- CRIT-01 (`GET /api/auth/users` unprotected) was intentionally deferred — adding requireAuth would break the login picker since users must load before auth
+
+### Files Modified
+- `package.json` + `package-lock.json` (@fastify/cookie added)
+- `src/api/app.ts` (fastifyCookie import + register)
+- `src/api/routes/auth.ts` (cookie on login/refresh, add logout, Cache-Control, refresh returns worker)
+- `src/api/middleware/auth.middleware.ts` (cookie-first auth)
+- `client/src/api.js` (logout method)
+- `client/src/App.jsx` (unconditional refresh on init, logout clears cookie)
+- `client/src/pages/Login.jsx` (SSO auto-login before user picker)
+
+### Notes for Next Tasks
+- Phase 2 of SSO: consolidate `cv_users` and farmstock `users` into shared `hatstak_users` table (see docs/sso-design.md Section 5 Phase 2)
+- Farmstock needs the same cookie changes for full cross-app SSO; cookie domain is already correct on cultivate side
+- Railway: set `JWT_SECRET` to the same value in both cultivate and farmstock services to enable cross-app token verification
+- 287 tests pass; `npx tsc --noEmit` clean; committed d7b18cb and pushed
+
+---
+
+## Task: UX quick wins implementation
+**Completed:** 2026-05-22
+
+### What Was Done
+- **NavBar**: `py-2` → `py-3` + `minHeight: '60px'` — meets 56pt gloved-use minimum (CLAUDE.md Rule 1)
+- **Batches.jsx**: Header "+ New Plant Batch" button 44px → 56px
+- **Today.jsx**: `conditionsExpanded` default changed `false → true` (Current Conditions expanded on mobile by default); "View all →" button gets `minHeight: '44px'` tap target; simplified toggle class
+- **HarvestDashboard**: All "Manicure Batch (MB)" → "Partial Harvest Batch (PHB)" — CLAUDE.md prohibits "manicure" in UI
+- **FinalHarvestForm**: Weight unit buttons 32px → 48px; draft persistence (`cv_draft_final_harvest_{batchId}_{assignmentId}`); offline detection ("Do NOT retry" warning); removed `autoFocus` on weight input (triggered keyboard before product chips were visible)
+- **PartialHarvestForm**: Weight unit buttons 32px → 48px; draft persistence (`cv_draft_partial_harvest_{batchId}_{assignmentId}`); offline detection
+- **PesticideNew**: Category/pest/wind-direction chips 36px → 44px (offline detection was already present from a prior task)
+- **FoliarNew**: Purpose chips + category picker chips 36px → 44px
+- **BatchNew**: Added `Toast` component + success toast "Batch created ✓" before navigate; draft persistence (`cv_draft_batch_new`) with 3s debounce + restore on mount
+- **BatchDetail**: Added `Toast` component + success toast on phase transitions ("Moved to Field — Veg ✓")
+- **PlantLossForm**: Added offline detection — network error shows "Network lost — draft preserved. Retry when online." without clearing saving state
+
+### Key Decisions
+- FinalHarvestForm offline warning uses stronger language ("Do NOT retry until you verify the record was not saved") because a duplicate final harvest is a serious compliance error
+- Draft persistence keys include batchId+assignmentId for harvest forms to avoid cross-batch collision
+- PartialHarvestForm imported `useRef`/`useCallback` (not previously imported)
+- Tag verification state (`tagConfirmed`) is intentionally NOT persisted in draft — operator must re-verify the physical tag each session for safety
+
+### Files Modified/Created
+- `client/src/components/NavBar.jsx`
+- `client/src/pages/Today.jsx`
+- `client/src/pages/batches/Batches.jsx`
+- `client/src/pages/batches/BatchNew.jsx`
+- `client/src/pages/batches/BatchDetail.jsx`
+- `client/src/pages/harvest/HarvestDashboard.jsx`
+- `client/src/pages/harvest/FinalHarvestForm.jsx`
+- `client/src/pages/harvest/PartialHarvestForm.jsx`
+- `client/src/pages/containers/PlantLossForm.jsx`
+- `client/src/pages/applications/PesticideNew.jsx`
+- `client/src/pages/applications/FoliarNew.jsx`
+
+### Notes for Next Tasks
+- 287 tests pass; `npx tsc --noEmit` clean; build clean; committed 055aacd and pushed
+- Remaining P0 items from docs/ux-field-analysis.md not yet done: REI pre-entry check in ContainerDetail/ContainerScanner (P0-04, P0-05), Today lifecycle action items (P0-09), BatchDetail amendment bug in Today screen (already fixed in prior session), RecentApplications shows fertigation only (P0-07)
+- P1 items not yet done: NavBar overflow menu (P1-02, P1-08), SoilSampleForm draft persistence (P1-12), FertigationRecipeEdit/FoliarRecipeEdit draft persistence (P1-14), PesticideNew lot picker (P1-15), FoliarNew sensor auto-fill (P1-16), HarvestDashboard container search (P1-17)
+- "Manicure" terminology: the API still uses `batch_type: 'manicure'` internally — only the UI label was changed. If the API is ever updated, HarvestDashboard's `activeMB` find() condition would need updating too.
+
+---
+
+## Task: Farmstock inventory depletion on application save
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `src/lib/farmstock-client.ts` — shared `triggerFarmstockDepletion(params, logger)` function; fire-and-forget POST to `{FARMSTOCK_URL}/api/stock/deplete`; returns early if no FARMSTOCK_URL/KEY; catches all errors and logs warnings; never throws
+- Updated `foliar-applications.ts`: import + call after INSERT when `input_lot_id != null`; passes `volume_applied`/`volume_unit` as quantity
+- Updated `pesticide-applications.ts`: import + call unconditionally after INSERT (input_lot_id is required for pesticides per Rule 16); passes `volume_applied`/`volume_unit`
+- Updated `container-amendments.ts`: import + call after INSERT when `input_lot_id != null`; passes `quantity`/`quantity_unit`
+- Fertigation: no `input_lot_id` field in schema (recipe-level tracking only) — no call added
+
+### Key Decisions
+- Shared module (`farmstock-client.ts`) rather than duplicating the function 3×; keeps depletion behavior consistent
+- `void` prefix on the call suppresses TypeScript's "floating promise" lint; result is intentionally ignored
+- Depletion fires AFTER the DB insert succeeds; failure in depletion path cannot roll back the application record (correct behavior for compliance records)
+- `FARMSTOCK_URL` was already in `.env.example` — no change needed
+
+### Files Modified/Created
+- `src/lib/farmstock-client.ts` (new)
+- `src/api/routes/foliar-applications.ts` (import + depletion call)
+- `src/api/routes/pesticide-applications.ts` (import + depletion call)
+- `src/api/routes/container-amendments.ts` (import + depletion call)
+
+### Notes for Next Tasks
+- 287 tests passing; `npx tsc --noEmit` clean; committed b415928 and pushed
+- The `/api/stock/deplete` endpoint must exist in farmstock for this to do anything — if farmstock doesn't have that route yet, the depletion will log non-ok status warnings silently
+- The depletion body matches the spec: `{ lot_id, quantity, quantity_unit, depleted_by_app: 'cultivate', reference_id, reference_type }`
+- Fertigation depletion would require adding `input_lot_id` to `cv_applications_fertigation` schema — a future migration if per-lot fertigation tracking is needed
