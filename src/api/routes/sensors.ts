@@ -22,6 +22,11 @@ const ReadingsQuerySchema = z.object({
   resolution: z.enum(['raw', 'hourly']).default('raw'),
 });
 
+const CurrentConditionsQuerySchema = z.object({
+  location_id: z.string().regex(/^\d+$/, 'location_id must be a positive integer').optional(),
+  sub_zone_id: z.string().optional(),
+});
+
 const CACHE_MINUTES = 5;
 const STALE_MINUTES = 30;
 
@@ -129,9 +134,9 @@ const sensorsRoutes: FastifyPluginAsync = async (app) => {
     let body: AssignSensorBody;
     try {
       body = AssignSensorSchema.parse(req.body);
-    } catch (err: unknown) {
-      const ze = err as { issues?: unknown[] };
-      return reply.code(400).send({ error: 'Validation failed', issues: ze.issues });
+    } catch (e: unknown) {
+      if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+      throw e;
     }
 
     const db = getDB();
@@ -202,10 +207,17 @@ const sensorsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /current — current readings for all assigned sensors (or filtered by location/sub_zone)
   app.get('/current', { preHandler: requireAuth }, async (req, reply) => {
+    let qParsed: z.infer<typeof CurrentConditionsQuerySchema>;
+    try {
+      qParsed = CurrentConditionsQuerySchema.parse(req.query);
+    } catch (e: unknown) {
+      if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+      throw e;
+    }
+
     const db = getDB();
-    const query = req.query as { location_id?: string; sub_zone_id?: string };
-    const locationId = query.location_id ? parseInt(query.location_id, 10) : null;
-    const subZoneId = query.sub_zone_id ?? null;
+    const locationId = qParsed.location_id ? parseInt(qParsed.location_id, 10) : null;
+    const subZoneId = qParsed.sub_zone_id ?? null;
     const staleThreshold = new Date(Date.now() - STALE_MINUTES * 60 * 1000).toISOString();
     const cacheThreshold = new Date(Date.now() - CACHE_MINUTES * 60 * 1000).toISOString();
 
