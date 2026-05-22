@@ -170,6 +170,7 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         : null;
 
       // Pesticide check: amendments cannot use EPA-registered products (rule 13 equivalent)
+      let productNameSnapshot: string | null = null;
       if (input_id) {
         const item = await fetchFarmstockItem(Number(input_id));
         if (item) {
@@ -181,6 +182,8 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
               input_id: Number(input_id),
             });
           }
+          // Snapshot product name at save time (MN 342.25 — 5-year retention)
+          productNameSnapshot = String(item['name'] ?? item['item_name'] ?? `Input #${input_id}`);
         }
       }
 
@@ -191,8 +194,9 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         INSERT INTO cv_container_amendments
           (container_id, batch_id, container_state, applied_at, amendment_type,
            application_method, input_id, input_lot_id, quantity, quantity_unit,
-           purpose, soil_sample_id, applicator, notes, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           purpose, soil_sample_id, applicator, notes, product_name_snapshot,
+           created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         String(container_id).trim(),
         batchIdFromState,
@@ -208,6 +212,7 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         soil_sample_id != null ? Number(soil_sample_id) : null,
         userId,
         notes ?? null,
+        productNameSnapshot,
         userId,
         now,
       );

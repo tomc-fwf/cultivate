@@ -281,6 +281,13 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         phi_compliant = (harvestMs - appliedMs) >= phiMs ? 1 : 0;
       }
 
+      // Snapshot product name at save time (MN 342.25 — 5-year retention)
+      let productNameSnapshot: string | null = null;
+      if (input_id != null) {
+        const item = await fetchFarmstockItem(Number(input_id));
+        if (item) productNameSnapshot = String(item['name'] ?? item['item_name'] ?? `Input #${input_id}`);
+      }
+
       const userId = (request.user as Record<string, unknown>).id;
       const now = new Date().toISOString();
 
@@ -289,8 +296,8 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
           (batch_id, row_id, container_id, applied_at, foliar_recipe_id, input_id,
            input_lot_id, rate_value, rate_unit, volume_applied, volume_unit, purpose,
            ambient_temp_f, ambient_rh, phi_compliant, stage_compliant, applicator,
-           notes, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           notes, product_name_snapshot, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         Number(batch_id),
         row_id ?? null,
@@ -310,6 +317,7 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         stage_compliant,
         userId,
         notes ?? null,
+        productNameSnapshot,
         userId,
         now,
       );

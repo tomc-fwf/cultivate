@@ -292,6 +292,14 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
         rei_expires_at = new Date(appliedMs + rei_hours * 3600000).toISOString();
       }
 
+      // Snapshot product identity at save time (MN 342.25 — 5-year retention)
+      const productNameSnapshot = item
+        ? String(item['name'] ?? item['item_name'] ?? `Input #${input_id}`)
+        : null;
+      const epaRegNoSnapshot = item
+        ? String(item['epa_reg_number'] ?? item['epa_reg_no'] ?? '')
+        : null;
+
       const userId = (request.user as Record<string, unknown>).id;
       const now = new Date().toISOString();
 
@@ -301,8 +309,10 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
            rate_value, rate_unit, volume_applied, volume_unit, application_method,
            target_pest, pest_pressure, ambient_temp_f, ambient_rh, wind_speed_mph,
            wind_direction, phi_compliant, expected_harvest_date, rei_expires_at,
-           applicator_license, applicator, notes, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           applicator_license, applicator, notes,
+           product_name_snapshot, epa_reg_no_snapshot,
+           created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         Number(batch_id),
         row_id ?? null,
@@ -327,6 +337,8 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
         applicator_license ? String(applicator_license).trim() : null,
         userId,
         notes ?? null,
+        productNameSnapshot,
+        epaRegNoSnapshot,
         userId,
         now,
       );
