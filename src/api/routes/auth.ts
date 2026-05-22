@@ -35,7 +35,16 @@ function clearHatStackCookie(reply: FastifyReply): void {
 }
 
 const authRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/users', async (request, reply) => {
+  // Public endpoint for the login picker — returns only id+name (no role).
+  app.get('/login-users', async (_request, reply) => {
+    const users = getDB()
+      .prepare('SELECT id, name FROM cv_users WHERE active=1 ORDER BY name')
+      .all();
+    return reply.send(users);
+  });
+
+  // Authenticated endpoint — returns full user list including roles.
+  app.get('/users', { preHandler: requireAuth }, async (request, reply) => {
     UsersQuerySchema.parse(request.query);
     const users = getDB()
       .prepare('SELECT id, name, role FROM cv_users WHERE active=1 ORDER BY name')

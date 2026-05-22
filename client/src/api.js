@@ -16,7 +16,8 @@ async function req(method, path, body) {
 
 export const api = {
   // Auth
-  getUsers: () => req('GET', '/auth/users'),
+  getUsers: () => req('GET', '/auth/login-users'),
+  getUsersAdmin: () => req('GET', '/auth/users'),
   login: (user_id, pin) => req('POST', '/auth/login', { user_id, pin }),
   refreshToken: () => req('POST', '/auth/refresh'),
   logout: () => req('POST', '/auth/logout'),
