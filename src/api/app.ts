@@ -24,7 +24,7 @@ import plantLossRoutes from './routes/plant-loss.js';
 import containerLifecycleRoutes from './routes/container-lifecycle.js';
 import exportsRoutes from './routes/exports.js';
 
-export async function buildApp() {
+export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   const app = Fastify({ logger: true, trustProxy: true });
 
   await app.register(fastifyHelmet, {
@@ -55,11 +55,13 @@ export async function buildApp() {
     sign: { expiresIn: '7d' },
   });
 
-  await app.register(fastifyStatic, {
-    // __dirname is the compiled dist/api/ folder; navigate to client/dist relative to project root
-    root: path.join(__dirname, '../../client/dist'),
-    prefix: '/',
-  });
+  if (!opts.skipStatic) {
+    await app.register(fastifyStatic, {
+      // __dirname is the compiled dist/api/ folder; navigate to client/dist relative to project root
+      root: path.join(__dirname, '../../client/dist'),
+      prefix: '/',
+    });
+  }
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(fertigationRecipesRoutes, { prefix: '/api/recipes/fertigation' });

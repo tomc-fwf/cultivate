@@ -53,7 +53,7 @@ export async function createTestContext(): Promise<TestContext> {
 
   setDB(db);
 
-  const app = await buildApp();
+  const app = await buildApp({ skipStatic: true });
   await app.ready();
 
   return { db, app };
