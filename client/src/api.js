@@ -173,6 +173,8 @@ export const api = {
   downloadMdaCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/mda-pesticide?${q}`); },
   getMetrcWasteExport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-waste${q ? '?' + q : ''}`); },
   downloadMetrcWasteCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-waste?${q}`); },
+  getMetrcPhasesExport: (batchId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-phases/${batchId}${q ? '?' + q : ''}`); },
+  downloadMetrcPhasesCsv: (batchId) => { window.open(`/api/exports/metrc-phases/${batchId}?format=csv`); },
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),

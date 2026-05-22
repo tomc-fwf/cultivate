@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
-import { makeBatchName } from '../../lib/domain-utils.js';
+import { makeBatchName, toMetrcPhase } from '../../lib/domain-utils.js';
 import { z } from 'zod';
 
 const MetrcAdditivesQuerySchema = z.object({
@@ -1108,6 +1108,96 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       losses_unsynced:     Number(lossRow?.['cnt'] ?? 0),
     });
   });
+
+  const MetrcPhasesQuerySchema = z.object({
+    format: z.enum(['json', 'csv']).default('json'),
+  });
+
+  /**
+   * GET /metrc-phases/:batchId — METRC Change Growth Phase export.
+   * Returns all phase transitions for a batch mapped to METRC phase names,
+   * annotated with the physical location active at each transition time.
+   * Supports ?format=csv for CSV download.
+   */
+  app.get<{ Params: { batchId: string } }>(
+    '/metrc-phases/:batchId',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const batchId = Number(request.params.batchId);
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const parsed = MetrcPhasesQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+      }
+      const { format } = parsed.data;
+
+      const db = getDB();
+
+      const batchExists = db.prepare('SELECT batch_id FROM cv_batches WHERE batch_id = ?').get(batchId);
+      if (!batchExists) return reply.code(404).send({ error: 'Batch not found' });
+
+      const phaseRows = db.prepare(`
+        SELECT ph.phase_history_id, ph.from_status, ph.to_status, ph.transitioned_at,
+               ph.metrc_sync_status,
+               b.metrc_plant_batch_uid, b.sub_zone_id, b.sow_date,
+               s.name AS strain_name, s.type AS strain_type
+        FROM cv_batch_phase_history ph
+        JOIN cv_batches b ON b.batch_id = ph.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        WHERE ph.batch_id = ?
+        ORDER BY ph.transitioned_at ASC
+      `).all(batchId) as Array<Record<string, unknown>>;
+
+      const locRows = db.prepare(`
+        SELECT lh.moved_at, l.name AS location_name, l.metrc_name
+        FROM cv_batch_location_history lh
+        LEFT JOIN cv_locations l ON l.location_id = lh.to_location_id
+        WHERE lh.batch_id = ?
+        ORDER BY lh.moved_at ASC
+      `).all(batchId) as Array<Record<string, unknown>>;
+
+      const output = phaseRows.map(ph => {
+        // Find the most recent location move at or before this transition's timestamp.
+        let locationName: string | null = null;
+        for (const loc of locRows) {
+          if (String(loc['moved_at']) <= String(ph['transitioned_at'])) {
+            locationName = (loc['location_name'] as string | null) ?? null;
+          }
+        }
+
+        const sowDate = ph['sow_date'] as string | null;
+        const metrcBatchName = sowDate
+          ? makeBatchName(String(ph['strain_name'] ?? ''), sowDate, String(ph['strain_type'] ?? ''))
+          : null;
+
+        return {
+          phase_history_id:      ph['phase_history_id'],
+          metrc_batch_name:      metrcBatchName,
+          metrc_plant_batch_uid: ph['metrc_plant_batch_uid'] ?? null,
+          sub_zone_id:           ph['sub_zone_id'] ?? null,
+          from_metrc_phase:      ph['from_status'] ? toMetrcPhase(String(ph['from_status'])) : null,
+          to_metrc_phase:        toMetrcPhase(String(ph['to_status'] ?? '')),
+          transitioned_at:       ph['transitioned_at'],
+          metrc_sync_status:     ph['metrc_sync_status'],
+          location:              locationName,
+        };
+      });
+
+      if (format === 'csv') {
+        const columns = [
+          'phase_history_id', 'metrc_batch_name', 'metrc_plant_batch_uid', 'sub_zone_id',
+          'from_metrc_phase', 'to_metrc_phase', 'transitioned_at', 'metrc_sync_status', 'location',
+        ];
+        const dateStr = new Date().toISOString().slice(0, 10);
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="metrc-phases-${batchId}-${dateStr}.csv"`);
+        return reply.send(toCsv(output, columns));
+      }
+
+      return reply.send(output);
+    },
+  );
 };
 
 export default exportsRoutes;
