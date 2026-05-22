@@ -605,6 +605,17 @@ export default function ContainerDetail() {
             </button>
           )}
 
+          {/* Move Plant — transplant or relocate to a different container */}
+          {state === 'active' && (
+            <button
+              onClick={() => navigate(`/containers/${encodeURIComponent(container.container_id)}/move?batch_id=${current_batch.batch_id}`)}
+              className="mt-2 flex items-center gap-2 w-full px-4 py-3 bg-blue-50 border-2 border-blue-200 text-blue-900 font-semibold text-sm rounded-2xl hover:border-blue-400 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              <span>🪴</span>Move Plant
+            </button>
+          )}
+
           {/* Assign Replacement Plant — available when container is empty within an active batch */}
           {state === 'empty' && (
             <button

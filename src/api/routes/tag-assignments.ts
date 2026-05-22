@@ -58,6 +58,18 @@ const ReassignSchema = z.object({
 });
 type ReassignBody = z.infer<typeof ReassignSchema>;
 
+// Move a plant (assignment) to a different physical container.
+// Used when a plant is potted up, transplanted, or relocated.
+// The tag and batch association follow the plant; container states are updated.
+const MoveSchema = z.object({
+  to_container_id: z.string().min(1, 'to_container_id is required'),
+  reason: z.string().min(1, 'reason is required'),
+  notes: z.string().nullable().optional(),
+});
+type MoveBody = z.infer<typeof MoveSchema>;
+
+interface AssignmentMoveParams { assignmentId: string }
+
 const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
 
   // ── GET /untagged — list placements awaiting a METRC tag ─────────────────
@@ -422,6 +434,134 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
       });
     },
   );
+  // ── POST /:assignmentId/move — physically move a plant to a different container ─
+  //
+  // Used when a plant is transplanted (e.g. potted up from 10-gal to 30-gal)
+  // or relocated within a batch. The METRC tag and batch association stay on
+  // the assignment; only container_id changes. Container states are updated in
+  // the same transaction.
+  //
+  // Destination must be 'ready' (no batch) or 'empty' (same batch, plant was
+  // previously lost). 'empty' from a different batch is rejected.
+
+  app.post<{ Params: AssignmentMoveParams; Body: MoveBody }>(
+    '/:assignmentId/move',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const assignmentId = Number(request.params.assignmentId);
+      if (!Number.isInteger(assignmentId) || assignmentId <= 0) {
+        return reply.code(400).send({ error: 'assignmentId must be a positive integer' });
+      }
+
+      let body: MoveBody;
+      try { body = MoveSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { to_container_id, reason, notes } = body;
+
+      const db = getDB();
+      const userId = request.user.id;
+      const now = new Date().toISOString();
+
+      // Assignment must be active
+      const assignment = db.prepare(
+        'SELECT * FROM cv_plant_assignments WHERE assignment_id = ? AND unassigned_at IS NULL'
+      ).get(assignmentId) as Record<string, unknown> | undefined;
+      if (!assignment) return reply.code(404).send({ error: 'Assignment not found or already unassigned' });
+
+      const fromContainerId = assignment['container_id'] as string;
+      const batchId = Number(assignment['batch_id']);
+
+      if (fromContainerId === to_container_id) {
+        return reply.code(400).send({ error: 'Destination container is the same as the source container' });
+      }
+
+      // Destination container must exist
+      const toContainer = db.prepare('SELECT container_id FROM cv_containers WHERE container_id = ?').get(to_container_id);
+      if (!toContainer) return reply.code(404).send({ error: `Destination container "${to_container_id}" not found` });
+
+      // Destination must be 'ready' or 'empty'
+      const toState = db.prepare('SELECT * FROM cv_container_state WHERE container_id = ?').get(to_container_id) as Record<string, unknown> | undefined;
+      if (!toState) return reply.code(404).send({ error: 'Destination container state not found' });
+
+      const toCurrentState = toState['current_state'] as string;
+      if (toCurrentState !== 'ready' && toCurrentState !== 'empty') {
+        return reply.code(400).send({
+          error: `Destination container must be 'ready' or 'empty'; currently: ${toCurrentState}`,
+        });
+      }
+
+      // Empty destination must be in the same batch
+      if (toCurrentState === 'empty' && Number(toState['current_batch_id']) !== batchId) {
+        return reply.code(400).send({
+          error: `Destination container is 'empty' in a different batch (${toState['current_batch_id']}); cannot move a plant across batches`,
+        });
+      }
+
+      // Destination must have no active assignments (defensive — state alone should guarantee this)
+      const { n: destActive } = db.prepare(
+        'SELECT COUNT(*) AS n FROM cv_plant_assignments WHERE container_id = ? AND unassigned_at IS NULL'
+      ).get(to_container_id) as { n: number };
+      if (destActive > 0) {
+        return reply.code(400).send({ error: 'Destination container already has active plant assignments' });
+      }
+
+      // Snapshot source container's current state before transaction
+      const fromState = db.prepare(
+        'SELECT current_state FROM cv_container_state WHERE container_id = ?'
+      ).get(fromContainerId) as { current_state: string } | undefined;
+      const fromCurrentState = fromState?.current_state ?? 'active';
+
+      db.transaction(() => {
+        // 1. Move the assignment to the destination container
+        db.prepare(
+          'UPDATE cv_plant_assignments SET container_id = ? WHERE assignment_id = ?'
+        ).run(to_container_id, assignmentId);
+
+        // 2. Activate destination container with the source batch
+        db.prepare(
+          'UPDATE cv_container_state SET current_state = ?, current_batch_id = ?, state_since = ?, updated_at = ? WHERE container_id = ?'
+        ).run('active', batchId, now, now, to_container_id);
+
+        // 3. Log destination state transition
+        db.prepare(`
+          INSERT INTO cv_container_state_transitions
+            (container_id, from_state, to_state, transitioned_at, transitioned_by, batch_id, trigger_event, notes, created_at)
+          VALUES (?, ?, 'active', ?, ?, ?, 'plant_replaced', ?, ?)
+        `).run(to_container_id, toCurrentState, now, userId, batchId, reason.trim(), now);
+
+        // 4. Check if source container still has active assignments
+        const { n: remaining } = db.prepare(
+          'SELECT COUNT(*) AS n FROM cv_plant_assignments WHERE container_id = ? AND unassigned_at IS NULL'
+        ).get(fromContainerId) as { n: number };
+
+        if (remaining === 0) {
+          // 5a. Source now empty — transition it
+          db.prepare(
+            "UPDATE cv_container_state SET current_state = 'empty', state_since = ?, updated_at = ? WHERE container_id = ?"
+          ).run(now, now, fromContainerId);
+
+          // 5b. Log source state transition
+          db.prepare(`
+            INSERT INTO cv_container_state_transitions
+              (container_id, from_state, to_state, transitioned_at, transitioned_by, batch_id, trigger_event, notes, created_at)
+            VALUES (?, ?, 'empty', ?, ?, ?, 'plant_replaced', ?, ?)
+          `).run(fromContainerId, fromCurrentState, now, userId, batchId,
+            `Plant moved to ${to_container_id}: ${reason.trim()}`, now);
+        }
+      })();
+
+      return reply.send({
+        assignment_id: assignmentId,
+        from_container_id: fromContainerId,
+        to_container_id,
+        moved_at: now,
+      });
+    },
+  );
+
 };
 
 export default tagAssignmentsRoutes;

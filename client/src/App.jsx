@@ -40,6 +40,7 @@ import WasteTrimList from './pages/harvest/WasteTrimList';
 import WeatherEventClose from './pages/harvest/WeatherEventClose';
 import PlantLossForm from './pages/containers/PlantLossForm';
 import PlantReplacementForm from './pages/containers/PlantReplacementForm';
+import PlantMoveForm from './pages/containers/PlantMoveForm';
 import TeardownForm from './pages/containers/TeardownForm';
 import SoilSampleForm from './pages/containers/SoilSampleForm';
 import StartupForm from './pages/containers/StartupForm';
@@ -144,6 +145,7 @@ export default function App() {
               <Route path="/containers/map/:subZoneId" element={<Protected><SubZoneFieldMap /></Protected>} />
               <Route path="/containers/:containerId/loss" element={<Protected><PlantLossForm /></Protected>} />
               <Route path="/containers/:containerId/replacement" element={<Protected><PlantReplacementForm /></Protected>} />
+              <Route path="/containers/:containerId/move" element={<Protected><PlantMoveForm /></Protected>} />
               <Route path="/containers/:containerId/teardown" element={<Protected><TeardownForm /></Protected>} />
               <Route path="/containers/:containerId/soil-sample/new" element={<Protected><SoilSampleForm /></Protected>} />
               <Route path="/containers/:containerId/startup" element={<Protected><StartupForm /></Protected>} />
