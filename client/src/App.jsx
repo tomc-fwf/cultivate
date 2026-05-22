@@ -52,6 +52,7 @@ import PlantInventory from './pages/compliance/PlantInventory';
 import TagVerification from './pages/compliance/TagVerification';
 import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
 import ContainerScanner from './pages/containers/ContainerScanner';
+import SubZoneFieldMap from './pages/containers/SubZoneFieldMap';
 import TagAssignmentWalkthrough from './pages/containers/TagAssignmentWalkthrough';
 import PlantingPlanList from './pages/planting-plans/PlantingPlanList';
 import PlantingPlanNew from './pages/planting-plans/PlantingPlanNew';
@@ -138,6 +139,7 @@ export default function App() {
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
+              <Route path="/containers/map/:subZoneId" element={<Protected><SubZoneFieldMap /></Protected>} />
               <Route path="/containers/:containerId/loss" element={<Protected><PlantLossForm /></Protected>} />
               <Route path="/containers/:containerId/replacement" element={<Protected><PlantReplacementForm /></Protected>} />
               <Route path="/containers/:containerId/teardown" element={<Protected><TeardownForm /></Protected>} />

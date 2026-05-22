@@ -61,6 +61,8 @@ export const api = {
 
   // Containers
   getContainerSummary: () => req('GET', '/containers/summary'),
+  // Response: { sub_zone, containers[] } — each container includes:
+  //   has_open_observation: 0|1, rei_active_until: ISO string|null
   getContainers: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return req('GET', `/containers${q ? '?' + q : ''}`);

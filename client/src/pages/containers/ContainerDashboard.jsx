@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { api } from '../../api';
 import { useAuth } from '../../App';
 import ContainerQuickSheet from './ContainerQuickSheet';
@@ -523,6 +523,13 @@ export default function ContainerDashboard() {
                 >
                   View Grid →
                 </button>
+                <Link
+                  to={`/containers/map/${sz.sub_zone_id}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-blue-600 font-semibold hover:text-blue-800"
+                >
+                  Field Map →
+                </Link>
                 {isAdmin && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setBulkScope({ scope: 'sub_zone', scope_id: sz.sub_zone_id, label: sz.sub_zone_id }); setBulkMsg(''); setBulkError(''); }}

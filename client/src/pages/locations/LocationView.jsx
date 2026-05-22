@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { ChevronDown, ChevronRight, MapPin, Sprout } from 'lucide-react';
 import { api } from '../../api';
 
@@ -183,9 +183,17 @@ function FieldSubZoneCard({ szId, summary, batch, isMobile, expanded, onToggle }
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg p-3">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="font-semibold text-gray-800">{szId}</span>
-        {potLabel && <span className="text-xs text-gray-400">{potLabel} · {total} containers</span>}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-800">{szId}</span>
+          {potLabel && <span className="text-xs text-gray-400">{potLabel} · {total} containers</span>}
+        </div>
+        <Link
+          to={`/containers/map/${szId}`}
+          className="text-xs text-blue-600 font-semibold hover:text-blue-800 shrink-0"
+        >
+          Field Map →
+        </Link>
       </div>
       {inner}
     </div>

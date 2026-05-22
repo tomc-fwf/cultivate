@@ -122,7 +122,18 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
         cs.current_state, cs.state_since, cs.current_batch_id, cs.notes AS state_notes,
         b.status AS batch_status,
         s.name AS strain_name, s.type AS strain_type,
-        pa.metrc_plant_tag
+        pa.metrc_plant_tag,
+        (
+          SELECT COUNT(*) > 0 FROM cv_observations o
+          WHERE o.container_id = c.container_id AND o.resolved_at IS NULL
+        ) AS has_open_observation,
+        (
+          SELECT MAX(ap.rei_expires_at)
+          FROM cv_applications_pesticide ap
+          WHERE (ap.container_id = c.container_id OR ap.row_id = r.row_id)
+            AND ap.rei_expires_at > datetime('now')
+            AND ap.rei_cleared_at IS NULL
+        ) AS rei_active_until
       FROM cv_containers c
       JOIN cv_rows r ON r.row_id = c.row_id
       JOIN cv_container_state cs ON cs.container_id = c.container_id
