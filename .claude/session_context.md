@@ -770,3 +770,275 @@
 - CSV download for tag verification uses `window.open()` (same pattern as existing exports) — this sends no auth header and will 401 for authenticated routes; a proper blob-fetch approach would be needed to fix this for all export CSV downloads
 - `getCount()` helper uses SQLite's `COUNT(*) AS cnt` pattern — must use `cnt` alias consistently
 - 175 tests passing, build passes clean
+
+---
+
+## Task: Mix calculator design + unit conversion spec
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read `src/db/migrations/006_recipes.ts` (recipe + ingredient schema, rate_unit values), `002_infrastructure.ts` (sub-zone container counts and pot sizes), `FertigationRecipeDetail.jsx` (RATE_UNIT_LABELS map + existing print card pattern), and `FertigationNew.jsx` (volume field UX, batch context, return_to flow)
+- Produced `docs/mix-calculator-design.md` (847 lines) with 9 sections:
+  - **Section 1:** Problem statement — what the calculator solves
+  - **Section 2:** 5 input scenarios (full sub-zone, rows, plant-count, manual volume, foliar spray) with exact formulas and worked numbers
+  - **Section 3:** Complete unit conversion tables — all rate_unit values to mL/mL canonical form, all volume unit relationships, worked examples for each conversion
+  - **Section 4:** Auto-unit selection ladder for imperial and metric output (8 tiers imperial, 3 metric), weight-based ingredient handling, display precision rules
+  - **Section 5:** UI design — route `/recipes/calculator`, 4 entry points with wiring specifics, layout wireframe, scenario-specific input controls, recipe selector, ingredient list display, UX rules
+  - **Section 6:** Print mixing card design — Fraunces/JetBrains Mono style matching existing recipe print cards, `window.print()` implementation using `.hidden.print:block` pattern already in FertigationRecipeDetail
+  - **Section 7:** plants_per_container awareness — 3-tier data source priority (active batch, URL param, manual), 3 rate specifiers (gal/plant, gal/container, gal/gal-pot)
+  - **Section 8:** 3 complete worked examples with full math (Z1A auto sub-zone imperial, 3-container metric, 25-gal foliar metric)
+  - **Section 9:** Implementation notes — frontend-only (no new API routes), extraction module path (`client/src/lib/mix-calculator.js`), exact code for "Use This Volume" sessionStorage handoff
+
+### Key Decisions
+- No backend routes needed — all data is available from existing endpoints (recipe detail already includes item_name)
+- Canonical intermediate is mL/mL ratio — all rate_units convert to this form first, then scale and re-express
+- Weight-based rates (g_per_gal, g_per_L) bypass the fluid-volume unit ladder; always display in g/kg
+- "Use This Volume" uses sessionStorage handoff (not URL params) to avoid polluting the application form URL
+- Rate specifier "gal/plant" is default; "gal/container" and "gal/gal-pot" are collapsed under "More options"
+- Print card uses identical `.hidden.print:block` pattern already established in FertigationRecipeDetail.jsx
+
+### Files Modified/Created
+- `docs/mix-calculator-design.md` (new — 847 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Implementation: create `client/src/lib/mix-calculator.js` + `client/src/pages/recipes/MixCalculator.jsx` + unit tests
+- The `RATE_UNIT_LABELS` map in FertigationRecipeDetail is the canonical list of rate_unit values in use — matches what is in Section 3 of the spec
+- "Use This Volume" sessionStorage keys: `cv_calc_volume_gal` and `cv_calc_volume_batch_id` — FertigationNew.jsx must consume these on mount
+- Sub-zone container counts are compile-time constants (from seed data) — no API call needed for A=150/B=145
+
+---
+
+## Task: Environmental dashboard panels + form auto-fill
+**Completed:** 2026-05-21
+
+### What Was Done
+- Created `client/src/components/CurrentConditionsCard.jsx`: reusable card showing temp/RH/dew point/VPD with stage-aware VPD color coding (green=optimal, amber=marginal within 20%, red=outside). Handles: no sensor assigned, sensor offline (>30min), stale readings (>10min warning).
+- Updated `client/src/hooks/useCurrentConditions.jsx`: SensorBadge now accepts `manual` prop — shows '📡 Auto-filled · N min ago' (green) or '✏ Manual entry' (gray) instead of hiding on manual edit.
+- Updated `client/src/pages/Today.jsx`: added "Current Conditions" section below Active Batches — one card per unique sub_zone_id from active batches. Collapsed on mobile (tap to expand), expanded on tablet.
+- Updated `client/src/pages/batches/BatchDetail.jsx`: CurrentConditionsCard inserted below METRC identity card when batch.sub_zone_id is set.
+- Updated `client/src/pages/applications/PesticideNew.jsx`: per-field manual edit tracking (tempEdited/rhEdited); SensorBadge on both temp and RH fields; no longer nulls sensorReadingUsed on edit.
+- Updated `client/src/pages/applications/FertigationNew.jsx`: same pattern as PesticideNew.
+- Updated `client/src/pages/harvest/HarvestDashboard.jsx`: sensor auto-fill for new harvest batch ambient_temp_f and ambient_rh; collapsible conditions section shows before create buttons; wind_speed_mph remains manual; conditions passed to createHarvestBatch payload.
+- Updated `client/src/pages/compliance/ComplianceDashboard.jsx`: Environmental Alerts panel added — calls getCurrentConditions + getBatches, checks: sensor offline >30min (amber), VPD out of range for current batch stage (red/amber), battery <20% (amber). Placed before Quick Links section.
+- Created `client/src/pages/admin/EnvironmentalHistory.jsx`: route /admin/environmental-history (minRole=admin). Sensor dropdown, date range picker (24h/7d/30d/custom), readings table (500 row limit with CSV download), note about Phase 3 charts.
+- Updated `client/src/pages/admin/SensorManagement.jsx`: "View History →" link to /admin/environmental-history.
+- Updated `client/src/App.jsx`: registered /admin/environmental-history route.
+
+### Key Decisions
+- VPD_RANGES defined inline in CurrentConditionsCard and ComplianceDashboard (not a shared file) — they're simple agronomic constants, duplicating is fine.
+- Offline threshold = 30 min (1800s); stale warning = 10 min (600s). Same threshold as design spec.
+- SensorBadge `manual` prop: if reading is not null but manual=true, shows '✏ Manual entry'. If reading is null, returns null (no badge — sensor never provided data for this form session). This lets the field badge state be stateful across editing.
+- The Current Conditions section on Today uses tab-style collapse via CSS (hidden/md:block) — no JS state needed for tablet expansion.
+- ComplianceDashboard now uses Promise.all for all three API calls; getBatches failure is silenced with `.catch(() => [])` since it's supplementary to the primary dashboard data.
+
+### Files Modified/Created
+- `client/src/components/CurrentConditionsCard.jsx` (new)
+- `client/src/hooks/useCurrentConditions.jsx` (SensorBadge updated)
+- `client/src/pages/Today.jsx` (Current Conditions section added)
+- `client/src/pages/batches/BatchDetail.jsx` (CurrentConditionsCard added)
+- `client/src/pages/applications/PesticideNew.jsx` (per-field badge tracking)
+- `client/src/pages/applications/FertigationNew.jsx` (per-field badge tracking)
+- `client/src/pages/harvest/HarvestDashboard.jsx` (harvest batch conditions + auto-fill)
+- `client/src/pages/compliance/ComplianceDashboard.jsx` (Environmental Alerts panel)
+- `client/src/pages/admin/EnvironmentalHistory.jsx` (new)
+- `client/src/pages/admin/SensorManagement.jsx` (View History link)
+- `client/src/App.jsx` (route added)
+
+### Notes for Next Tasks
+- `npm run build` passes clean; 191 tests passing.
+- The `battery_pct` field in getCurrentConditions response — the endpoint currently doesn't return it (only the sensor list endpoint does). If battery alerts are needed from getCurrentConditions, the endpoint needs a JOIN to cv_sensors. Currently battery alerts silently do nothing if battery_pct is null.
+- The Today screen Conditions section uses `hidden md:block` for tablet auto-expansion — this is CSS-only. The `conditionsExpanded` state only controls the mobile toggle. The md+ breakpoint always shows it.
+- EnvironmentalHistory caps table display at 500 rows but fetches all from API. For large datasets the API may return thousands — the 7-day limit on raw readings in the sensor route (`ORDER BY observed_at DESC LIMIT 500` or similar) should be checked if performance is an issue.
+
+---
+
+## Task: Uniform Enterprise Management architecture design
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read ff-dcs CLAUDE.md and `src/core/ai/` directory (IntelligenceService, LLMService, RAGService, types.ts) to understand the AI infrastructure available.
+- Read cultivate docs/harvest-model.md and docs/metrc-integration-design.md for full domain context.
+- Produced `docs/uem-architecture.md` (1,374 lines, 8 sections):
+  - **Section 1:** SOP → Skill → Checklist pipeline — 4 stages from SOP authoring through skill distribution; how `IntelligenceService.extractSkill()` maps to existing ExtractType infrastructure.
+  - **Section 2:** How skills drive sub-applications — dynamic form generation via `<SkillForm>`, dynamic checklist generation, validation layer wrapping Zod, graceful degradation.
+  - **Section 3:** Agent integration — 4 agent types (Skill Extraction, Skill Execution, Compliance Monitoring, Skill Update); human-in-the-loop spectrum table mapping each cultivate workflow to automation level (fully automated → human-only); Felix task format examples.
+  - **Section 4:** Full TypeScript skill schema spec — all interfaces (SkillSchema, SkillStep, FieldDef, FieldValidation, AutoFillSource, OutputAction, PostCondition, ComplianceCheck); Expression DSL with context variables and supported operations; severity level table.
+  - **Section 5:** ff-dcs ↔ cultivate integration points — new ff-dcs API routes, two new ff-dcs database tables (skills, skill_runs), cross-app service auth pattern, webhook notification design, compliance Q&A integration.
+  - **Section 6:** Regulatory alignment — comparison to standard operations, per-regulation alignment table (342.25, 4770, 18B.37, METRC, MDA), deviation documentation structure.
+  - **Section 7:** 5-phase implementation roadmap (Phase 1=current, Phase 2=skill foundation 3-4 weeks, Phase 3=dynamic forms 4-6 weeks, Phase 4=AI extraction 3-4 weeks, Phase 5=execution agents 6-8 weeks).
+  - **Section 8:** 8 open questions for operator decisions before Phase 2 begins.
+  - **Appendix A:** Complete example skill schema for Pesticide Application (6 steps, 5 preconditions, 2 outputs, 2 compliance checks).
+  - **Appendix B:** Skills API startup sequence for cultivate.
+- Committed and pushed as `docs: Uniform Enterprise Management architecture design — SOP-driven skill system`.
+
+### Key Decisions
+- ff-dcs is the authoritative home for skill schemas (skills table in ff-dcs DB), not cultivate or a separate service. The regulatory argument (SOP → skill → record) only holds when the skill lives next to the SOP.
+- `IntelligenceService.extractSkill()` would be a new method that calls existing `extract()` with multiple types + a second LLM pass for synthesis — extending existing infrastructure, not replacing it.
+- Expression DSL is a simple string format (not JSON Logic) — designed to be parseable by a small evaluator without a library dependency.
+- Phase 2 starts with handcrafted skill schemas (not AI-extracted) to establish quality baseline before automating extraction.
+- Routine fertigation is the best candidate for fully automated agent execution (Phase 5). Pesticide applications stay at "assisted" level permanently (human confirmation required).
+
+### Files Modified/Created
+- `docs/uem-architecture.md` (new — 1,374 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Phase 2 implementation begins with ff-dcs schema changes (two new tables: skills, skill_runs) + skills API routes
+- The 5 priority skills to hand-craft first: Pesticide Application, Foliar Application, Fertigation Application, Batch Status Transitions, Plant Loss Recording
+- `IntelligenceService.extractSkill()` prompt engineering should use the Appendix A example as a target output
+- Skills API in cultivate: startup fetch → localStorage cache → ETag refresh. Pattern is in Appendix B.
+- The 8 open questions in Section 8 are decision gates for operator before Phase 2 code work begins
+
+---
+
+## Task: OpenAPI spec — skeleton + auth/batches/strains
+**Completed:** 2026-05-21
+
+### What Was Done
+- Created `docs/openapi.yaml` — OpenAPI 3.0.3 skeleton with full documentation for 13 routes across 3 files
+- **Auth (3 routes):** `GET /auth/users` (no auth — documents the CRIT-01 security finding), `POST /auth/login` (PIN auth, lockout logic, 423 response), `POST /auth/refresh`
+- **Batches (6 routes):** `GET /batches`, `POST /batches`, `GET /batches/{id}`, `PATCH /batches/{id}`, `PATCH /batches/{id}/transition` (with full side-effects table), `PATCH /batches/{id}/recipe`
+- **Strains (4 routes):** `GET /strains`, `POST /strains`, `PUT /strains/{id}`, `DELETE /strains/{id}`
+- **Component schemas defined:** Error, ValidationError, User, LoginResponse, Batch, BatchDetail (allOf Batch), RecipeAssignment, Strain
+- Trailing comment: `# TO BE CONTINUED — remaining routes in subsequent tasks`
+- Committed as `docs: OpenAPI spec skeleton + auth, batches, strains routes` and pushed
+
+### Key Decisions
+- Server URL includes `/api` so paths are `/auth/users`, `/batches`, etc. (not `/api/auth/users`)
+- `GET /auth/users` documented with `security: []` and a note flagging the CRIT-01 known issue
+- `BatchDetail` uses `allOf: [$ref Batch]` to avoid duplicating all batch fields
+- `PATCH /batches/{id}` returns `Batch` (no history arrays); `POST` and `PATCH /transition` return `BatchDetail`
+- `PATCH /batches/{id}/recipe` returns 201 with `RecipeAssignment` (not the full batch)
+- `DELETE /strains/{id}` response documents the hard-delete vs soft-delete logic via the `action` enum
+
+### Files Modified/Created
+- `docs/openapi.yaml` (new — 912 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Next OpenAPI task should continue from the `# TO BE CONTINUED` comment
+- Remaining route files to document: observations, fertigation-applications, foliar-applications, pesticide-applications, container-amendments, tag-assignments, planting-plans, harvest, plant-loss, container-lifecycle, exports, sensors, catalog
+- The `Batch` schema covers all fields returned by the enriched SELECT — no fields missing
+- `RecipeAssignment` matches the `cv_batch_stage_recipes` JOIN result shape exactly
+
+---
+
+## Task: Agent SDK + MCP architecture for UEM skill execution
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read docs/uem-architecture.md, all 19 route files in src/api/routes/, and src/api/app.ts to understand the full route surface
+- Produced `docs/agent-sdk-design.md` (1,869 lines, 8 sections):
+  - **Section 1:** Cultivate MCP Server design — 22 tools (11 read, 8 write, 3 utility) with full input schemas, descriptions, approval levels, and handler patterns. Key design: handlers call shared query functions (not HTTP routes) to avoid round-trips.
+  - **Section 2:** Approval gate architecture — APPROVAL_REQUIRED map, cv_agent_approval_queue table schema, buildApprovalGate() PreToolUse hook that pauses agent execution pending supervisor review, PATCH /api/agents/approvals/:id resolve endpoint, WebSocket notification flow
+  - **Section 3:** Audit trail design — cv_agent_audit_log table, buildAuditHook() PostToolUse hook, provenance model (human-initiated vs agent-initiated), MN 342.25 compliance argument for agent records
+  - **Section 4:** Skill execution agent pattern — SkillContext/SkillExecutionResult types, full executeSkill() implementation, buildSkillSystemPrompt() construction, skill JSON file storage
+  - **Section 5:** Event trigger architecture — cv_agent_triggers table with condition_json per trigger type, runEventDispatcher() service, evaluateTriggerCondition() per sensor_threshold/state_change/scheduled, trigger examples table
+  - **Section 6:** 4-phase implementation plan (Foundation → Write+Approvals → Skill Execution → Event Triggers) with concrete file lists, commit targets, and proof-of-concept tests
+  - **Section 7:** Felix vs Agent SDK division of labor table with heuristics and hybrid fertigation pattern
+  - **Section 8:** Security and permissions — user identity flow, role enforcement in MCP tools, approval gate role check, audit provenance table, rate limiting and safety limits (50 tool calls/session, 2 concurrent sessions/user)
+  - **Appendix A:** 5 priority skill schemas table (pesticide_application, foliar_application, fertigation_application, batch_status_transition, plant_loss_recording)
+  - **Appendix B:** Proof-of-concept curl test script
+
+### Key Decisions
+- MCP tool handlers call shared query functions directly in-process (not over HTTP) — avoids round-trips and ensures route/tool logic stays in sync
+- Approval gate uses DB polling (3s interval) as primary mechanism + WebSocket as wake signal — resilient if WebSocket drops
+- The system_agent service account holds role 'grower' by design — forces supervisor approval for any compliance-critical write even from automated triggers
+- Shared query functions (`src/api/queries/`) need to be extracted from inline route handlers as Phase 1 implementation work — this is the key refactoring prerequisite
+
+### Files Modified/Created
+- `docs/agent-sdk-design.md` (new — 1,869 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Phase 1 implementation start: `npm install @anthropic-ai/claude-code` + create `src/agents/` directory + extract query functions from route handlers into `src/api/queries/`
+- Migration `017_agent_infrastructure.ts` is ready to write from the Section 2/3 table schemas
+- The 22 tool definitions in Section 1 are the complete spec — implement them in order: read tools first, utility tools, then write tools
+- `POST /api/agents/query` endpoint (the Phase 1 PoC) should be the first testable artifact
+- Skills JSON files go in `skills/` at project root (not `src/skills/`) — referenced by skill-loader.ts
+
+---
+
+## Task: Mix calculator implementation
+**Completed:** 2026-05-21
+
+### What Was Done
+- `client/src/lib/mix-calculator.js` — Pure calculation module: `CONVERSIONS`, `SUB_ZONE_CONFIG`, `rateToMlPerMl` (16 rate_unit variants), `isWeightBased`, `formatIngredientQty` (imperial/metric auto-unit selection with boundary thresholds), `formatVolume`, `calcMix`, `calcTargetVolumeMl`
+- `client/src/tests/mix-calculator.test.js` — 96 unit tests covering all functions, imperial/metric auto-unit thresholds, weight-based ingredients, and all three worked examples from design doc §8
+- `client/src/components/MixCalculator.jsx` — Self-contained calculator component with 4 scenario modes (sub-zone, rows, plant count, manual), live memoized calculation, `RateInputs` subcomponent with per-plant/per-container rate units, localStorage draft persistence, print-to-new-window mixing card (Fraunces/JetBrains Mono/earthy palette), 'Use This Volume' callback for return flow
+- `client/src/pages/recipes/MixCalculatorPage.jsx` — Standalone page at `/recipes/calculator`; recipe type toggle (fertigation/foliar), recipe selector from API, loads recipe+ingredients and embeds MixCalculator; handles `return_to` param via sessionStorage + navigate
+- `FertigationRecipeDetail.jsx` — 'Mix Calculator' button added alongside Print Recipe Card
+- `FoliarRecipeDetail.jsx` — Same
+- `FertigationNew.jsx` — `Link` import added; sessionStorage consumer on mount reads `cv_calc_volume_gal`; 'Calculate mix →' link in recipe display chip
+- `RecipeIndex.jsx` — Mix Calculator entry card with FlaskConical icon
+- `App.jsx` — `/recipes/calculator` registered before dynamic recipe `:id` routes
+
+### Key Decisions
+- No new backend routes — all data from existing `getFertigationRecipe`/`getFoliarRecipe` endpoints which already include `item_name`
+- Canonical intermediate is mL/mL ratio — all rate_units convert to this form; weight-based units (g_per_gal, g_per_L) use 1g≈1mL assumption and output in g/kg
+- `calcTargetVolumeMl` in lib handles 4 scenario types; component computes its own scenario directly via useMemo for flexibility (gal/container, L/container rate units)
+- Print card opens new window with Google Fonts + `window.print()` — same result as hidden print:block but simpler for a sub-page
+- sessionStorage handoff (not URL params) for "Use This Volume" — keeps URL clean
+
+### Files Modified/Created
+- `client/src/lib/mix-calculator.js` (new)
+- `client/src/tests/mix-calculator.test.js` (new — 96 tests)
+- `client/src/components/MixCalculator.jsx` (new)
+- `client/src/pages/recipes/MixCalculatorPage.jsx` (new)
+- `client/src/pages/recipes/FertigationRecipeDetail.jsx` (button added)
+- `client/src/pages/recipes/FoliarRecipeDetail.jsx` (button added)
+- `client/src/pages/applications/FertigationNew.jsx` (Link import + sessionStorage reader + calc link)
+- `client/src/pages/recipes/RecipeIndex.jsx` (calculator card)
+- `client/src/App.jsx` (route registered)
+
+### Notes for Next Tasks
+- 257 tests total pass; `npm run build` passes clean
+- FoliarNew.jsx does not yet have a 'Calculate mix →' link — could be added following the same pattern as FertigationNew if the foliar application form has an active_recipe_id equivalent
+- The `cv_draft_calculator` localStorage key stores all scenario state; cleared only if user manually clears storage
+- `initialBatchId` prop on MixCalculator loads batch via `api.getBatch(id)` to pre-fill sub_zone_id and plants_per_container; MixCalculatorPage passes `batchId` from URL when `?batch_id=` param is present
+
+---
+
+## Task: Skill schema proof of concept — pesticide application
+**Completed:** 2026-05-21
+
+### What Was Done
+- Created `src/skills/pesticide-application.skill.json` — hand-crafted skill schema with 5 preconditions (check_id dispatch keys), 6 steps, sensor auto-fill directives, 2 outputs, 1 post-condition, 2 compliance checks
+- Created `src/lib/skill-loader.ts` — loads `*.skill.json` files from `src/skills/` at startup; `getSkill()`/`listSkills()` functions; designed for Phase 2 upgrade to ff-dcs API fetch
+- Created `src/lib/skill-validator.ts` — evaluates preconditions against live DB data; dispatches on `check_id`; returns `ValidationResult` with per-check pass/fail/message/severity
+- Created `src/api/routes/skills.ts` — `GET /api/skills` (list), `GET /api/skills/:id` (detail), `GET /api/skills/:skillId/validate?batch_id=X&input_id=Y` (real-time validation + sensor auto-fill)
+- Created `src/api/routes/skill-instances.ts` — `GET /api/skill-instances` (SOP compliance evidence query)
+- Created `src/db/migrations/017_skill_instances.ts` — `cv_skill_instances` table
+- Updated `src/api/routes/pesticide-applications.ts` — creates `cv_skill_instances` record on every successful POST (best-effort, wrapped in try/catch)
+- Updated `client/src/pages/applications/PesticideNew.jsx` — added `SkillValidationPanel` component; calls `validateSkill` on batch/product selection; displays live precondition badges; blocks Save if `skillBlocked`
+- Updated `client/src/api.js` — 4 new skill methods
+- Updated `docs/uem-architecture.md` — added Appendix C documenting the POC, how validation works, skill instance evidence trail, and ff-dcs integration delta for Phase 2
+
+### Key Decisions
+- Used `fs.readFileSync` + `process.cwd()/src/skills/` path for skill loading (reliable in both dev and Railway where cwd = project root); noted as a Phase 2 concern
+- Validation dispatches on `check_id` string field added to preconditions (not in original Appendix A) — enables extensible evaluator without a full DSL parser
+- Skill instance creation in POST handler is best-effort (try/catch, `app.log.warn` on failure) — never fails the compliance application record
+- `skillBlocked` is a separate gate from the existing `stageBlock`/`phiNeedsOverride` checks; in practice they agree but the skill provides a unified, schema-driven view
+- `getBatchStageKey()` is duplicated in `skill-validator.ts` (also in `pesticide-applications.ts`) — flagged as tech debt to extract to `domain-utils.ts`
+- `getLatestSensorReading()` in `skills.ts` gracefully catches if `cv_sensor_readings` table doesn't exist (different environments)
+
+### Files Modified/Created
+- `src/skills/pesticide-application.skill.json` (new)
+- `src/lib/skill-loader.ts` (new)
+- `src/lib/skill-validator.ts` (new)
+- `src/api/routes/skills.ts` (new)
+- `src/api/routes/skill-instances.ts` (new)
+- `src/db/migrations/017_skill_instances.ts` (new)
+- `src/api/app.ts` (2 imports + 2 registrations)
+- `src/api/routes/pesticide-applications.ts` (skill instance creation after INSERT)
+- `client/src/api.js` (4 new methods)
+- `client/src/pages/applications/PesticideNew.jsx` (SkillValidationPanel + skill validation state)
+- `docs/uem-architecture.md` (Appendix C added)
+
+### Notes for Next Tasks
+- 257 tests passing; `npx tsc --noEmit` passes; `npm run build` passes
+- Phase 2 step 1: implement `GET /api/skills` in ff-dcs + update `skill-loader.ts` to fetch from `FF_DCS_URL`
+- `getBatchStageKey()` is duplicated in validator and pesticide route — extract to `domain-utils.ts` when time allows
+- `cv_skill_instances` is queryable via `GET /api/skill-instances?skill_id=pesticide-application&output_table=cv_applications_pesticide`
+- The POC validates: (1) skill JSON loads correctly, (2) preconditions evaluate against live data, (3) frontend shows real-time badges, (4) evidence trail is created — all 4 architecture claims are demonstrated
