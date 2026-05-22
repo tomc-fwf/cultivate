@@ -2,10 +2,10 @@ FROM node:20 AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci
+RUN npm ci --no-fund --no-audit
 
 COPY client/package*.json ./client/
-RUN cd client && npm install
+RUN cd client && npm ci --no-fund --no-audit
 COPY client/ ./client/
 RUN cd client && npm run build
 
