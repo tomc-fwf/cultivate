@@ -122,7 +122,12 @@ export default function PlantLossForm() {
       setToast('Plant loss recorded. METRC sync pending.');
       setTimeout(() => navigate(`/containers/${encodeURIComponent(containerId)}`), 1800);
     } catch (e) {
-      setSaveError(e.message);
+      if (e.message === 'Failed to fetch' || e.message?.includes('NetworkError')) {
+        setToast('Network lost — draft preserved. Retry when online.');
+        // Don't clear saving state — the draft persists, record was NOT saved
+      } else {
+        setSaveError(e.message || 'Failed to record loss. Please try again.');
+      }
     }
     setSaving(false);
   }

@@ -102,7 +102,7 @@ export default function HarvestDashboard() {
 
   // In-progress harvest batches by type
   const activeHB = harvestData?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'harvest');
-  const activeMB = harvestData?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'manicure');
+  const activeMB = harvestData?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'manicure'); // 'manicure' is the API batch_type; UI uses "Partial Harvest Batch"
 
   async function handleCreateBatch(batchType) {
     if (creating) return;
@@ -117,7 +117,7 @@ export default function HarvestDashboard() {
         wind_speed_mph: hbWindSpeed !== '' ? parseFloat(hbWindSpeed) : null,
       });
       load();
-      setToast({ message: `${batchType === 'harvest' ? 'Harvest Batch (HB)' : 'Partial Harvest Batch (MB)'} created`, type: 'success' });
+      setToast({ message: `${batchType === 'harvest' ? 'Harvest Batch (HB)' : 'Partial Harvest Batch (PHB)'} created`, type: 'success' });
     } catch (e) {
       setCreateError(e.message || 'Failed to create harvest batch');
     }
@@ -269,7 +269,7 @@ export default function HarvestDashboard() {
                 }`}
                 style={{ minHeight: '56px' }}
               >
-                {creating ? '…' : activeMB ? '✓ MB Active' : '+ Create Partial Harvest Batch (MB)'}
+                {creating ? '…' : activeMB ? '✓ PHB Active' : '+ Create Partial Harvest Batch (PHB)'}
               </button>
             </div>
           </>
@@ -294,7 +294,7 @@ export default function HarvestDashboard() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-0.5">
                         <span className="font-semibold text-gray-900 text-sm" style={{ fontFamily: 'Fraunces, serif' }}>
-                          {hb.batch_type === 'harvest' ? 'Harvest Batch (HB)' : 'Partial Harvest Batch (MB)'}
+                          {hb.batch_type === 'harvest' ? 'Harvest Batch (HB)' : 'Partial Harvest Batch (PHB)'}
                         </span>
                         <span className="text-xs text-gray-400 font-mono">#{hb.sequence_number}</span>
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${chipClass}`}>{label}</span>
@@ -324,7 +324,7 @@ export default function HarvestDashboard() {
           </div>
         ) : (
           <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-700">
-            No harvest batches yet. Create an HB before recording final harvests, or an MB for partial harvests.
+            No harvest batches yet. Create an HB before recording final harvests, or a PHB for partial harvests.
           </div>
         )}
       </div>
@@ -349,7 +349,7 @@ export default function HarvestDashboard() {
 
         {!activeHB && !activeMB && harvestData?.harvest_batches?.length === 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700 mb-3">
-            Create an HB to enable Final Harvest, or an MB to enable Partial Harvest.
+            Create an HB to enable Final Harvest, or a PHB to enable Partial Harvest.
           </div>
         )}
 
@@ -411,9 +411,9 @@ export default function HarvestDashboard() {
                                 <div
                                   className="flex-1 text-center text-xs font-medium text-gray-400 bg-gray-50 border border-gray-200 rounded-xl flex items-center justify-center"
                                   style={{ minHeight: '44px' }}
-                                  title="Create a Partial Harvest Batch (MB) first"
+                                  title="Create a Partial Harvest Batch (PHB) first"
                                 >
-                                  No MB active
+                                  No PHB active
                                 </div>
                               )}
                               {activeHB ? (

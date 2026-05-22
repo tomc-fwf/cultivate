@@ -164,7 +164,7 @@ function ProductPickerSheet({ onSelect, onClose }) {
                   ? 'bg-green-800 text-white'
                   : 'bg-gray-100 text-gray-600 border border-gray-200 hover:border-green-300'
               }`}
-              style={{ minHeight: '36px' }}
+              style={{ minHeight: '44px' }}
             >
               {c.label}
             </button>
@@ -749,7 +749,7 @@ export default function FoliarNew() {
                     ? 'bg-green-800 text-white border-green-800'
                     : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'
                 }`}
-                style={{ minHeight: '36px' }}
+                style={{ minHeight: '44px' }}
               >
                 {chip}
               </button>

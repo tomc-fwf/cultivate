@@ -7,7 +7,7 @@ export default function NavBar() {
   const cls = ({ isActive }) =>
     `flex flex-col items-center gap-0.5 text-xs pt-1 ${isActive ? 'text-green-800 font-semibold' : 'text-gray-600'}`;
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-2 px-1 z-50">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around py-3 px-1 z-50" style={{ minHeight: '60px' }}>
       <NavLink to="/" end className={cls}><Sprout size={22}/><span>Today</span></NavLink>
       <NavLink to="/scan" className={cls}><ScanLine size={22}/><span>Scan</span></NavLink>
       <NavLink to="/batches" className={cls}><Layers size={22}/><span>Batches</span></NavLink>

@@ -50,7 +50,7 @@ export default function Today() {
   const [reiLoading, setReiLoading] = useState(true);
   const [batches, setBatches] = useState([]);
   const [batchesLoading, setBatchesLoading] = useState(true);
-  const [conditionsExpanded, setConditionsExpanded] = useState(false);
+  const [conditionsExpanded, setConditionsExpanded] = useState(true);
   const [loadError, setLoadError] = useState('');
 
   function loadData() {
@@ -114,7 +114,7 @@ export default function Today() {
       <div className="mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">Active Batches</h2>
-          <button onClick={() => navigate('/batches')} className="text-xs text-green-700 font-semibold hover:text-green-900">
+          <button onClick={() => navigate('/batches')} className="text-xs text-green-700 font-semibold hover:text-green-900 flex items-center" style={{ minHeight: '44px', paddingInline: '8px' }}>
             View all →
           </button>
         </div>
@@ -264,8 +264,7 @@ function CurrentConditionsSection({ batches, expanded, onToggle, onViewAll }) {
           View all sensors →
         </button>
       </div>
-      {/* Always expanded on tablet (md+), collapsed on mobile unless toggled */}
-      <div className={`${expanded ? 'block' : 'hidden md:block'} flex flex-col gap-2`}>
+      <div className={`${expanded ? 'block' : 'hidden'} flex flex-col gap-2`}>
         {subZones.map(({ subZoneId, batchStage }) => (
           <CurrentConditionsCard
             key={subZoneId}

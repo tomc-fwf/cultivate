@@ -115,6 +115,18 @@ const SUB_ZONES = [
   { id: 'Z4A', potSize: '30 gal' }, { id: 'Z4B', potSize: '10 gal' },
 ];
 
+function Toast({ message, type = 'success', onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, [onDone]);
+  const bg = type === 'success' ? 'bg-green-700' : type === 'warning' ? 'bg-amber-600' : 'bg-red-600';
+  return (
+    <div className="fixed top-4 left-0 right-0 flex justify-center z-50 pointer-events-none px-4">
+      <div className={`${bg} text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl pointer-events-auto`}>
+        {type === 'success' ? '✓ ' : '⚠ '}{message}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export default function BatchDetail() {
@@ -128,6 +140,7 @@ export default function BatchDetail() {
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
   const [readinessSummary, setReadinessSummary] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -169,6 +182,7 @@ export default function BatchDetail() {
       }
       const updated = await api.transitionBatch(id, { to_status: toStatus, notes });
       setBatch(b => ({ ...b, ...updated, sub_zone_id: subZoneId || b.sub_zone_id }));
+      setToast({ message: `Moved to ${STATUS_LABELS[toStatus] ?? toStatus} ✓`, type: 'success' });
       load();
     } catch (e) {
       setError(e.message);
@@ -186,6 +200,7 @@ export default function BatchDetail() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-28">
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
 
       {/* Back */}
       <button onClick={() => navigate('/batches')} className="text-sm text-green-700 font-medium mb-4 flex items-center gap-1 hover:text-green-900">

@@ -164,7 +164,7 @@ function ProductPickerSheet({ onSelect, onClose }) {
           {PESTICIDE_CATEGORIES.map(c => (
             <button key={c.code} onClick={() => setCategory(c.code)}
               className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${category === c.code ? 'bg-red-700 text-white' : 'bg-gray-100 text-gray-600 border border-gray-200 hover:border-red-300'}`}
-              style={{ minHeight: '36px' }}
+              style={{ minHeight: '44px' }}
             >{c.label}</button>
           ))}
         </div>
@@ -855,7 +855,7 @@ export default function PesticideNew() {
             {COMMON_PESTS.map(pest => (
               <button key={pest} onClick={() => setTargetPest(pest)}
                 className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors flex-shrink-0 ${targetPest === pest ? 'bg-red-700 text-white border-red-700' : 'bg-white text-gray-600 border-gray-300 hover:border-red-300'}`}
-                style={{ minHeight: '36px' }}
+                style={{ minHeight: '44px' }}
               >{pest}</button>
             ))}
           </div>
@@ -966,7 +966,7 @@ export default function PesticideNew() {
                   {WIND_DIRECTIONS.map(d => (
                     <button key={d} onClick={() => setWindDirection(windDirection === d ? '' : d)}
                       className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors ${windDirection === d ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-400'}`}
-                      style={{ minHeight: '36px' }}
+                      style={{ minHeight: '44px' }}
                     >{d}</button>
                   ))}
                 </div>

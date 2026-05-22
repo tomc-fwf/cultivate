@@ -1,7 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+
+const DRAFT_KEY = 'cv_draft_batch_new';
+
+function Toast({ message, type = 'success', onDone }) {
+  useEffect(() => { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }, [onDone]);
+  const bg = type === 'success' ? 'bg-green-700' : 'bg-amber-600';
+  return (
+    <div className="fixed top-4 left-0 right-0 flex justify-center z-50 pointer-events-none px-4">
+      <div className={`${bg} text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl pointer-events-auto`}>
+        {type === 'success' ? '✓ ' : '⚠ '}{message}
+      </div>
+    </div>
+  );
+}
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -36,12 +50,38 @@ export default function BatchNew() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+  const [toast, setToast] = useState(null);
+  const autoSaveTimer = useRef(null);
 
   useEffect(() => {
     api.getStrains()
       .then(data => { setStrains(data); setStrainsLoading(false); })
       .catch(() => setStrainsLoading(false));
+    // Restore draft
+    try {
+      const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
+      if (draft) {
+        if (draft.strainId) setStrainId(draft.strainId);
+        if (draft.plantCount) setPlantCount(draft.plantCount);
+        if (draft.plantsPerContainer) setPlantsPerContainer(draft.plantsPerContainer);
+        if (draft.sowDate) setSowDate(draft.sowDate);
+        if (draft.metrcUid) setMetrcUid(draft.metrcUid);
+        if (draft.notes) setNotes(draft.notes);
+      }
+    } catch { /* ignore */ }
   }, []);
+
+  const saveDraft = useCallback(() => {
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ strainId, plantCount, plantsPerContainer, sowDate, metrcUid, notes, savedAt: Date.now() }));
+    } catch { /* ignore */ }
+  }, [strainId, plantCount, plantsPerContainer, sowDate, metrcUid, notes]);
+
+  useEffect(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(saveDraft, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [saveDraft]);
 
   const selectedStrain = strains.find(s => String(s.strain_id) === strainId);
 
@@ -76,7 +116,9 @@ export default function BatchNew() {
         metrc_plant_batch_uid: metrcUid || null,
         notes: notes || null,
       });
-      navigate(`/batches/${batch.batch_id}`);
+      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
+      setToast({ message: 'Batch created ✓', type: 'success' });
+      setTimeout(() => navigate(`/batches/${batch.batch_id}`), 1200);
     } catch (e) {
       setErr(e.message);
       setSaving(false);
@@ -107,6 +149,7 @@ export default function BatchNew() {
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 pb-32">
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
       <button
         onClick={() => navigate('/batches')}
         className="text-sm text-green-700 font-medium mb-5 flex items-center gap-1 hover:text-green-900"

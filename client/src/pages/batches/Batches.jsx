@@ -84,7 +84,7 @@ export default function Batches() {
           <button
             onClick={() => navigate('/batches/new')}
             className="bg-green-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl hover:bg-green-900 transition-colors"
-            style={{ minHeight: '44px' }}
+            style={{ minHeight: '56px' }}
           >
             + New Plant Batch
           </button>

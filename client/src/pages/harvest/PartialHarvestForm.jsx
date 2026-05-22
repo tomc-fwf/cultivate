@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+
+const DRAFT_KEY_PREFIX = 'cv_draft_partial_harvest';
 
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }, [onDone]);
@@ -50,6 +52,35 @@ export default function PartialHarvestForm() {
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pendingSync, setPendingSync] = useState(false);
+  const autoSaveTimer = useRef(null);
+
+  const draftKey = `${DRAFT_KEY_PREFIX}_${batchId}_${assignmentId}`;
+
+  // Restore draft
+  useEffect(() => {
+    try {
+      const draft = JSON.parse(localStorage.getItem(draftKey) ?? 'null');
+      if (!draft) return;
+      if (draft.productType) setProductType(draft.productType);
+      if (draft.wetWeight) setWetWeight(draft.wetWeight);
+      if (draft.weightUnit) setWeightUnit(draft.weightUnit);
+      if (draft.notes) setNotes(draft.notes);
+    } catch { /* ignore */ }
+  }, [draftKey]);
+
+  // Auto-save draft on change
+  const saveDraft = useCallback(() => {
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({ productType, wetWeight, weightUnit, notes, savedAt: Date.now() }));
+    } catch { /* ignore */ }
+  }, [draftKey, productType, wetWeight, weightUnit, notes]);
+
+  useEffect(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(saveDraft, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [saveDraft]);
 
   // Load context: batch + harvest status to find assignment
   useEffect(() => {
@@ -90,13 +121,19 @@ export default function PartialHarvestForm() {
         notes: notes.trim() || null,
       });
 
+      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       setSaveFlash(true);
       setTimeout(() => setSaveFlash(false), 600);
       setToast({ message: 'Partial harvest recorded', type: 'success' });
       setTimeout(() => navigate(`/harvest/${batchId}`), 1400);
     } catch (e) {
       setSaving(false);
-      setSaveError(e.message || 'Failed to record harvest event.');
+      if (e.message === 'Failed to fetch' || e.message?.includes('NetworkError')) {
+        setPendingSync(true);
+        setToast({ message: 'Network lost — draft preserved. Retry when online.', type: 'warning' });
+      } else {
+        setSaveError(e.message || 'Failed to record harvest event.');
+      }
     }
   }
 
@@ -124,7 +161,7 @@ export default function PartialHarvestForm() {
 
         {/* Note: no "manicure" terminology */}
         <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-sm text-purple-800">
-          <strong>Partial Harvest</strong> — plant remains alive. Records product wet weight against the Partial Harvest Batch (MB).
+          <strong>Partial Harvest</strong> — plant remains alive. Records product wet weight against the Partial Harvest Batch (PHB).
         </div>
 
         {/* Context card */}
@@ -207,7 +244,7 @@ export default function PartialHarvestForm() {
                       ? 'border-purple-600 bg-purple-50 text-purple-900'
                       : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300'
                   }`}
-                  style={{ minHeight: '32px' }}
+                  style={{ minHeight: '48px' }}
                 >
                   {u}
                 </button>
