@@ -185,6 +185,13 @@ export const api = {
   validateSkill: (skillId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/skills/${skillId}/validate${q ? '?' + q : ''}`); },
   getSkillInstances: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/skill-instances${q ? '?' + q : ''}`); },
 
+  // Planting plans
+  getPlantingPlans: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/planting-plans${q ? '?' + q : ''}`);
+  },
+  getPlantingPlan: (id) => req('GET', `/planting-plans/${id}`),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

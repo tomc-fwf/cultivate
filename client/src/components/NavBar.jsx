@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, LogOut } from 'lucide-react';
+import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut } from 'lucide-react';
 import { useAuth } from '../App';
 
 export default function NavBar() {
@@ -14,6 +14,7 @@ export default function NavBar() {
       <NavLink to="/applications" className={cls}><FlaskConical size={22}/><span>Apply</span></NavLink>
       <NavLink to="/observations" className={cls}><Eye size={22}/><span>Observe</span></NavLink>
       <NavLink to="/containers" className={cls}><Grid2x2 size={22}/><span>Containers</span></NavLink>
+      <NavLink to="/locations" className={cls}><MapPin size={22}/><span>Locations</span></NavLink>
       <button onClick={logout} className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-400 hover:text-red-500 transition-colors">
         <LogOut size={22}/><span>Logout</span>
       </button>
