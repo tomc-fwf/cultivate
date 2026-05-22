@@ -451,6 +451,23 @@ export default function BatchDetail() {
         <div className="mb-4">
           <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Log for this batch</h2>
           <div className="flex flex-col gap-2">
+            {/* Bulk METRC tag scan mode — shown when batch has untagged placements */}
+            {(batch.untagged_count ?? 0) > 0 && (
+              <Link
+                to={`/tag-assignments?batch_id=${batch.batch_id}`}
+                className="flex items-center justify-between w-full bg-blue-700 text-white font-semibold rounded-2xl px-5 hover:bg-blue-800 transition-colors shadow-sm"
+                style={{ minHeight: '56px', textDecoration: 'none' }}
+              >
+                <span className="flex items-center gap-2">
+                  <span>🏷️</span>
+                  <span>Bulk Scan Mode</span>
+                  <span className="text-blue-200 text-xs font-normal">
+                    {batch.untagged_count} untagged
+                  </span>
+                </span>
+                <span className="text-blue-300 text-lg">→</span>
+              </Link>
+            )}
             {/* Harvest Dashboard — shown when harvesting */}
             {batch.status === 'harvesting' && (
               <Link

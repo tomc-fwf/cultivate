@@ -243,6 +243,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         `).get(id) as { n: number } | undefined
       )?.n ?? 0;
 
+      const untaggedCount = (
+        db.prepare(`
+          SELECT COUNT(*) as n FROM cv_plant_assignments
+          WHERE batch_id = ? AND unassigned_at IS NULL AND metrc_plant_tag IS NULL
+        `).get(id) as { n: number } | undefined
+      )?.n ?? 0;
+
       return reply.send(enrichBatch({
         ...row,
         plant_count_current: resolvedPlantCount(row),
@@ -255,6 +262,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           pesticide: pesticideCount,
         },
         teardown_eligible_count: teardownEligibleCount,
+        untagged_count: untaggedCount,
       }));
     },
   );
