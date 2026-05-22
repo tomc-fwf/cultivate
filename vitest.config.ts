@@ -3,6 +3,6 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    exclude: ['**/node_modules/**', '**/.claude/**', '**/dist/**', '**/client/**'],
+    exclude: ['**/node_modules/**', '**/.claude/**', '**/dist/**'],
   },
 });
