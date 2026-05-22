@@ -81,6 +81,10 @@ export const api = {
   addSoilResults: (containerId, sampleId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/soil-samples/${sampleId}/results`, data),
   startStartup: (containerId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/startup`, data),
   signOffReady: (containerId, startupId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/startup/${startupId}/ready`, data),
+  getGlobalSoilSamples: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/soil-samples${q ? '?' + q : ''}`);
+  },
 
   // Fertigation applications
   getFertigationApplications: (params = {}) => {
@@ -221,4 +225,5 @@ export const api = {
   transitionBatch: (id, data) => req('PATCH', `/batches/${id}/transition`, data),
   updateBatch: (id, data) => req('PATCH', `/batches/${id}`, data),
   assignBatchRecipe: (id, data) => req('PATCH', `/batches/${id}/recipe`, data),
+  bulkTeardown: (batchId) => req('POST', `/batches/${batchId}/bulk-teardown`, {}),
 };

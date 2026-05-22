@@ -59,6 +59,7 @@ import PlantingPlanNew from './pages/planting-plans/PlantingPlanNew';
 import PlantingPlanDetail from './pages/planting-plans/PlantingPlanDetail';
 import LocationView from './pages/locations/LocationView';
 import ContainerLabels from './pages/admin/ContainerLabels';
+import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 
@@ -139,6 +140,7 @@ export default function App() {
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
+              <Route path="/soil-samples" element={<Protected><SoilSampleTracker /></Protected>} />
               <Route path="/containers/map/:subZoneId" element={<Protected><SubZoneFieldMap /></Protected>} />
               <Route path="/containers/:containerId/loss" element={<Protected><PlantLossForm /></Protected>} />
               <Route path="/containers/:containerId/replacement" element={<Protected><PlantReplacementForm /></Protected>} />

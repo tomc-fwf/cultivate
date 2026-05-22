@@ -22,7 +22,7 @@ import plantingPlansRoutes from './routes/planting-plans.js';
 import tagAssignmentsRoutes from './routes/tag-assignments.js';
 import harvestRoutes from './routes/harvest.js';
 import plantLossRoutes from './routes/plant-loss.js';
-import containerLifecycleRoutes from './routes/container-lifecycle.js';
+import containerLifecycleRoutes, { soilSamplesTrackerRoutes } from './routes/container-lifecycle.js';
 import exportsRoutes from './routes/exports.js';
 import sensorsRoutes from './routes/sensors.js';
 import skillsRoutes from './routes/skills.js';
@@ -86,6 +86,7 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   await app.register(harvestRoutes, { prefix: '/api/harvest' });
   await app.register(plantLossRoutes, { prefix: '/api/plant-loss' });
   await app.register(containerLifecycleRoutes, { prefix: '/api/containers' });
+  await app.register(soilSamplesTrackerRoutes, { prefix: '/api/soil-samples' });
   await app.register(exportsRoutes, { prefix: '/api/exports' });
   await app.register(sensorsRoutes, { prefix: '/api/sensors' });
   await app.register(skillsRoutes, { prefix: '/api/skills' });

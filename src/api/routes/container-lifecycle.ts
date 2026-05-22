@@ -524,3 +524,100 @@ const containerLifecycleRoutes: FastifyPluginAsync = async (app) => {
 };
 
 export default containerLifecycleRoutes;
+
+/**
+ * GET /api/soil-samples?status=awaiting_collection|at_lab|results_received
+ * Global soil sample tracker — shows pipeline across all containers.
+ */
+export const soilSamplesTrackerRoutes: FastifyPluginAsync = async (app) => {
+  app.get<{ Querystring: { status?: string } }>(
+    '/',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const status = (request.query as { status?: string }).status ?? 'at_lab';
+
+      const VALID_STATUSES = ['awaiting_collection', 'at_lab', 'results_received'];
+      if (!VALID_STATUSES.includes(status)) {
+        return reply.code(400).send({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` });
+      }
+
+      const db = getDB();
+
+      if (status === 'awaiting_collection') {
+        // Containers in teardown state where the most recent teardown has soil_sample_collected = 0
+        const rows = db.prepare(`
+          SELECT cs.container_id, r.sub_zone_id, cs.current_state, cs.state_since,
+                 te.teardown_id, te.started_at AS teardown_started_at, te.soil_sample_collected
+          FROM cv_container_state cs
+          JOIN cv_containers c ON c.container_id = cs.container_id
+          JOIN cv_rows r ON r.row_id = c.row_id
+          LEFT JOIN cv_teardown_events te ON te.teardown_id = (
+            SELECT MAX(teardown_id) FROM cv_teardown_events WHERE container_id = cs.container_id
+          )
+          WHERE cs.current_state = 'teardown'
+            AND (te.soil_sample_collected = 0 OR te.teardown_id IS NULL)
+          ORDER BY cs.state_since ASC
+        `).all() as Array<Record<string, unknown>>;
+
+        return reply.send(rows);
+      }
+
+      if (status === 'at_lab') {
+        // Samples sent to lab, results not yet received
+        const rows = db.prepare(`
+          SELECT ss.sample_id, ss.container_id, ss.sample_label, ss.lab_name,
+                 ss.lab_sent_at, ss.notes, r.sub_zone_id, cs.current_state,
+                 CAST((julianday('now') - julianday(ss.lab_sent_at)) AS INTEGER) AS days_waiting
+          FROM cv_soil_samples ss
+          JOIN cv_containers c ON c.container_id = ss.container_id
+          JOIN cv_rows r ON r.row_id = c.row_id
+          JOIN cv_container_state cs ON cs.container_id = ss.container_id
+          WHERE ss.results_received = 0 AND ss.lab_sent_at IS NOT NULL
+          ORDER BY ss.lab_sent_at ASC
+        `).all() as Array<Record<string, unknown>>;
+
+        return reply.send(rows);
+      }
+
+      // results_received — last 90 days
+      const samples = db.prepare(`
+        SELECT ss.sample_id, ss.container_id, ss.sample_label, ss.lab_name,
+               ss.lab_sent_at, ss.lab_results_at, ss.notes, r.sub_zone_id, cs.current_state
+        FROM cv_soil_samples ss
+        JOIN cv_containers c ON c.container_id = ss.container_id
+        JOIN cv_rows r ON r.row_id = c.row_id
+        JOIN cv_container_state cs ON cs.container_id = ss.container_id
+        WHERE ss.results_received = 1
+          AND ss.lab_results_at >= datetime('now', '-90 days')
+        ORDER BY ss.lab_results_at DESC
+      `).all() as Array<Record<string, unknown>>;
+
+      if (samples.length === 0) return reply.send([]);
+
+      // Attach key parameters (pH, EC) for summary display
+      const sampleIds = samples.map(s => s['sample_id'] as number);
+      const placeholders = sampleIds.map(() => '?').join(', ');
+      const keyResults = db.prepare(`
+        SELECT sample_id, parameter, value, unit, interpretation
+        FROM cv_soil_sample_results
+        WHERE sample_id IN (${placeholders})
+          AND parameter IN ('pH', 'EC')
+        ORDER BY sample_id, parameter
+      `).all(...sampleIds) as Array<Record<string, unknown>>;
+
+      const resultsBySample = new Map<number, Array<Record<string, unknown>>>();
+      for (const r of keyResults) {
+        const sid = r['sample_id'] as number;
+        if (!resultsBySample.has(sid)) resultsBySample.set(sid, []);
+        resultsBySample.get(sid)!.push(r);
+      }
+
+      const enriched = samples.map(s => ({
+        ...s,
+        key_results: resultsBySample.get(s['sample_id'] as number) ?? [],
+      }));
+
+      return reply.send(enriched);
+    },
+  );
+};

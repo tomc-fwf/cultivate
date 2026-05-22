@@ -407,7 +407,12 @@ export default function ContainerDashboard() {
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
           Containers
         </h1>
-        <span className="text-sm text-gray-500">{grandTotal} total</span>
+        <div className="flex items-center gap-3">
+          <Link to="/soil-samples" className="text-sm text-green-700 font-medium hover:text-green-900">
+            Soil Samples →
+          </Link>
+          <span className="text-sm text-gray-500">{grandTotal} total</span>
+        </div>
       </div>
 
       {/* Global state counts summary bar */}
