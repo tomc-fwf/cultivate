@@ -158,6 +158,7 @@ export const api = {
   recordReplacement: (data) => req('POST', '/plant-loss/replacements', data),
 
   // OCM Compliance
+  getPendingActions: () => req('GET', '/exports/pending-actions'),
   getComplianceDashboard: () => req('GET', '/exports/compliance-dashboard'),
   getPlantInventory: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/plant-inventory${q ? '?' + q : ''}`); },
   getTagVerification: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/tag-verification${q ? '?' + q : ''}`); },

@@ -1065,6 +1065,49 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
 
     return reply.send(rows);
   });
+
+  /**
+   * GET /pending-actions — lightweight counts for Today screen lifecycle action items (Feature 26).
+   * Returns counts of containers/records needing staff attention across the teardown→startup pipeline.
+   */
+  app.get('/pending-actions', { preHandler: requireAuth }, async (_request, reply) => {
+    const db = getDB();
+
+    // Containers in teardown state that have no soil sample collected on their latest teardown event
+    const teardownRow = db.prepare(`
+      SELECT COUNT(*) AS cnt
+      FROM cv_container_state cs
+      LEFT JOIN cv_teardown_events te ON te.container_id = cs.container_id
+        AND te.teardown_id = (
+          SELECT MAX(teardown_id) FROM cv_teardown_events WHERE container_id = cs.container_id
+        )
+      WHERE cs.current_state = 'teardown'
+        AND (te.soil_sample_collected = 0 OR te.teardown_id IS NULL)
+    `).get() as Record<string, unknown> | undefined;
+
+    // Containers currently in startup state
+    const startupRow = db.prepare(`
+      SELECT COUNT(*) AS cnt FROM cv_container_state WHERE current_state = 'startup'
+    `).get() as Record<string, unknown> | undefined;
+
+    // Soil samples sent to lab but results not yet received
+    const labRow = db.prepare(`
+      SELECT COUNT(*) AS cnt FROM cv_soil_samples
+      WHERE results_received = 0 AND lab_sent_at IS NOT NULL
+    `).get() as Record<string, unknown> | undefined;
+
+    // Plant loss events with pending METRC sync
+    const lossRow = db.prepare(`
+      SELECT COUNT(*) AS cnt FROM cv_plant_loss_events WHERE metrc_sync_status = 'pending'
+    `).get() as Record<string, unknown> | undefined;
+
+    return reply.send({
+      teardown_pending:    Number(teardownRow?.['cnt'] ?? 0),
+      startup_pending:     Number(startupRow?.['cnt'] ?? 0),
+      lab_samples_awaiting: Number(labRow?.['cnt'] ?? 0),
+      losses_unsynced:     Number(lossRow?.['cnt'] ?? 0),
+    });
+  });
 };
 
 export default exportsRoutes;

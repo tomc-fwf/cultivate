@@ -51,6 +51,7 @@ export default function Today() {
   const [batches, setBatches] = useState([]);
   const [batchesLoading, setBatchesLoading] = useState(true);
   const [conditionsExpanded, setConditionsExpanded] = useState(true);
+  const [pendingActions, setPendingActions] = useState(null);
   const [loadError, setLoadError] = useState('');
 
   function loadData() {
@@ -65,6 +66,10 @@ export default function Today() {
     api.getBatches({ status: 'active', limit: '10' })
       .then(data => { setBatches(data.filter(b => b.status !== 'closed')); setBatchesLoading(false); })
       .catch(e => { setLoadError(e.message || 'Unable to load'); setBatchesLoading(false); });
+
+    api.getPendingActions()
+      .then(data => setPendingActions(data))
+      .catch(() => setPendingActions(null));
   }
 
   useEffect(() => { loadData(); }, []);
@@ -181,7 +186,7 @@ export default function Today() {
       </div>
 
       {/* ── RECENT APPLICATIONS (placeholder for Phase 1 #14 full Today screen) ── */}
-      <div>
+      <div className="mb-5">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">Recent Applications</h2>
           <button onClick={() => navigate('/applications/fertigation')} className="text-xs text-green-700 font-semibold hover:text-green-900">
@@ -190,6 +195,9 @@ export default function Today() {
         </div>
         <RecentApplications />
       </div>
+
+      {/* ── PENDING ACTIONS (Feature 26 — lifecycle action items) ─────────── */}
+      <PendingActionsSection actions={pendingActions} navigate={navigate} />
     </div>
   );
 }
@@ -313,6 +321,55 @@ function RecentApplications() {
           <div className="text-xs text-gray-400 flex-shrink-0">{formatTime(app.applied_at)}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function PendingActionsSection({ actions, navigate }) {
+  if (!actions) return null;
+
+  const items = [
+    actions.teardown_pending > 0 && {
+      label: `${actions.teardown_pending} teardown container${actions.teardown_pending > 1 ? 's' : ''} awaiting soil sample`,
+      icon: '🪣',
+      href: '/containers?state=teardown',
+    },
+    actions.startup_pending > 0 && {
+      label: `${actions.startup_pending} container${actions.startup_pending > 1 ? 's' : ''} in startup`,
+      icon: '🌱',
+      href: '/containers?state=startup',
+    },
+    actions.lab_samples_awaiting > 0 && {
+      label: `${actions.lab_samples_awaiting} soil sample${actions.lab_samples_awaiting > 1 ? 's' : ''} at lab awaiting results`,
+      icon: '🧪',
+      href: '/containers',
+    },
+    actions.losses_unsynced > 0 && {
+      label: `${actions.losses_unsynced} plant loss${actions.losses_unsynced > 1 ? 'es' : ''} not yet synced to METRC`,
+      icon: '⚠',
+      href: '/compliance/metrc-reconciliation',
+    },
+  ].filter(Boolean);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="mb-5">
+      <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Pending Actions</h2>
+      <div className="flex flex-col gap-2">
+        {items.map(item => (
+          <button
+            key={item.href + item.label}
+            onClick={() => navigate(item.href)}
+            className="w-full text-left bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center gap-3 hover:border-amber-400 transition-colors active:bg-amber-100"
+            style={{ minHeight: '56px' }}
+          >
+            <span className="text-lg flex-shrink-0">{item.icon}</span>
+            <span className="text-sm font-medium text-amber-900 flex-1">{item.label}</span>
+            <span className="text-amber-600 text-sm flex-shrink-0">→</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
