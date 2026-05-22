@@ -1,10 +1,23 @@
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import { formatMetrcDate, toMetrcPhase, makeBatchName } from '../../lib/domain-utils.js';
 import { z } from 'zod';
 
 interface IdParams { id: string }
+
+// Allow server-to-server calls with X-Service-Key alongside user JWT auth.
+async function requireAuthOrServiceKey(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const serviceKey = process.env.CULTIVATE_SERVICE_KEY;
+  if (serviceKey) {
+    const incoming = request.headers['x-service-key'] as string | undefined;
+    if (incoming === serviceKey) {
+      (request as any).user = { id: 0, name: 'service', role: 'grower' };
+      return;
+    }
+  }
+  return requireAuth(request, reply);
+}
 
 const STATUS_ORDER = [
   'germ', 'seedling', 'cult-hoop',
