@@ -124,7 +124,7 @@ export default function PartialHarvestForm() {
 
         {/* Note: no "manicure" terminology */}
         <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-sm text-purple-800">
-          <strong>Partial Harvest</strong> — plant remains alive. Records product wet weight against the Manicure Batch (MB).
+          <strong>Partial Harvest</strong> — plant remains alive. Records product wet weight against the Partial Harvest Batch (MB).
         </div>
 
         {/* Context card */}

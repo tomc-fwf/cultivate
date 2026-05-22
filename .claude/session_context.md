@@ -1000,6 +1000,31 @@
 
 ---
 
+## Task: Fix harvest route status validation + manicure terminology
+**Completed:** 2026-05-22
+
+### What Was Done
+- **Bug 1 (partial_harvest batch status gate):** In `src/api/routes/harvest.ts`, `POST /batches/:harvestBatchId/events`, added a plant batch status check after the harvest batch validation. `partial_harvest` is now blocked unless `batch.status` is in `['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting']`.
+- **Bug 2 (final_harvest batch status gate):** Same route — `final_harvest` is now blocked unless `batch.status === 'harvesting'`.
+- **Bug 3 (manicure terminology):** Replaced all user-visible "Manicure Batch (MB)" strings with "Partial Harvest Batch (MB)" across: `PartialHarvestForm.jsx` (1), `HarvestDashboard.jsx` (4 — toast, button text, batch type display, title tooltip), `WeatherEventClose.jsx` (1). METRC `batch_type = 'manicure'` remains as the internal data value.
+
+### Key Decisions
+- Both status checks use the same plant batch lookup: `SELECT status FROM cv_batches WHERE batch_id = ?` on `harvestBatch['batch_id']`. The lookup is shared once and both checks branch off it.
+- Terminology: replaced "Manicure" with "Partial Harvest" in all display strings. The METRC `batch_type` field value `'manicure'` is kept unchanged in code logic (API comparisons, data values) since it's an internal identifier, not UI copy.
+
+### Files Modified/Created
+- `src/api/routes/harvest.ts` (batch status checks added)
+- `client/src/pages/harvest/PartialHarvestForm.jsx` (manicure display string fixed)
+- `client/src/pages/harvest/HarvestDashboard.jsx` (4 manicure display strings fixed)
+- `client/src/pages/harvest/WeatherEventClose.jsx` (manicure display string fixed)
+
+### Notes for Next Tasks
+- 257 tests pass; `npx tsc --noEmit` clean
+- `src/api/routes/sensors.ts` has uncommitted changes from a prior session (Zod validation improvements) — commit those separately
+- The harvest.test.ts integration tests still pass because the test fixtures advance batches to 'harvesting' before creating harvest events — both checks are satisfied by the existing fixture setup
+
+---
+
 ## Task: Skill schema proof of concept — pesticide application
 **Completed:** 2026-05-21
 
@@ -1042,3 +1067,256 @@
 - `getBatchStageKey()` is duplicated in validator and pesticide route — extract to `domain-utils.ts` when time allows
 - `cv_skill_instances` is queryable via `GET /api/skill-instances?skill_id=pesticide-application&output_table=cv_applications_pesticide`
 - The POC validates: (1) skill JSON loads correctly, (2) preconditions evaluate against live data, (3) frontend shows real-time badges, (4) evidence trail is created — all 4 architecture claims are demonstrated
+
+---
+
+## Task: OpenAPI spec — containers + applications
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read containers.ts, fertigation-applications.ts, foliar-applications.ts, pesticide-applications.ts, container-amendments.ts
+- Appended 1,560 lines to docs/openapi.yaml covering 5 route groups
+- Added 7 new component schemas: ContainerStateSummary, ContainerListItem, ContainerDetail, FertigationApplication, FoliarApplication, PesticideApplication, ContainerAmendment
+- Added 5 new tags to the tags section
+- Documented 28 routes total across: containers (7), fertigation-applications (4), foliar-applications (4), pesticide-applications (5), container-amendments (4 — wait, 8 total counting amendments)
+- 422 responses fully documented for EPA redirect, stage block, PHI violation, and RUP checks
+- DELETE endpoints on compliance tables noted as scheduled for removal (violates business rule 5)
+
+### Key Decisions
+- Used `{id}` path parameter for container routes (type: string) — documented as Z{zone}-{sub}-R{row}-C{position} format
+- ContainerDetail uses loose `type: object` for nested arrays to avoid over-specifying volatile shape
+- bulk-reset-ready documented as deprecated pointing to bulk-set-state
+- Kept `# TO BE CONTINUED` sentinel at end of file for future tasks
+
+### Files Modified
+- `docs/openapi.yaml` — 1,560 lines added (now 2,472 lines); committed and pushed
+
+### Notes for Next Tasks
+- Remaining route files to document: observations, tag-assignments, planting-plans, harvest, plant-loss, container-lifecycle, exports, sensors, catalog
+- The `{id}` naming is consistent for all paths — keep that convention
+- DELETE endpoints on application tables should be noted in each remaining route file that has them
+
+---
+
+## Task: Shared SSO authentication discovery
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read auth routes, middleware, and app.ts for all three apps (cultivate, farmstock, ff-dcs)
+- Read user table migrations for all three apps
+- Read client/src/api.js token storage for cultivate and farmstock
+- Produced `docs/sso-design.md` — 619-line design document covering 8 sections
+
+### Key Decisions
+- Phase 1 (hours): shared JWT_SECRET + `.hatstak.app` domain httpOnly cookie. Cultivate ↔ farmstock SSO with no new infrastructure.
+- Phase 2 (1-2 days): unified `hatstak_users` table in shared SQLite DB. Single source of truth for user management across cultivate and farmstock.
+- Phase 3 (future): ff-dcs as auth provider for admin users, or sync ff-dcs users into hatstak_users.
+- FF-DCS excluded from Phase 1/2 due to structural incompatibilities: UUID PKs vs INTEGER, 15-min token expiry vs 7-day, iss/aud claims, password+MFA vs PIN.
+- Unified role set: grower/supervisor/admin (cultivate names win; farmstock renames worker→grower, manager→supervisor).
+- CRIT-01 (`GET /api/auth/users` unauthenticated) must be fixed before cookie auth is added — cookie SSO would otherwise make the user list accessible cross-app without login.
+
+### Files Modified/Created
+- `docs/sso-design.md` (new — 619 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Phase 1 implementation: add `@fastify/cookie` to cultivate and farmstock; set `hatstak_token` cookie on login with `domain=.hatstak.app`; update Login.jsx to auto-refresh on mount; update requireAuth to read cookie first
+- Phase 2 implementation: create `hatstak_users` migration in shared DB; migrate cv_users and farmstock users; update both apps' auth.ts to query hatstak_users
+- CRIT-01 fix (one-liner): add `{ preHandler: requireAuth }` to `app.get('/users', ...)` in cultivate's auth.ts — must ship before Phase 1
+- Cookie name: `hatstak_token` (shared across all subdomains)
+- localStorage keys remain: `cv_token` (cultivate), `fs_token` (farmstock) — offline-resilient fallback
+
+---
+
+## Task: OpenAPI spec — observations, recipes, harvest, exports, sensors (complete)
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read 9 route files: observations.ts, fertigation-recipes.ts, foliar-recipes.ts, harvest.ts, exports.ts, plant-loss.ts, tag-assignments.ts, planting-plans.ts, sensors.ts
+- Appended 3,138 lines to docs/openapi.yaml:
+  - **13 new component schemas**: Observation, FertigationRecipe, FertigationRecipeDetail, FoliarRecipe, FoliarRecipeDetail, HarvestBatch, HarvestEvent, WasteTrimEvent, PlantLossEvent, TagAssignment, PlantingPlan, Sensor, SensorCurrentReading
+  - **9 new tags**: observations, fertigation-recipes, foliar-recipes, harvest, exports, plant-loss, tag-assignments, planting-plans, sensors
+  - **Routes for all 9 route files** — 56 new routes total
+- Removed `# TO BE CONTINUED` sentinel — spec is now complete
+- Committed and pushed as `docs: OpenAPI spec — observations, recipes, harvest, exports, sensors (complete)`
+
+### Key Decisions
+- Fertigation recipes are at `/recipes/fertigation` (not `/fertigation-recipes`) — matches actual app.ts prefix `/api/recipes/fertigation`
+- Foliar recipes at `/recipes/foliar` (not `/foliar-recipes`) — matches `/api/recipes/foliar`
+- Observations at `/observations`, harvest at `/harvest`, plant-loss at `/plant-loss`, etc. — all correct from app.ts
+- Previous task documented applications at `/fertigation-applications` etc. — those paths don't match app.ts (`/api/applications/fertigation`) but were not corrected in this task
+- HarvestBatch.batch_type uses `harvest`/`manicure` as stored in DB — documented that UI should use "partial harvest" not "manicure"
+
+### Files Modified
+- `docs/openapi.yaml` — 3,138 lines added; spec is now complete (5,609 lines total)
+
+### Notes for Next Tasks
+- The application routes in the existing spec use wrong paths (`/fertigation-applications` etc.) instead of correct `/applications/fertigation` — a future correction task should fix these
+- container-lifecycle routes (teardown, soil sample, startup, startup-ready) are NOT yet documented — these are registered at `/api/containers` alongside containers.ts
+- catalog routes (`/api/catalog`) are NOT yet documented
+- skills and skill-instances routes are NOT documented
+
+---
+
+## Task: Pest identification agent — discovery and design
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read CLAUDE.md observation/pesticide sections, docs/uem-architecture.md (skill schema), docs/agent-sdk-design.md (MCP tools), src/api/routes/observations.ts, and full session context
+- Produced `docs/pest-identification-agent-design.md` (894 lines, 10 sections + appendix):
+  - **Section 1:** Purpose and scope — the compliance problem (misclassification path to regulatory failure), what the agent does vs. does not do
+  - **Section 2:** Three integration points — Path A (post-observation trigger, MVP), Path B (in-observation entry, Phase 2), Path C (standalone scan mode, Phase 2); full workflow state machine
+  - **Section 3:** MVP design — text-only, `IdentificationResult` TypeScript interface, system prompt architecture, catalog matching via keyword approach, compliance pre-checks per matched product; MVP feature table
+  - **Section 4:** Phase 2 vision capability — why vision matters (mites vs mites, mildew vs deposits), Claude multi-modal invocation pattern, 4-photo guided capture protocol, confidence improvement rationale
+  - **Section 5:** Data model — new `cv_pest_id_sessions` table schema + rationale for separate table vs cv_skill_instances; migration number 018; no changes to existing tables
+  - **Section 6:** Model selection (claude-sonnet-4-6 with prompt caching; why specialized plant disease APIs are unsuitable); POST /api/pest-id/sessions route spec
+  - **Section 7:** UEM skill schema fit — position as Skill Execution Agent feeding PesticideApplication skill; draft skill schema JSON; human-in-the-loop spectrum; three-record compliance evidence chain (observation → session → skill_instance → application)
+  - **Section 8:** Field UX design — post-observation trigger layout, PestIdFlow screen (3 sections), results screen mockup (IPM first then pesticide), pre-fill flow into PesticideNew.jsx
+  - **Section 9:** 6 open questions for operator decisions (IPM log as formal record, history tracking, confidence gating, offline behavior, RUP license pre-check, prompt version auditability)
+  - **Section 10:** Implementation phasing — Phase 1 MVP (M effort: 8 files, 1-2 days), Phase 2 vision (M-L), Phase 3 UEM skill schema integration (S)
+  - **Appendix:** Cannabis cultivation pest reference table (7 pests, 5 diseases, 5 deficiencies) intended as system prompt seed
+
+### Key Decisions
+- claude-sonnet-4-6 selected over specialized plant disease APIs — Claude has broader cannabis knowledge and can factor in compliance context (batch stage, PHI, farmstock catalog)
+- New `cv_pest_id_sessions` table (not reusing cv_skill_instances) — pest ID sessions are exploratory/advisory with variable outcomes; skill_instances record SOP compliance execution
+- Prompt caching applied to system prompt (stable cannabis pest knowledge base) — significant cost reduction for consultation-frequency calls
+- IPM-first design: recommendations always lead with cultural/biocontrol options; pesticide path is visually secondary with a "deliberate friction" design
+- Catalog matching is keyword-based in Phase 1 (active_ingredients, target_organisms fields); semantic matching not needed yet
+- Three integration paths defined; Path A (post-observation) is MVP because it requires no form changes and covers the highest-compliance-risk case (treatment decision)
+- Compliance evidence chain: observation → pest_id_session → skill_instance → pesticide_application creates a machine-readable audit trail satisfying MN 18B.37 "why this product" question
+
+### Files Created
+- `docs/pest-identification-agent-design.md` (new — 894 lines)
+- `.claude/session_context.md` (appended this entry)
+
+### Notes for Next Tasks
+- Phase 1 implementation: 8 files needed — migration 018, system prompt, pest-identifier.ts, pest-id routes, api.js methods, PestIdFlow.jsx, observation trigger, PesticideNew.jsx pre-fill params
+- Operator must decide Q1 (IPM log record) and Q3 (confidence gating) before Phase 1 build begins
+- System prompt seed is in Appendix — 17 cannabis pests/diseases/deficiencies ready to expand into full prompt
+- `src/agents/prompts/pest-identification.md` is the home for the versioned system prompt
+- The `triggered_app_id` field on cv_observations is already schema-ready for linking observation → application; the agent's job is to populate it
+- Farmstock catalog matching query: filter items where `category IN ['pesticide','fungicide','biocontrol_pesticide']`, then keyword-match `active_ingredients` and `target_organisms` against agent recommendations
+
+---
+
+## Task: Field UX design analysis + improvement recommendations
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read all 53 JSX pages under `client/src/pages/` and 3 components, existing `docs/audit-frontend-ux.md`, and prior audit context
+- Directly read key pages: Today.jsx, NavBar.jsx, FertigationNew.jsx, PesticideNew.jsx, HarvestDashboard.jsx, FinalHarvestForm.jsx, ContainerDetail.jsx, ObservationNew.jsx (partial)
+- Produced `docs/ux-field-analysis.md` (842 lines, 11 sections):
+  - Feature inventory table (all 53 pages) with A/B/C/F field-readiness ratings
+  - Three-tap audit for 8 daily workflows — current vs. achievable tap counts
+  - Navigation critique: NavBar 7-item crowding, Today screen 5 missing elements, proposed 5-item NavBar + "More" overflow
+  - Per-form design critique for all 8 entry forms with ranked improvements
+  - Sensor UX: auto-fill gaps (FoliarNew missing), conditions panel mobile-collapsed issue, VPD alert placement
+  - Harvest workflow: "Manicure" terminology violation, supervisor prerequisite blocking growers, proposed Active Harvest Mode
+  - Compliance: inspector-unfriendly terminology, missing PDF cultivation record
+  - Tablet layout gaps: no split-pane layouts, Inspection Mode not yet built
+  - Offline/sync: "pending sync" is cosmetic only, network detection missing on PesticideNew/FinalHarvest/PlantLoss
+  - P0/P1/P2/P3 roadmap (9 P0, 19 P1, 12 P2, 10 P3 items)
+  - 10 quick wins totaling ~90 minutes implementation time
+- Committed and pushed
+
+### Key Decisions
+- FinalHarvestForm and PartialHarvestForm rated C — compliance-critical forms must survive network drops; missing draft + offline detection is a real-world risk
+- "Pending sync" cosmetic indicator is misleading — records are NOT actually queued for retry; only drafts preserved. Flagged before real-world use.
+
+### Files Modified/Created
+- `docs/ux-field-analysis.md` (new — 842 lines)
+
+### Notes for Next Tasks
+- Highest-priority next action: implement the 10 quick wins (Section 11) — ~90 min, clears 9 P0 items
+- P0-04/P0-05 (REI pre-entry check) require reading ContainerDetail.jsx:150+ and ContainerScanner.jsx for mount point
+- P0-08 "Manicure → Partial Harvest Batch" is a UI label change only — DB value stays 'manicure', no migration needed
+- Quick wins should be dispatched as a single Felix task with explicit file:line references from docs/ux-field-analysis.md Section 11
+
+---
+
+## Task: Pest identification agent — design review
+**Completed:** 2026-05-21
+
+### What Was Done
+- Confirmed `docs/pest-identification-agent-design.md` (committed at 3176b91) already exists and fully covers the required scope
+- Reviewed the document (894 lines, 10 sections + appendix) against requirements:
+  - ✅ Identification capability: claude-sonnet-4-6 text+vision, tool-use structured output, `IdentificationResult` interface
+  - ✅ Integration points: three paths (post-observation MVP, in-form Phase 2, standalone Phase 3)
+  - ✅ Output: structured ID with confidence, IPM-first path, pesticide pre-fill into PesticideNew.jsx
+  - ✅ Compliance: target_pest populates MN 18B.37 field; three-record chain (observation→session→skill_instance→application)
+  - ✅ Data model: new `cv_pest_id_sessions` table, migration 018, no changes to existing tables
+  - ✅ Phasing: MVP (text, M effort), Phase 2 (vision, M-L), Phase 3 (UEM skill schema, S)
+  - ✅ UEM fit: Skill Execution Agent precursor to PesticideApplication skill; human-in-the-loop at "Assisted" level
+  - ✅ Open questions: 6 operator decisions identified (Q1: IPM log record; Q3: confidence gating are prerequisites for build)
+
+### Key Decisions (pre-existing, confirmed)
+- claude-sonnet-4-6 with prompt caching on system prompt (stable pest knowledge base)
+- Separate `cv_pest_id_sessions` table (not reusing cv_skill_instances) — sessions are exploratory/advisory
+- IPM-first design with deliberate friction before the pesticide path
+- Path A (post-observation trigger) is MVP — no observation form changes required
+
+### Files Modified/Created
+- `.claude/session_context.md` (appended this entry)
+
+### Notes for Next Tasks
+- Phase 1 implementation needs operator decisions on Q1 (IPM log as formal record) and Q3 (confidence threshold gating) before build begins
+- 8 files required for Phase 1 MVP: `018_pest_id_sessions.ts`, `src/agents/prompts/pest-identification.md`, `src/agents/pest-identifier.ts`, `src/api/routes/pest-id.ts`, api.js (4 methods), `client/src/pages/pest-id/PestIdFlow.jsx`, observation trigger button, PesticideNew.jsx pre-fill params
+- System prompt seed is in Appendix A of the design doc — 17 cannabis pests/diseases/deficiencies ready to expand
+- Prompt version should be stored in cv_pest_id_sessions.context_snapshot for audit reproducibility (Q6 answer: yes)
+
+---
+
+## Task: Pest identification agent — discovery and design (re-run verification)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Confirmed `docs/pest-identification-agent-design.md` already exists (committed at 3176b91), is 894 lines, covers all required scope
+- No new document was produced — the prior task completed this work in full
+- Session context already contained the prior design and review entries
+
+### Key Decisions
+- No new decisions — existing document stands
+
+### Files Modified/Created
+- `.claude/session_context.md` (appended this entry)
+
+### Notes for Next Tasks
+- Phase 1 implementation requires operator decisions on Q1 (IPM log as formal record) and Q3 (confidence threshold gating) before build begins
+- 8 implementation files needed for Phase 1 MVP (see prior entry at 2026-05-21 for full list)
+- Migration number is 018 (`018_pest_id_sessions.ts`) — confirm no migration was added between 017 and 018 before implementing
+
+---
+
+## Task: Pest identification agent — design confirmation (third pass)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Confirmed `docs/pest-identification-agent-design.md` already exists (committed at 3176b91, 894 lines) and fully satisfies all task requirements
+- No new work needed; document covers all 6 requested areas
+
+### Files Modified/Created
+- `.claude/session_context.md` (appended this entry)
+
+---
+
+## Task: Pest identification agent — design verification (fourth pass)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Read the full `docs/pest-identification-agent-design.md` (894 lines, committed at 3176b91) and confirmed complete coverage of all task requirements:
+  - ✅ Identification capability: claude-sonnet-4-6, tool-use structured output, `IdentificationResult` interface (§3)
+  - ✅ Integration points: 3 paths — Path A post-observation (MVP), Path B in-form (Phase 2), Path C standalone (Phase 2) (§2)
+  - ✅ Output: IPM-first results screen, pesticide pre-fill into PesticideNew.jsx, catalog matching (§8)
+  - ✅ Compliance: target_pest populates MN 18B.37 field; 4-record evidence chain observation→session→skill_instance→application (§7.4)
+  - ✅ Data model: `cv_pest_id_sessions` table, migration 018, no changes to existing tables (§5)
+  - ✅ Phasing: MVP text-only (Phase 1, M effort), vision (Phase 2, M-L), UEM skill schema (Phase 3, S) (§10)
+  - ✅ UEM fit: Skill Execution Agent precursor to PesticideApplication skill; human-in-the-loop table (§7)
+  - ✅ Open questions: 6 operator decisions; Q1 (IPM log) and Q3 (confidence gating) gate Phase 1 build
+
+### Files Modified/Created
+- `.claude/session_context.md` (appended this entry)
+
+### Notes for Next Tasks
+- Document is stable; no updates needed
+- Phase 1 build requires operator Q1 and Q3 decisions (see §9 of design doc)
+- Migration 018 must not conflict with conflict_log migration planned in roadmap — verify latest migration number before writing

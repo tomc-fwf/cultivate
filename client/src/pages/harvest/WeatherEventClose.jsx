@@ -147,7 +147,7 @@ export default function WeatherEventClose() {
             <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Current Harvest Batch (to be closed)</div>
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <span className="font-semibold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
-                {harvestBatch.batch_type === 'harvest' ? 'Harvest Batch (HB)' : 'Manicure Batch (MB)'}
+                {harvestBatch.batch_type === 'harvest' ? 'Harvest Batch (HB)' : 'Partial Harvest Batch (MB)'}
               </span>
               <span className="text-xs text-gray-400 font-mono">#{harvestBatch.sequence_number}</span>
             </div>

@@ -230,6 +230,23 @@ const harvestRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      const plantBatch = db.prepare(
+        'SELECT status FROM cv_batches WHERE batch_id = ?'
+      ).get(harvestBatch['batch_id']) as { status: string } | undefined;
+      if (!plantBatch) return reply.code(400).send({ error: 'Associated plant batch not found' });
+
+      const PARTIAL_ALLOWED = ['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting'];
+      if (event_type === 'partial_harvest' && !PARTIAL_ALLOWED.includes(plantBatch.status)) {
+        return reply.code(400).send({
+          error: `Partial harvest not allowed for batch status "${plantBatch.status}". Allowed statuses: ${PARTIAL_ALLOWED.join(', ')}`,
+        });
+      }
+      if (event_type === 'final_harvest' && plantBatch.status !== 'harvesting') {
+        return reply.code(400).send({
+          error: `Final harvest requires batch status 'harvesting'. Current status: "${plantBatch.status}"`,
+        });
+      }
+
       const assignment = db.prepare(`
         SELECT * FROM cv_plant_assignments
         WHERE assignment_id = ? AND unassigned_at IS NULL AND batch_id = ?
