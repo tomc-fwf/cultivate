@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createTestContext, teardownTestContext, type TestContext } from '../helpers/db.js';
 import { authHeader } from '../helpers/auth.js';
 import {
-  createTestStrain, createTestBatch, createHarvestBatch, putContainerActive,
+  createTestStrain, createTestBatch, advanceBatchTo, createHarvestBatch, putContainerActive,
 } from '../helpers/fixtures.js';
 
 describe('Harvest batch creation — batch status gate', () => {
@@ -104,6 +104,91 @@ describe('Harvest event — harvest_batch gate', () => {
       payload: { plant_assignment_id: assignmentId, event_type: 'final_harvest', product_type: 'flower', wet_weight: 100, weight_unit: 'g' },
     });
     expect(res.statusCode).toBe(201);
+  });
+});
+
+describe('Harvest event — batch status gate', () => {
+  let ctx: TestContext;
+  beforeEach(async () => { ctx = await createTestContext(); });
+  afterEach(async () => { await teardownTestContext(ctx); });
+
+  it('partial_harvest is allowed when batch is field-veg', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'partial_harvest', product_type: 'flower', wet_weight: 50, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+
+  it('partial_harvest is blocked when batch is germ', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'germ' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'partial_harvest', product_type: 'flower', wet_weight: 50, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('partial_harvest is blocked when batch is seedling', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'seedling' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'partial_harvest', product_type: 'flower', wet_weight: 50, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('partial_harvest is blocked when batch is closed', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
+    advanceBatchTo(ctx.db, b.batch_id, 'closed');
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'partial_harvest', product_type: 'flower', wet_weight: 50, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('final_harvest is blocked when batch is harvest_window', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvest_window' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'final_harvest', product_type: 'flower', wet_weight: 100, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('final_harvest is blocked when batch is flush', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'flush' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'final_harvest', product_type: 'flower', wet_weight: 100, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });
 
