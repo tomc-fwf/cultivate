@@ -1292,10 +1292,34 @@
 
 ### What Was Done
 - Confirmed `docs/pest-identification-agent-design.md` already exists (committed at 3176b91, 894 lines) and fully satisfies all task requirements
-- No new work needed; document covers all 6 requested areas
+- No new work needed; document covers all 6 reached areas
 
 ### Files Modified/Created
 - `.claude/session_context.md` (appended this entry)
+
+---
+
+## Task: Fix harvest route status validation + manicure terminology (test coverage)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Prior session (c5b7724) had already applied all three bug fixes: batch status gates in `harvest.ts` and manicure→"Partial Harvest Batch" display strings in `HarvestDashboard.jsx`, `PartialHarvestForm.jsx`, `WeatherEventClose.jsx`
+- Added 6 integration tests to `src/tests/integration/harvest.test.ts` in a new `'Harvest event — batch status gate'` describe block:
+  - `partial_harvest` allowed on field-veg batch (manicure harvest batch, direct DB fixture)
+  - `partial_harvest` blocked on germ batch
+  - `partial_harvest` blocked on seedling batch
+  - `partial_harvest` blocked on closed batch
+  - `final_harvest` blocked on harvest_window batch
+  - `final_harvest` blocked on flush batch
+- Added `advanceBatchTo` to the imports in harvest.test.ts (needed for the closed-batch test)
+- All 263 tests pass; `npx tsc --noEmit` clean; committed (518744f) and pushed
+
+### Key Decisions
+- Fixtures insert harvest batches directly into the DB (bypassing the API status gate) so tests for non-harvesting batch statuses can exercise the event endpoint cleanly
+- Tests for partial_harvest on non-harvesting statuses use `batch_type: 'manicure'` harvest batches — consistent with the domain model
+
+### Files Modified/Created
+- `src/tests/integration/harvest.test.ts` (6 tests + import update added)
 
 ---
 
@@ -1320,3 +1344,45 @@
 - Document is stable; no updates needed
 - Phase 1 build requires operator Q1 and Q3 decisions (see §9 of design doc)
 - Migration 018 must not conflict with conflict_log migration planned in roadmap — verify latest migration number before writing
+
+---
+
+## Task: METRC tag assignment UI (feature 16)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added 4 methods to `client/src/api.js`: `getUntaggedAssignments`, `assignTagRaw` (returns raw `{status, ok, data}` to expose 409 conflict body), `bulkAssignTags`, `reassignTag`
+- Created `client/src/pages/containers/TagAssignmentWalkthrough.jsx` at route `/tag-assignments`:
+  - Batch selector (all active batches) with `?batch_id=X` query param support
+  - Fetches `GET /api/tag-assignments/untagged` → rows grouped by `row_id`
+  - Progress bar: X / Y tagged (counted from `onAssigned` callbacks)
+  - Per-placement `PlacementRow` component: large mono tag input, auto-submits when 24 chars reached, auto-advances focus to next unfocused input on success
+  - 409 conflict: opens `ReassignModal` showing existing assignment details, requires reason, calls `reassignTag`
+  - Inputs have `autoCapitalize="characters"`, `autoCorrect="off"`, `maxLength={24}`
+- Updated `client/src/pages/containers/ContainerDetail.jsx`:
+  - Added `InlineTagInput` component at top of file (before the default export): handles single-container tag entry, conflict detection, inline reassign flow
+  - Added `showTagInput` state
+  - "Assign Tag" button shown in Current Occupancy card when `current_tag === null && (state === 'active' || state === 'empty')`
+  - Inline `<InlineTagInput>` expands below the tag row; on success calls `load()` to refresh container data
+- Updated `client/src/pages/applications/ApplicationsHub.jsx`: added "METRC" section with Tag Assignment walkthrough link
+- Updated `client/src/App.jsx`: registered `/tag-assignments` route (all authenticated)
+
+### Key Decisions
+- `assignTagRaw` returns raw `{status, ok, data}` instead of throwing — this is intentional to give callers the 409 body (`existing_assignment`) without exception handling gymnastics. Used only for tag assignment, not a pattern change for the rest of api.js.
+- `PlacementRow` is a stateful component managing its own tag input, status, and conflict data — this prevents parent re-renders from resetting input state while still allowing the parent to track overall count via the `onAssigned` callback.
+- `inputRefs` is a `useRef({})` map keyed by `assignment_id` — allows auto-advance without traversing the DOM.
+- `InlineTagInput` in ContainerDetail is a separate component (not shared with the walkthrough) so it can have its own conflict/reassign flow inline without needing to open a separate page.
+
+### Files Modified/Created
+- `client/src/api.js` (4 new methods)
+- `client/src/pages/containers/TagAssignmentWalkthrough.jsx` (new)
+- `client/src/pages/containers/ContainerDetail.jsx` (InlineTagInput component + showTagInput state + Assign Tag button)
+- `client/src/pages/applications/ApplicationsHub.jsx` (METRC section added)
+- `client/src/App.jsx` (route registered)
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes (886KB, pre-existing chunk warning)
+- 263 tests still pass (no backend changes)
+- The walkthrough supports `?sub_zone_id=Y` filter via the backend (`getUntaggedAssignments` passes all params through) but there's no UI for sub-zone filtering yet — could be added as a second select
+- Bulk assign (`bulkAssignTags`) is wired in api.js but has no UI yet — walkthrough uses one-at-a-time via `assignTagRaw`
+- BatchDetail page could benefit from a "Tag Plants →" button linking to `/tag-assignments?batch_id=X` when untagged placements exist — not built yet
