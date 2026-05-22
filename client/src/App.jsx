@@ -51,6 +51,7 @@ import PlantInventory from './pages/compliance/PlantInventory';
 import TagVerification from './pages/compliance/TagVerification';
 import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
 import ContainerScanner from './pages/containers/ContainerScanner';
+import TagAssignmentWalkthrough from './pages/containers/TagAssignmentWalkthrough';
 import ContainerLabels from './pages/admin/ContainerLabels';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
@@ -150,6 +151,7 @@ export default function App() {
               <Route path="/compliance/tag-verification" element={<Protected><TagVerification /></Protected>} />
               <Route path="/compliance/metrc-reconciliation" element={<Protected><MetrcReconciliation /></Protected>} />
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
+              <Route path="/tag-assignments" element={<Protected><TagAssignmentWalkthrough /></Protected>} />
               <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />
               <Route path="/admin/environmental-history" element={<Protected minRole="admin"><EnvironmentalHistory /></Protected>} />

@@ -76,6 +76,23 @@ export default function ApplicationsHub() {
         ))}
       </div>
 
+      {/* ── METRC Tag Assignment ───────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">METRC</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
+        <button
+          onClick={() => navigate('/tag-assignments')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🏷️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Tag Assignment</div>
+            <div className="text-xs text-gray-500">Walk-through · assign METRC tags to untagged placements</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+      </div>
+
       {/* ── Observations & REI ─────────────────────────────────────────── */}
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Observations & Safety</h2>
       <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">

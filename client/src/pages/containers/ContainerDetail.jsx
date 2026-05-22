@@ -1,7 +1,141 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+
+const METRC_TAG_RE = /^[A-Za-z0-9]{24}$/;
+
+function InlineTagInput({ containerId, assignmentId, onTagged }) {
+  const [tagValue, setTagValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [conflict, setConflict] = useState(null);
+  const [reason, setReason] = useState('');
+  const [reassigning, setReassigning] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const isValid = METRC_TAG_RE.test(tagValue);
+
+  async function doAssign(tag) {
+    setSaving(true);
+    setError('');
+    const result = await api.assignTagRaw({
+      container_id: containerId,
+      metrc_plant_tag: tag,
+      assignment_id: assignmentId ?? undefined,
+    });
+    if (result.ok) {
+      onTagged(result.data);
+    } else if (result.status === 409) {
+      setConflict({ metrc_plant_tag: tag, existing_assignment: result.data.existing_assignment });
+      setSaving(false);
+    } else {
+      setError(result.data?.error || 'Assignment failed');
+      setSaving(false);
+    }
+  }
+
+  async function handleChange(e) {
+    const val = e.target.value.replace(/\s/g, '').toUpperCase();
+    setTagValue(val);
+    if (METRC_TAG_RE.test(val)) await doAssign(val);
+  }
+
+  async function handleReassign() {
+    if (!reason.trim()) { setError('Reason is required'); return; }
+    setReassigning(true);
+    setError('');
+    try {
+      const result = await api.reassignTag({
+        metrc_plant_tag: conflict.metrc_plant_tag,
+        from_assignment_id: conflict.existing_assignment.assignment_id,
+        to_container_id: containerId,
+        to_assignment_id: assignmentId ?? undefined,
+        reason: reason.trim(),
+      });
+      onTagged(result.to_assignment);
+    } catch (e) {
+      setError(e.message);
+    }
+    setReassigning(false);
+  }
+
+  if (conflict) {
+    return (
+      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+        <div className="text-sm font-semibold text-amber-800 mb-1">Tag already assigned</div>
+        <div className="text-xs text-amber-700 mb-3">
+          …{conflict.metrc_plant_tag.slice(-8)} is assigned to{' '}
+          <span className="font-mono font-bold">{conflict.existing_assignment.container_id}</span>
+          {conflict.existing_assignment.strain_name && ` (${conflict.existing_assignment.strain_name})`}.
+        </div>
+        <div className="mb-3">
+          <label className="block text-xs font-semibold text-gray-700 mb-1">
+            Reason for reassignment <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            rows={2}
+            autoFocus
+            placeholder="e.g. Correcting mis-scan at previous container"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-300"
+          />
+        </div>
+        {error && <div className="text-red-600 text-xs mb-2">{error}</div>}
+        <div className="flex gap-2">
+          <button
+            onClick={handleReassign}
+            disabled={reassigning || !reason.trim()}
+            className="flex-1 bg-amber-600 text-white text-sm font-bold py-3 rounded-xl disabled:opacity-40 hover:bg-amber-700 transition-colors"
+            style={{ minHeight: '48px' }}
+          >
+            {reassigning ? 'Reassigning…' : 'Reassign to This Container'}
+          </button>
+          <button
+            onClick={() => { setConflict(null); setTagValue(''); setSaving(false); }}
+            className="px-4 py-3 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3">
+      <input
+        ref={inputRef}
+        type="text"
+        value={tagValue}
+        onChange={handleChange}
+        maxLength={24}
+        disabled={saving}
+        autoCapitalize="characters"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        placeholder="Scan or type 24-character METRC tag"
+        className={`w-full border rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 transition-colors ${
+          tagValue.length > 0 && tagValue.length < 24 ? 'border-amber-300 focus:ring-amber-300' :
+          isValid ? 'border-green-400 focus:ring-green-300' :
+          'border-gray-200 focus:ring-green-300'
+        }`}
+        style={{ minHeight: '52px' }}
+      />
+      <div className="flex items-center justify-between mt-1">
+        {tagValue.length > 0 && tagValue.length < 24 ? (
+          <span className="text-xs text-amber-600">{tagValue.length}/24 — {24 - tagValue.length} more needed</span>
+        ) : <span />}
+        {saving && <span className="text-xs text-gray-400">Saving…</span>}
+        {error && <span className="text-xs text-red-600">{error}</span>}
+      </div>
+    </div>
+  );
+}
 
 const STATE_CHIP = {
   ready:           'bg-green-100 text-green-800',
@@ -85,6 +219,9 @@ export default function ContainerDetail() {
   const [notesValue, setNotesValue] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [notesError, setNotesError] = useState('');
+
+  // Inline tag assignment
+  const [showTagInput, setShowTagInput] = useState(false);
 
   const [showOosConfirm, setShowOosConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -358,7 +495,7 @@ export default function ContainerDetail() {
               Recipe: <span className="font-semibold text-green-800">{current_batch.active_recipe_name}</span>
             </div>
           )}
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
             <span className="text-xs text-gray-500">METRC tag:</span>
             {current_tag ? (
               <span className="font-mono text-sm text-gray-800">
@@ -366,9 +503,29 @@ export default function ContainerDetail() {
                 <span className="font-bold text-green-800">{current_tag.metrc_plant_tag.slice(-4)}</span>
               </span>
             ) : (
-              <span className="text-xs text-amber-600 italic">No tag assigned</span>
+              <>
+                <span className="text-xs text-amber-600 italic">No tag assigned</span>
+                {(state === 'active' || state === 'empty') && (
+                  <button
+                    onClick={() => setShowTagInput(v => !v)}
+                    className="text-xs bg-green-700 text-white font-semibold px-2.5 py-1 rounded-full hover:bg-green-800 transition-colors"
+                  >
+                    {showTagInput ? 'Cancel' : 'Assign Tag'}
+                  </button>
+                )}
+              </>
             )}
           </div>
+
+          {/* Inline tag assignment — visible when no tag and user taps Assign Tag */}
+          {!current_tag && showTagInput && (state === 'active' || state === 'empty') && (
+            <InlineTagInput
+              containerId={container.container_id}
+              assignmentId={undefined}
+              onTagged={() => { setShowTagInput(false); load(); }}
+            />
+          )}
+
           <button
             onClick={() => navigate(`/batches/${current_batch.batch_id}`)}
             className="mt-3 text-xs text-green-700 font-semibold hover:text-green-900"

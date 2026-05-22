@@ -136,6 +136,19 @@ export const api = {
 
   // Tag assignments
   getContainerAssignments: (containerId) => req('GET', `/tag-assignments/container/${encodeURIComponent(containerId)}`),
+  getUntaggedAssignments: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/tag-assignments/untagged${q ? '?' + q : ''}`);
+  },
+  // Returns { status, ok, data } so the caller can inspect 409 conflict details
+  assignTagRaw: async (body) => {
+    const headers = { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' };
+    const res = await fetch(`${BASE}/tag-assignments`, { method: 'POST', headers, body: JSON.stringify(body) });
+    const data = await res.json();
+    return { status: res.status, ok: res.ok, data };
+  },
+  bulkAssignTags: (body) => req('POST', '/tag-assignments/bulk', body),
+  reassignTag: (body) => req('POST', '/tag-assignments/reassign', body),
 
   // Plant loss
   recordPlantLoss: (data) => req('POST', '/plant-loss', data),
