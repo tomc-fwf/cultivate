@@ -333,6 +333,27 @@ const harvestRoutes: FastifyPluginAsync = async (app) => {
                   closed_by = ?, updated_at = ?
               WHERE harvest_batch_id = ? AND status = 'in_progress'
             `).run(now, userId, now, harvestBatchId);
+
+            // Rule 34 — cascade all remaining empty containers in this batch to teardown
+            const emptyContainers = db.prepare(`
+              SELECT container_id FROM cv_container_state
+              WHERE current_batch_id = ? AND current_state = 'empty'
+            `).all(batchId) as Array<{ container_id: string }>;
+
+            for (const ec of emptyContainers) {
+              db.prepare(`
+                UPDATE cv_container_state
+                SET current_state = 'teardown', state_since = ?, updated_at = ?
+                WHERE container_id = ?
+              `).run(now, now, ec.container_id);
+
+              db.prepare(`
+                INSERT INTO cv_container_state_transitions
+                  (container_id, from_state, to_state, transitioned_at, transitioned_by,
+                   batch_id, trigger_event, created_at)
+                VALUES (?, 'empty', 'teardown', ?, ?, ?, 'batch_closed', ?)
+              `).run(ec.container_id, now, userId, batchId, now);
+            }
           }
         }
 

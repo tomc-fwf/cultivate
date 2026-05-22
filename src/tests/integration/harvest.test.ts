@@ -151,6 +151,19 @@ describe('Harvest event — batch status gate', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('partial_harvest is blocked when batch is cult-hoop', async () => {
+    const s = createTestStrain(ctx.db);
+    const b = createTestBatch(ctx.db, s.strain_id, { status: 'cult-hoop' });
+    const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
+    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const res = await ctx.app.inject({
+      method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
+      headers: authHeader(ctx.app, 'grower'),
+      payload: { plant_assignment_id: assignmentId, event_type: 'partial_harvest', product_type: 'flower', wet_weight: 50, weight_unit: 'g' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it('partial_harvest is blocked when batch is closed', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });

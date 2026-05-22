@@ -494,28 +494,8 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  /**
-   * DELETE /:id — admin only, within 24h.
-   */
-  app.delete<{ Params: IdParams }>(
-    '/:id',
-    { preHandler: requireRole('admin') },
-    async (request, reply) => {
-      const id = Number(request.params.id);
-      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
-
-      const db = getDB();
-      const existing = db.prepare(
-        'SELECT * FROM cv_applications_pesticide WHERE pesticide_app_id = ?'
-      ).get(id) as Record<string, unknown> | undefined;
-
-      if (!existing) return reply.code(404).send({ error: 'Application not found' });
-      if (!isEditable(String(existing['applied_at']))) return reply.code(409).send({ error: 'Application record is locked after 24 hours' });
-
-      db.prepare('DELETE FROM cv_applications_pesticide WHERE pesticide_app_id = ?').run(id);
-      return reply.code(204).send();
-    },
-  );
+  // DELETE is intentionally absent — pesticide records are audit records
+  // retained for 5 years per MN Statute 342.25 (Business Rule 5).
 };
 
 export default pesticideApplicationsRoutes;
