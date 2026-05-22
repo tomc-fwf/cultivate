@@ -726,11 +726,13 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       SELECT ap.*,
              b.sub_zone_id, b.metrc_plant_batch_uid, b.sow_date,
              s.name AS strain_name, s.type AS strain_type,
-             u.name AS applicator_name
+             u.name AS applicator_name,
+             il.lot_number
       FROM cv_applications_pesticide ap
       JOIN cv_batches b ON b.batch_id = ap.batch_id
       JOIN cv_strains s ON s.strain_id = b.strain_id
       LEFT JOIN cv_users u ON u.id = ap.applicator
+      LEFT JOIN cv_input_lots il ON il.lot_id = ap.input_lot_id
       WHERE date(ap.applied_at) >= date(?) AND date(ap.applied_at) <= date(?)
       ORDER BY ap.applied_at ASC
     `).all(date_from, date_to) as Array<Record<string, unknown>>;
@@ -742,13 +744,14 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       const inputId = r['input_id'] as number | null;
       const item = inputId ? itemMap.get(inputId) : null;
       return {
-        application_date: String(r['applied_at'] ?? '').slice(0, 10),
+        application_datetime: r['applied_at'] ?? null,
         applicator_name: r['applicator_name'] ?? null,
         applicator_license: r['applicator_license'] ?? null,
         crop: r['strain_name'] ?? null,
         site: r['container_id'] ?? r['row_id'] ?? r['sub_zone_id'] ?? null,
         product_name: itemName(item, inputId),
         epa_reg_no: item ? (item['epa_reg_no'] ?? null) : null,
+        lot_number: r['lot_number'] ?? null,
         rate_value: r['rate_value'],
         rate_unit: r['rate_unit'],
         volume_applied: r['volume_applied'],
@@ -766,8 +769,8 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
 
     if (format === 'csv') {
       const columns = [
-        'application_date', 'applicator_name', 'applicator_license', 'crop',
-        'site', 'product_name', 'epa_reg_no', 'rate_value', 'rate_unit',
+        'application_datetime', 'applicator_name', 'applicator_license', 'crop',
+        'site', 'product_name', 'epa_reg_no', 'lot_number', 'rate_value', 'rate_unit',
         'volume_applied', 'volume_unit', 'application_method', 'target_pest',
         'ambient_temp_f', 'wind_speed_mph', 'wind_direction',
         'rei_expires_at', 'phi_compliant', 'batch_name',
