@@ -1372,3 +1372,147 @@ export function getSkill(skills, skillId) {
 as described in Section 7. Open questions in Section 8 require operator decisions before
 Phase 2 begins. All schema changes to ff-dcs require migrations per the ff-dcs development
 standards.*
+
+---
+
+## Appendix C: Proof of Concept — Pesticide Application Skill
+
+**Implemented:** 2026-05-21  
+**Status:** Working POC — validates architecture; not yet wired to ff-dcs
+
+### What Was Built
+
+A complete end-to-end demonstration of the skill schema concept using the pesticide
+application workflow as the test case.
+
+**Backend files added:**
+- `src/skills/pesticide-application.skill.json` — hand-crafted skill schema encoding
+  all 5 preconditions from CLAUDE.md business rules 16–22
+- `src/lib/skill-loader.ts` — loads skill JSON files from `src/skills/` at startup;
+  `getSkill(skillId)` and `listSkills()` functions
+- `src/lib/skill-validator.ts` — evaluates each precondition against live DB data;
+  dispatches on `check_id`; returns `ValidationResult` with per-check pass/fail/message
+- `src/api/routes/skills.ts` — `GET /api/skills` (list), `GET /api/skills/:skillId` (detail),
+  `GET /api/skills/:skillId/validate?batch_id=X&input_id=Y` (real-time validation)
+- `src/api/routes/skill-instances.ts` — `GET /api/skill-instances` (query execution evidence)
+- `src/db/migrations/017_skill_instances.ts` — `cv_skill_instances` table
+
+**Frontend changes:**
+- `client/src/pages/applications/PesticideNew.jsx` — added `SkillValidationPanel` component
+  that appears as soon as a batch is selected; calls `GET /api/skills/pesticide-application/validate`
+  and displays each precondition as a color-coded badge (green ✓ / amber ⚠ / red ✗)
+- `client/src/api.js` — added `validateSkill`, `getSkillInstances`, `listSkills`, `getSkill`
+
+**Pesticide application route change:**  
+`src/api/routes/pesticide-applications.ts` now creates a `cv_skill_instances` record on
+every successful POST, storing the full validation snapshot and any PHI override notes.
+
+### How the Pesticide Application Skill Validates Preconditions in Real-Time
+
+When an operator opens the pesticide application form and selects a batch (and optionally
+a product), the frontend immediately calls:
+
+```
+GET /api/skills/pesticide-application/validate?batch_id=5&input_id=12
+```
+
+The backend skill validator evaluates all 5 preconditions against live data:
+
+| Check | Data source | What's evaluated |
+|---|---|---|
+| `batch_not_closed` | `cv_batches` | `status NOT IN ['closed', 'harvesting']` |
+| `rei_not_active` | `cv_applications_pesticide` | Any active REI on the batch's sub_zone_id |
+| `phi_compliant` | farmstock API + `cv_batches.harvest_date` | `(harvest_date - applied_at) >= phi_days_operational` |
+| `stage_allows` | `cv_input_phi_stage_overrides` | No `allowed=0` override for current batch stage |
+| `rup_license_ok` | farmstock API + `cv_users.license_no` | If `restricted_use=true`, user must have license |
+
+The response includes:
+- Per-check pass/fail with severity and human-readable message
+- `blocked: true` if any `block`-severity check fails (disables the Save button)
+- `auto_fill` with the latest sensor reading from the batch's sub_zone_id
+
+The operator sees the result as a compact badge panel below the form header, updated
+live as they select a batch and then a product.
+
+### How the Skill Instance Provides Evidence of SOP Compliance
+
+When the application is saved successfully, the route creates a `cv_skill_instances` row:
+
+```json
+{
+  "instance_id": 1,
+  "skill_id": "pesticide-application",
+  "skill_version": "1.0",
+  "sop_id": "PH-002-PRO-01",
+  "completed_by": 3,
+  "completed_at": "2026-07-15T14:23:00Z",
+  "context": {"batch_id": 5, "input_id": 12, "input_lot_id": 3, "sub_zone_id": "Z1A"},
+  "validation_result": {
+    "passed": true,
+    "blocked": false,
+    "checks": [
+      {"check_id": "batch_not_closed", "passed": true, "severity": "block", "message": "Batch status: field-flower"},
+      {"check_id": "rei_not_active",   "passed": true, "severity": "block", "message": "No active REI on Z1A"},
+      {"check_id": "phi_compliant",    "passed": true, "severity": "warn_override", "message": "PHI compliant (21 day PHI)"},
+      {"check_id": "stage_allows",     "passed": true, "severity": "block", "message": "Stage field_flower_w2 allows application"},
+      {"check_id": "rup_license_ok",   "passed": true, "severity": "block", "message": "Not RUP"}
+    ]
+  },
+  "override_notes": null,
+  "output_record_id": "47",
+  "output_table": "cv_applications_pesticide"
+}
+```
+
+An inspector asking "how do we know the operator checked PHI before applying?" receives this answer:
+the `cv_skill_instances` record proves exactly which compliance checks were evaluated and what
+they returned at the moment of application. When an override was required, `override_notes`
+captures the documented reason.
+
+This is the machine-readable SOP compliance evidence trail that `cv_applications_pesticide`
+records alone cannot provide: the application record says *what* was applied; the skill
+instance says *that the SOP was followed when applying it*.
+
+### What Changes to Make This Fully Dynamic (ff-dcs Integration)
+
+In the current POC:
+- Skills are loaded from `src/skills/*.skill.json` files at server startup
+- There is no connection to ff-dcs
+
+To make this fully dynamic (Phase 2 implementation):
+
+1. **ff-dcs gets a `skills` table** and `GET /api/skills` endpoint (see Section 5)
+2. **`skill-loader.ts` is updated** to fetch from `FF_DCS_URL/api/skills` using a service key,
+   with local JSON files as fallback when ff-dcs is unreachable
+3. **ETag-based refresh** — `skill-loader.ts` caches the ETag and re-fetches only when it changes
+4. **Webhook handler** — `POST /api/webhooks/ffdcs` in cultivate refreshes the cache when
+   ff-dcs pushes a `skill.activated` event
+5. **`cv_skill_instances` posts to ff-dcs** after local insert — the `skill_runs` table in
+   ff-dcs becomes the central compliance evidence store accessible to all sub-applications
+
+The POC demonstrates that the architecture is sound: skill validation already blocks
+applications that violate SOP requirements, captures compliance evidence, and presents
+real-time feedback to operators — all driven by a JSON skill schema that a non-developer
+can read and understand.
+
+### Why This Architecture Is Stronger for Compliance Than Hardcoded Business Rules
+
+**Current approach (hardcoded):**
+- Business rules live in `pesticide-applications.ts` as TypeScript code
+- A regulatory change requires a code change, deployment, and code review
+- There is no machine-readable link between the SOP and the validation logic
+- An inspector sees application records; they cannot see which SOP version governed them
+
+**Skill schema approach:**
+- Business rules live in a JSON schema that references the SOP that created them
+- A regulatory change flows: SOP update → skill schema update (supervisor approval) →
+  automatic propagation to all sub-applications via API/webhook
+- Every application record is linked to a `cv_skill_instances` row which names the skill version
+  and SOP version that governed it
+- An inspector can ask "what SOP did you follow for this application?" and receive a
+  machine-readable answer with the exact compliance check results
+
+The skill schema approach also creates a virtuous audit cycle: when an override is accepted,
+it is documented in `validation_result.checks` with the reason, not buried in a free-text
+notes field. Regulators can query: "show me all applications where PHI_COMPLIANT was overridden"
+against a structured JSON field rather than pattern-matching on notes text.

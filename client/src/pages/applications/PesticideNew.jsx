@@ -229,6 +229,75 @@ function ProductPickerSheet({ onSelect, onClose }) {
   );
 }
 
+// ─── Skill Validation Panel ────────────────────────────────────────────────
+// Displays real-time precondition check results from the pesticide-application
+// skill schema. Each check shows as a badge: green=pass, amber=warn, red=block.
+
+const SEVERITY_ICONS = { block: '✗', warn_override: '⚠', warn: '⚠', info: 'ℹ' };
+const BADGE_PASS = 'bg-green-50 border border-green-200 text-green-800';
+const BADGE_BLOCK = 'bg-red-50 border border-red-200 text-red-800';
+const BADGE_WARN = 'bg-amber-50 border border-amber-200 text-amber-800';
+const BADGE_INFO = 'bg-gray-50 border border-gray-200 text-gray-600';
+
+function SkillValidationPanel({ validation, loading }) {
+  if (loading) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span className="animate-spin inline-block w-3 h-3 border-2 border-gray-300 border-t-gray-600 rounded-full" />
+          Checking compliance…
+        </div>
+      </div>
+    );
+  }
+  if (!validation?.validation) return null;
+
+  const { checks, blocked } = validation.validation;
+
+  return (
+    <div className={`rounded-2xl px-4 py-3 border ${blocked ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+          SOP Compliance — Skill v{validation.skill_version}
+        </span>
+        {blocked
+          ? <span className="text-xs font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded-full">BLOCKED</span>
+          : <span className="text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Ready</span>
+        }
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {checks.map(check => {
+          let badgeCls = BADGE_PASS;
+          let icon = '✓';
+          if (!check.passed) {
+            if (check.severity === 'block') { badgeCls = BADGE_BLOCK; icon = SEVERITY_ICONS['block']; }
+            else if (check.severity === 'warn_override' || check.severity === 'warn') { badgeCls = BADGE_WARN; icon = SEVERITY_ICONS['warn']; }
+            else { badgeCls = BADGE_INFO; icon = SEVERITY_ICONS['info']; }
+          }
+          return (
+            <div key={check.check_id} className={`flex items-start gap-2 rounded-xl px-3 py-2 text-xs ${badgeCls}`}>
+              <span className="font-bold flex-shrink-0 mt-px">{icon}</span>
+              <div className="flex-1 min-w-0">
+                <span className="font-semibold capitalize">{check.check_id.replace(/_/g, ' ')}</span>
+                {' — '}
+                <span>{check.message}</span>
+                {check.regulatory_ref && (
+                  <span className="ml-1 opacity-60 font-mono text-xs">({check.regulatory_ref})</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {validation.auto_fill?.source && (
+        <div className="mt-2 text-xs text-gray-400 font-medium">
+          📡 Sensor data from: {validation.auto_fill.source}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────
 
 export default function PesticideNew() {
@@ -293,6 +362,10 @@ export default function PesticideNew() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sensorConditions]);
 
+  // Skill validation (real-time precondition badges from UEM skill schema)
+  const [skillValidation, setSkillValidation] = useState(null);
+  const [skillValidationLoading, setSkillValidationLoading] = useState(false);
+
   // PHI override
   const [phiOverrideAcknowledged, setPhiOverrideAcknowledged] = useState(false);
   const [phiOverrideNotes, setPhiOverrideNotes] = useState('');
@@ -351,6 +424,36 @@ export default function PesticideNew() {
     setReiPreview(new Date(appliedMs + rei * 3600000).toISOString());
   }, [selectedProduct, appliedAt]);
 
+  // ── Skill validation — real-time precondition badges ────────────────────
+  // Calls GET /api/skills/pesticide-application/validate whenever batch or product changes.
+  // Returns per-check results displayed as compliance badges in the form header.
+  // Also returns sensor auto-fill data as a backup to useCurrentConditions.
+  useEffect(() => {
+    const batch = lockedBatch ?? selectedBatch;
+    if (!batch?.batch_id) { setSkillValidation(null); return; }
+
+    const params = { batch_id: String(batch.batch_id) };
+    if (selectedProduct?.id) params.input_id = String(selectedProduct.id);
+
+    setSkillValidationLoading(true);
+    api.validateSkill('pesticide-application', params)
+      .then(result => {
+        setSkillValidation(result);
+        // Auto-fill sensor data if fields are empty and sensor provided data
+        if (result.auto_fill?.ambient_temp_f != null && ambientTempF === '') {
+          setAmbientTempF(String(result.auto_fill.ambient_temp_f.toFixed(1)));
+          setTempEdited(false);
+        }
+        if (result.auto_fill?.ambient_rh != null && ambientRh === '') {
+          setAmbientRh(String(Math.round(result.auto_fill.ambient_rh)));
+          setRhEdited(false);
+        }
+      })
+      .catch(() => setSkillValidation(null))
+      .finally(() => setSkillValidationLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedBatch?.batch_id, selectedBatch?.batch_id, selectedProduct?.id]);
+
   // ── Restore draft ────────────────────────────────────────────────────────
   useEffect(() => {
     try {
@@ -401,6 +504,8 @@ export default function PesticideNew() {
   const isRUP = Boolean(selectedProduct?.restricted_use);
   const licenseNeeded = isRUP && applicatorLicense.trim() === '';
 
+  const skillBlocked = skillValidation?.validation?.blocked === true;
+
   const canSave = Boolean(batchId)
     && Boolean(selectedProduct)
     && inputLotId.trim() !== ''
@@ -412,7 +517,8 @@ export default function PesticideNew() {
     && windSpeedMph !== ''
     && !phiNeedsOverride
     && !licenseNeeded
-    && !stageBlock;
+    && !stageBlock
+    && !skillBlocked;
 
   // ── Save handler ─────────────────────────────────────────────────────────
   async function handleSave() {
@@ -570,6 +676,16 @@ export default function PesticideNew() {
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center gap-2 text-xs text-amber-800">
           <span className="font-bold">⏱ REI</span>
           <span>Area will be restricted until <span className="font-semibold">{formatDateTime(reiPreview)}</span></span>
+        </div>
+      )}
+
+      {/* Skill validation panel — shown once batch (and optionally product) is selected */}
+      {(skillValidation || skillValidationLoading) && (lockedBatch || selectedBatch) && (
+        <div className="px-4 pt-3 pb-0">
+          <SkillValidationPanel
+            validation={skillValidation}
+            loading={skillValidationLoading}
+          />
         </div>
       )}
 
@@ -951,7 +1067,7 @@ export default function PesticideNew() {
                 <span className="animate-spin inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                 Saving…
               </span>
-            ) : stageBlock ? 'Application Blocked' : 'Save Pesticide Application'}
+            ) : stageBlock || skillBlocked ? 'Application Blocked' : 'Save Pesticide Application'}
           </button>
         </div>
       </div>

@@ -166,6 +166,12 @@ export const api = {
   getSensorReadings: (sensorId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/sensors/${sensorId}/readings${q ? '?' + q : ''}`); },
   pollSensors: () => req('POST', '/sensors/poll'),
 
+  // Skills (UEM skill schema proof-of-concept)
+  listSkills: () => req('GET', '/skills'),
+  getSkill: (skillId) => req('GET', `/skills/${skillId}`),
+  validateSkill: (skillId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/skills/${skillId}/validate${q ? '?' + q : ''}`); },
+  getSkillInstances: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/skill-instances${q ? '?' + q : ''}`); },
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

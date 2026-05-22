@@ -24,6 +24,8 @@ import plantLossRoutes from './routes/plant-loss.js';
 import containerLifecycleRoutes from './routes/container-lifecycle.js';
 import exportsRoutes from './routes/exports.js';
 import sensorsRoutes from './routes/sensors.js';
+import skillsRoutes from './routes/skills.js';
+import skillInstancesRoutes from './routes/skill-instances.js';
 
 export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -83,6 +85,8 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   await app.register(containerLifecycleRoutes, { prefix: '/api/containers' });
   await app.register(exportsRoutes, { prefix: '/api/exports' });
   await app.register(sensorsRoutes, { prefix: '/api/sensors' });
+  await app.register(skillsRoutes, { prefix: '/api/skills' });
+  await app.register(skillInstancesRoutes, { prefix: '/api/skill-instances' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

@@ -1,0 +1,325 @@
+{
+  "schema_version": "1.0",
+  "skill_id": "pesticide-application",
+  "skill_version": "1.0",
+  "status": "active",
+  "sop_id": "PH-002-PRO-01",
+  "sop_version": "1.0",
+  "name": "Pesticide Application",
+  "description": "Apply an EPA-registered pesticide to a plant batch per MN Statute 18B.37 and MN Rule 4770. This skill enforces all regulatory requirements: lot tracking, environmental data capture, PHI/REI compliance, stage-specific restrictions, and RUP licensing.",
+  "category": "cultivation",
+  "regulatory_refs": [
+    "MN Statute 18B.37",
+    "MN Rule 4770",
+    "MN Statute 342.25",
+    "METRC Record Additives"
+  ],
+  "estimated_duration_minutes": 10,
+  "required_roles": ["grower", "supervisor", "admin"],
+  "preconditions": [
+    {
+      "check_id": "batch_not_closed",
+      "check": "batch.status NOT IN ['closed', 'harvesting']",
+      "message": "Cannot apply pesticide to a closed or actively harvesting batch. If the batch is harvesting, check PHI compliance before applying.",
+      "severity": "block"
+    },
+    {
+      "check_id": "rei_not_active",
+      "check": "NOT rei_active(batch.sub_zone_id)",
+      "message": "Active REI on this sub-zone. Do not enter or apply until REI is cleared by a supervisor.",
+      "severity": "block",
+      "regulatory_ref": "MN Statute 18B.37"
+    },
+    {
+      "check_id": "phi_compliant",
+      "check": "phi_compliant(input.phi_days_operational, batch.expected_harvest_date)",
+      "message": "Applying this pesticide would violate the operational Pre-Harvest Interval. Document your reason for overriding if proceeding. NOTE: operational PHI may be stricter than the label PHI.",
+      "severity": "warn_override",
+      "regulatory_ref": "MN Statute 18B.37 — phi_days_operational enforced, not label PHI"
+    },
+    {
+      "check_id": "stage_allows",
+      "check": "stage_allows(input.id, batch.derived_stage)",
+      "message": "This product is not permitted during the current batch stage per operational SOP stage restrictions.",
+      "severity": "block"
+    },
+    {
+      "check_id": "rup_license_ok",
+      "check": "NOT (input.restricted_use == true AND user.license_no IS NULL)",
+      "message": "This is a restricted-use pesticide (RUP). A licensed applicator number must be on file before applying.",
+      "severity": "block",
+      "regulatory_ref": "MN Statute 18B.37 — applicator licensing"
+    }
+  ],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Select target batch and location",
+      "type": "input",
+      "fields": [
+        {
+          "name": "batch_id",
+          "label": "Plant Batch",
+          "type": "reference",
+          "required": true,
+          "source": "cv_batches",
+          "filter": "status NOT IN ['closed']"
+        },
+        {
+          "name": "row_id",
+          "label": "Row (optional)",
+          "type": "reference",
+          "required": false,
+          "source": "cv_rows",
+          "filter": "sub_zone_id == batch.sub_zone_id",
+          "depends_on": "batch_id"
+        },
+        {
+          "name": "container_id",
+          "label": "Container (optional)",
+          "type": "reference",
+          "required": false,
+          "source": "cv_containers",
+          "filter": "row_id == row_id",
+          "depends_on": "row_id"
+        }
+      ]
+    },
+    {
+      "step_id": 2,
+      "name": "Select product and lot",
+      "description": "Lot tracking is required for all pesticide applications per MN Rule 4770.",
+      "type": "input",
+      "fields": [
+        {
+          "name": "input_id",
+          "label": "Pesticide Product",
+          "type": "reference",
+          "required": true,
+          "source": "farmstock.items",
+          "filter": "category IN ['pesticide', 'fungicide', 'biocontrol_pesticide'] AND epa_reg_no IS NOT NULL",
+          "regulatory": "MN Rule 4770 — EPA-registered products only in this form"
+        },
+        {
+          "name": "input_lot_id",
+          "label": "Lot / Stock ID",
+          "type": "reference",
+          "required": true,
+          "source": "farmstock.stock",
+          "filter": "input_id == input_id AND quantity_on_hand > 0",
+          "depends_on": "input_id",
+          "regulatory": "MN 18B.37 — lot tracking required for all pesticide applications (Business Rule 16)"
+        }
+      ]
+    },
+    {
+      "step_id": 3,
+      "name": "Record application rate and method",
+      "type": "input",
+      "fields": [
+        {
+          "name": "rate_value",
+          "label": "Application Rate",
+          "type": "decimal",
+          "required": true,
+          "validation": { "min": 0.001, "message": "Rate must be positive" }
+        },
+        {
+          "name": "rate_unit",
+          "label": "Rate Unit",
+          "type": "enum",
+          "required": true,
+          "options": ["fl_oz_per_gal", "tsp_per_gal", "ml_per_gal", "oz_per_gal", "ml/gal", "tsp/gal", "oz/gal", "fl oz/gal"]
+        },
+        {
+          "name": "volume_applied",
+          "label": "Total Volume Applied",
+          "type": "decimal",
+          "required": true,
+          "unit": "see volume_unit",
+          "validation": { "min": 0.001, "message": "Volume must be positive" }
+        },
+        {
+          "name": "volume_unit",
+          "label": "Volume Unit",
+          "type": "enum",
+          "required": true,
+          "options": ["gal", "L", "qt", "oz"]
+        },
+        {
+          "name": "application_method",
+          "label": "Application Method",
+          "type": "enum",
+          "required": true,
+          "options": ["foliar_spray", "soil_drench", "granular", "other"]
+        }
+      ]
+    },
+    {
+      "step_id": 4,
+      "name": "Record environmental conditions",
+      "description": "Required by MN Statute 18B.37. Temperature and wind speed are mandatory. Sensor auto-fill available where sensor is assigned to batch sub-zone.",
+      "type": "input",
+      "auto_fill": [
+        {
+          "field": "ambient_temp_f",
+          "source": "sensor.current(batch.sub_zone_id).temp_f"
+        },
+        {
+          "field": "ambient_rh",
+          "source": "sensor.current(batch.sub_zone_id).humidity_rh"
+        }
+      ],
+      "fields": [
+        {
+          "name": "ambient_temp_f",
+          "label": "Ambient Temperature",
+          "type": "decimal",
+          "required": true,
+          "unit": "°F",
+          "regulatory": "MN 18B.37 — required environmental field"
+        },
+        {
+          "name": "wind_speed_mph",
+          "label": "Wind Speed",
+          "type": "decimal",
+          "required": true,
+          "unit": "mph",
+          "regulatory": "MN 18B.37 — required environmental field"
+        },
+        {
+          "name": "wind_direction",
+          "label": "Wind Direction",
+          "type": "text",
+          "required": false,
+          "placeholder": "e.g. N, NW, SW"
+        },
+        {
+          "name": "ambient_rh",
+          "label": "Relative Humidity",
+          "type": "decimal",
+          "required": false,
+          "unit": "%"
+        }
+      ]
+    },
+    {
+      "step_id": 5,
+      "name": "Record target pest and applicator",
+      "type": "input",
+      "auto_fill": [
+        {
+          "field": "applicator",
+          "source": "user.current.id"
+        },
+        {
+          "field": "applicator_license",
+          "source": "user.current.license_no"
+        }
+      ],
+      "fields": [
+        {
+          "name": "target_pest",
+          "label": "Target Pest / Organism",
+          "type": "text",
+          "required": true,
+          "regulatory": "MN 18B.37 — target organism required",
+          "placeholder": "e.g. Botrytis cinerea, spider mites, powdery mildew"
+        },
+        {
+          "name": "pest_pressure",
+          "label": "Pest Pressure Level",
+          "type": "enum",
+          "required": false,
+          "options": ["incidental", "threshold", "outbreak"]
+        },
+        {
+          "name": "applicator",
+          "label": "Applicator",
+          "type": "reference",
+          "required": true,
+          "source": "cv_users"
+        },
+        {
+          "name": "applicator_license",
+          "label": "Applicator License #",
+          "type": "text",
+          "required": false,
+          "hint": "Required for restricted-use pesticides. Will be required once private applicator license is obtained."
+        },
+        {
+          "name": "notes",
+          "label": "Notes",
+          "type": "text",
+          "required": false
+        }
+      ]
+    },
+    {
+      "step_id": 6,
+      "name": "Review and confirm REI",
+      "type": "confirmation",
+      "confirmation_prompt": "Applying this pesticide will activate a re-entry interval (REI) on sub-zone {batch.sub_zone_id}. No personnel may enter this area without appropriate PPE until the REI is cleared by a supervisor. Do you confirm this application?"
+    }
+  ],
+  "outputs": [
+    {
+      "table": "cv_applications_pesticide",
+      "action": "INSERT",
+      "field_map": {
+        "batch_id": "batch_id",
+        "row_id": "row_id",
+        "container_id": "container_id",
+        "applied_at": "applied_at",
+        "input_id": "input_id",
+        "input_lot_id": "input_lot_id",
+        "rate_value": "rate_value",
+        "rate_unit": "rate_unit",
+        "volume_applied": "volume_applied",
+        "volume_unit": "volume_unit",
+        "application_method": "application_method",
+        "target_pest": "target_pest",
+        "pest_pressure": "pest_pressure",
+        "ambient_temp_f": "ambient_temp_f",
+        "ambient_rh": "ambient_rh",
+        "wind_speed_mph": "wind_speed_mph",
+        "wind_direction": "wind_direction",
+        "phi_compliant": "phi_compliant",
+        "rei_expires_at": "rei_expires_at",
+        "applicator_license": "applicator_license",
+        "applicator": "applicator",
+        "notes": "notes"
+      }
+    },
+    {
+      "table": "metrc_sync_log",
+      "action": "QUEUE",
+      "event_type": "record_additives"
+    }
+  ],
+  "post_conditions": [
+    {
+      "action": "set_rei_active",
+      "args": {
+        "duration_hours": "input.rei_hours",
+        "scope": "batch.sub_zone_id"
+      }
+    }
+  ],
+  "compliance_checks": [
+    {
+      "name": "PHI_COMPLIANT",
+      "check": "phi_compliant(input.phi_days_operational, batch.expected_harvest_date)",
+      "severity": "warn_override",
+      "message": "PHI violation — this application may affect harvest eligibility. Operational PHI may be stricter than the label.",
+      "regulatory_ref": "MN Statute 342.25 + 18B.37",
+      "override_requires_note": true
+    },
+    {
+      "name": "LOT_NOT_EXPIRED",
+      "check": "lot.expiration_date IS NULL OR lot.expiration_date > context.date",
+      "severity": "warn",
+      "message": "The selected lot is expired or near expiration. Verify the product is still suitable for use."
+    }
+  ]
+}

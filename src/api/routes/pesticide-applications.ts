@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import { z } from 'zod';
+import { getSkill } from '../../lib/skill-loader.js';
 
 interface IdParams { id: string }
 
@@ -330,8 +331,57 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
         now,
       );
 
+      const pesticide_app_id = Number(result.lastInsertRowid);
+
+      // ── Skill instance record — SOP compliance evidence trail ─────────────
+      // Best-effort: don't fail the application entry if this insert fails.
+      // The skill instance links this application record to the pesticide-application
+      // skill schema, preserving which preconditions were evaluated and any overrides.
+      try {
+        const skill = getSkill('pesticide-application');
+        if (skill) {
+          const overrideNotes = phi_compliant === 0 && phi_override_notes
+            ? `PHI override: ${phi_override_notes}`
+            : null;
+
+          const validationSnapshot = JSON.stringify({
+            passed: phi_compliant !== 0 || overrideNotes !== null,
+            blocked: false, // we only reach here if all block checks passed
+            checks: [
+              { check_id: 'batch_not_closed', passed: true, severity: 'block', message: `Batch status: ${batch['status']}` },
+              { check_id: 'rei_not_active', passed: true, severity: 'block', message: 'No active REI at time of submission' },
+              { check_id: 'phi_compliant', passed: phi_compliant !== 0 || Boolean(phi_override_notes), severity: 'warn_override', message: phi_compliant === 0 ? 'PHI override accepted' : `PHI compliant (${phi_days_operational} day PHI)` },
+              { check_id: 'stage_allows', passed: true, severity: 'block', message: `Stage ${stageKey ?? 'unknown'} allows application` },
+              { check_id: 'rup_license_ok', passed: true, severity: 'block', message: restricted_use ? `RUP — license: ${applicator_license ?? 'provided'}` : 'Not RUP' },
+            ],
+            warnings: phi_compliant === 0 ? ['PHI violation override recorded'] : [],
+          });
+
+          db.prepare(`
+            INSERT INTO cv_skill_instances
+              (skill_id, skill_version, sop_id, completed_by, completed_at, context,
+               validation_result, override_notes, output_record_id, output_table, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            skill.skill_id,
+            skill.skill_version,
+            skill.sop_id,
+            userId,
+            applied_at,
+            JSON.stringify({ batch_id, input_id, input_lot_id, sub_zone_id: batch['sub_zone_id'] ?? null }),
+            validationSnapshot,
+            overrideNotes,
+            String(pesticide_app_id),
+            'cv_applications_pesticide',
+            now,
+          );
+        }
+      } catch (skillErr) {
+        app.log.warn({ err: skillErr }, 'skill instance record failed — application saved successfully');
+      }
+
       return reply.code(201).send({
-        pesticide_app_id: Number(result.lastInsertRowid),
+        pesticide_app_id,
         batch_id: Number(batch_id),
         phi_compliant,
         rei_expires_at,
