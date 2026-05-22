@@ -1757,3 +1757,115 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - Before implementing photo upload: define the "wrong photo voiding" workflow — the `corrects_id` append-only pattern needs an equivalent for photo metadata
 - Offline photo queue (base64 in localStorage → sync on reconnect) should be scoped in Phase 2 alongside presigned URLs
 - Implementation entry points: add `@fastify/multipart` + `@aws-sdk/client-s3` to backend; add `photo_urls?: string[]` to all write Zod schemas; add `JSON.parse(photo_urls)` to all read routes; add `<PhotoUpload>` component to ObservationNew first (highest value)
+
+---
+
+## Task: MDA report fixes — time and lot number (HIGH-01/02)
+**Completed:** 2026-05-22
+
+### What Was Done
+- **HIGH-01**: Renamed `application_date` → `application_datetime` in the MDA pesticide report output map and CSV columns array; removed `.slice(0, 10)` so the full ISO timestamp is preserved per MN Statute 18B.37's time-of-day requirement.
+- **HIGH-02**: Added `LEFT JOIN cv_input_lots il ON il.lot_id = ap.input_lot_id` to the MDA pesticide SELECT query; added `lot_number: r['lot_number'] ?? null` to the output map; added `'lot_number'` to the CSV columns array.
+
+### Key Decisions
+- Field rename from `application_date` to `application_datetime` is a breaking change to the MDA export API surface — any consumer (frontend MdaReport page) that reads `application_date` will need to be updated if it displays that field by key name. The field was previously date-only so this is strictly an improvement.
+- `lot_number` comes directly from the `cv_input_lots` JOIN — no farmstock API call needed since lot data lives in the local DB.
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — MDA pesticide handler only (3 edits)
+
+### Notes for Next Tasks
+- The MdaReport frontend page (`client/src/pages/reports/MdaReport.jsx`) renders the MDA export — check whether it accesses `application_date` by key name and update to `application_datetime` if so.
+- The `lot_number` column is now in the CSV and JSON output; the MdaReport page may want to display it in the preview table.
+
+---
+
+## Task: METRC UID gate before harvest events (HIGH-03)
+**Completed:** 2026-05-22
+
+### What Was Done
+- In `src/api/routes/harvest.ts`, `POST /batches/:harvestBatchId/events`:
+  - Changed `SELECT status FROM cv_batches` → `SELECT status, metrc_plant_batch_uid FROM cv_batches`
+  - Updated TypeScript type to `{ status: string; metrc_plant_batch_uid: string | null }`
+  - Added 422 gate after the null check: if `!plantBatch.metrc_plant_batch_uid`, returns `{ error: 'Batch has no METRC plant batch UID. Assign one before recording harvest events.' }`
+- In `src/tests/helpers/fixtures.ts`, `createTestBatch`:
+  - Added optional `metrc_plant_batch_uid` field to opts (defaults to `'TESTUID000000000000000A'`)
+  - INSERT now includes `metrc_plant_batch_uid` column
+  - Tests that want to exercise the missing-UID path can pass `null` explicitly
+
+### Key Decisions
+- Default UID in fixture (`TESTUID000000000000000A`) keeps all 315 existing harvest tests green without modifying each test file.
+- Gate placed after the `plantBatch` null check, before the status checks — consistent with the order specified in the task instructions and logically correct.
+
+### Files Modified/Created
+- `src/api/routes/harvest.ts` — METRC UID gate added (lines 233–241)
+- `src/tests/helpers/fixtures.ts` — `createTestBatch` updated with default UID
+
+---
+
+## Task: Performance indexes + PRAGMA tuning migration (DEBT-01)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `src/db/migrations/019_indexes.ts` with all 29 missing indexes from the schema performance audit (Section 6 of `docs/audit-schema-performance.md`). Note: numbering is 019, not 015 — migrations skip 015 (go 014 → 016 → 017 → 018 → 019).
+- Updated `src/db/index.ts` `initDB()` to add 5 new PRAGMA settings after the existing `journal_mode=WAL` and `foreign_keys=ON` lines: `busy_timeout=5000`, `synchronous=NORMAL`, `cache_size=-20000`, `temp_store=MEMORY`, `mmap_size=268435456`.
+
+### Key Decisions
+- `cache_size = -20000` (20 MB) used per task instructions; spec document said -8000 (8 MB). Task instructions take precedence.
+- PRAGMA settings in the migration `up()` use the same values for consistency during migration-time index builds.
+- `down()` drops all 29 indexes in reverse order; PRAGMA changes are not reversible via migration (as noted in a comment).
+
+### Files Modified/Created
+- `src/db/migrations/019_indexes.ts` — new file (234 lines, 29 indexes + PRAGMA in up/down)
+- `src/db/index.ts` — 5 PRAGMA lines added after existing pragmas
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean.
+- Test failures (176 failing) are the pre-existing `app is undefined in afterAll` infrastructure issue documented in CLAUDE.md — not caused by this change.
+- Remaining items from the performance audit: `GET /harvest/waste-trim` needs a LIMIT; `GET /containers/summary` should move JS aggregation to SQL GROUP BY; `cv_batch_stage_recipes.recipe_id` missing FK needs a separate migration.
+
+## Task: Recipes/Inputs/REI reachable from nav (HIGH-12)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added a new "Library & Reference" section to `ApplicationsHub.jsx` with 3 links: Recipe Library (`/recipes`), Crop Input Inventory (`/inputs`), REI Status Dashboard (`/rei`).
+- NavBar already has 7 items (Today, Scan, Batches, Apply, Observe, Containers, Locations) — skipped per task instructions.
+
+### Key Decisions
+- `/inputs` and `/rei` were already linked in other ApplicationsHub sections ("Recipes & Catalog" and "Observations & Safety"), but the unified `/recipes` route (RecipeIndex — both fertigation + foliar together) was not. The new section adds all three explicitly under a "Library & Reference" heading for discoverability.
+- No duplication removed from existing sections to avoid churn.
+
+### Files Modified/Created
+- `client/src/pages/applications/ApplicationsHub.jsx` — 41 lines added (new Library & Reference section)
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean. Build passes.
+- The `/recipes` unified route (RecipeIndex) is now linked from ApplicationsHub for the first time.
+
+---
+
+## Task: updated_at migration on 6 compliance tables (HIGH-04)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `src/db/migrations/020_updated_at.ts` — adds `updated_at TEXT` column to cv_applications_fertigation, cv_applications_foliar, cv_applications_pesticide, cv_container_amendments, cv_observations, cv_plant_loss_events; backfills existing rows with `created_at` value
+- Updated 5 PATCH route handlers to unconditionally add `updated_at = datetime('now')` to the UPDATE SET clause: fertigation-applications.ts, foliar-applications.ts, pesticide-applications.ts, container-amendments.ts, observations.ts
+- cv_plant_loss_events has no PATCH route — no route change needed
+- `npx tsc --noEmit` passes; test counts unchanged from baseline (pre-existing infra failures, not caused by this change)
+
+### Key Decisions
+- Used `datetime('now')` as a SQL expression in the updates array rather than a `?` parameter — cleaner, no value array mismatch possible
+- Migration down() uses `table.dropColumn()` consistent with migration 018 pattern (Knex handles SQLite DROP COLUMN via table recreation)
+- Backfill uses `UPDATE ... WHERE updated_at IS NULL` so it's safe to run idempotently
+
+### Files Modified/Created
+- `src/db/migrations/020_updated_at.ts` — new migration
+- `src/api/routes/fertigation-applications.ts` — PATCH updated_at
+- `src/api/routes/foliar-applications.ts` — PATCH updated_at
+- `src/api/routes/pesticide-applications.ts` — PATCH updated_at
+- `src/api/routes/container-amendments.ts` — PATCH updated_at
+- `src/api/routes/observations.ts` — PATCH updated_at
+
+### Notes for Next Tasks
+- Migration numbering: 020 is now used; next migration is 021
+- The 6 application tables now have a complete audit trail (created_at + updated_at + created_by)
