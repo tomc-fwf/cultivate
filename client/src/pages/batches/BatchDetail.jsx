@@ -391,7 +391,7 @@ export default function BatchDetail() {
                 <span className="text-lg">🌿</span>Foliar
               </Link>
               <Link
-                to={`/applications/amendments/new`}
+                to={`/applications/amendments/new?batch_id=${batch.batch_id}`}
                 className="flex items-center gap-2 px-4 py-3 bg-amber-50 border-2 border-amber-200 text-amber-900 font-semibold text-sm rounded-2xl hover:border-amber-400 transition-colors"
                 style={{ minHeight: '56px', textDecoration: 'none' }}
               >
