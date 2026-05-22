@@ -331,14 +331,23 @@ export default function HarvestDashboard() {
 
       {/* Waste Trim */}
       <div className="mb-5">
-        <Link
-          to={`/harvest/waste-trim/new?batch_id=${batchId}`}
-          className="flex items-center justify-between w-full bg-amber-50 border-2 border-amber-200 text-amber-900 font-semibold rounded-2xl px-5 hover:border-amber-400 transition-colors"
-          style={{ minHeight: '56px', textDecoration: 'none' }}
-        >
-          <span className="flex items-center gap-2"><span>✂️</span>Record Waste Trim</span>
-          <span className="text-amber-500">→</span>
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            to={`/harvest/waste-trim/new?batch_id=${batchId}`}
+            className="flex-1 flex items-center justify-between bg-amber-50 border-2 border-amber-200 text-amber-900 font-semibold rounded-2xl px-5 hover:border-amber-400 transition-colors"
+            style={{ minHeight: '56px', textDecoration: 'none' }}
+          >
+            <span className="flex items-center gap-2"><span>✂️</span>Record Waste Trim</span>
+            <span className="text-amber-500">→</span>
+          </Link>
+          <Link
+            to={`/harvest/waste-trim?batch_id=${batchId}`}
+            className="flex items-center justify-center bg-white border-2 border-gray-200 text-gray-600 font-semibold rounded-2xl px-4 hover:border-gray-400 hover:text-gray-800 transition-colors text-sm"
+            style={{ minHeight: '56px', textDecoration: 'none' }}
+          >
+            View All
+          </Link>
+        </div>
       </div>
 
       {/* ── Plant List ── */}

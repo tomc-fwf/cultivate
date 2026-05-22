@@ -36,6 +36,7 @@ import HarvestDashboard from './pages/harvest/HarvestDashboard';
 import PartialHarvestForm from './pages/harvest/PartialHarvestForm';
 import FinalHarvestForm from './pages/harvest/FinalHarvestForm';
 import WasteTrimForm from './pages/harvest/WasteTrimForm';
+import WasteTrimList from './pages/harvest/WasteTrimList';
 import WeatherEventClose from './pages/harvest/WeatherEventClose';
 import PlantLossForm from './pages/containers/PlantLossForm';
 import PlantReplacementForm from './pages/containers/PlantReplacementForm';
@@ -158,6 +159,7 @@ export default function App() {
               <Route path="/observations/new" element={<Protected><ObservationNew /></Protected>} />
               {/* Harvest routes — static segments first to beat :batchId */}
               <Route path="/harvest/waste-trim/new" element={<Protected><WasteTrimForm /></Protected>} />
+              <Route path="/harvest/waste-trim" element={<Protected><WasteTrimList /></Protected>} />
               <Route path="/harvest/batches/:harvestBatchId/force-close" element={<Protected minRole="supervisor"><WeatherEventClose /></Protected>} />
               <Route path="/harvest/:batchId" element={<Protected><HarvestDashboard /></Protected>} />
               <Route path="/harvest/:batchId/partial" element={<Protected><PartialHarvestForm /></Protected>} />
