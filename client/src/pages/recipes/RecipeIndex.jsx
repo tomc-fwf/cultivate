@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { Droplets, Leaf } from 'lucide-react';
+import { Droplets, Leaf, FlaskConical } from 'lucide-react';
 
 export default function RecipeIndex() {
   const navigate = useNavigate();
@@ -47,6 +47,24 @@ export default function RecipeIndex() {
               Foliar Recipes
             </h2>
             <p className="text-sm text-gray-500 mt-0.5">Repeat foliar spray mixes</p>
+          </div>
+          <span className="text-gray-300 text-xl">›</span>
+        </button>
+
+        {/* Mix Calculator card */}
+        <button
+          onClick={() => navigate('/recipes/calculator')}
+          className="w-full bg-white rounded-2xl border border-gray-200 p-6 flex items-center gap-5 hover:border-green-400 transition-colors text-left"
+          style={{ minHeight: '80px' }}
+        >
+          <div className="flex-shrink-0 w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center">
+            <FlaskConical size={24} className="text-amber-800" />
+          </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-bold text-amber-900" style={{ fontFamily: 'Fraunces, serif' }}>
+              Mix Calculator
+            </h2>
+            <p className="text-sm text-gray-500 mt-0.5">Scale ingredients by sub-zone, rows, or volume</p>
           </div>
           <span className="text-gray-300 text-xl">›</span>
         </button>

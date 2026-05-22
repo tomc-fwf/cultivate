@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
@@ -184,6 +184,22 @@ export default function FertigationNew() {
       // ignore
     }
   }, [batchIdParam]);
+
+  // --- Consume volume from Mix Calculator (sessionStorage handoff) ---
+  useEffect(() => {
+    try {
+      const calcVol = sessionStorage.getItem('cv_calc_volume_gal');
+      const calcBatch = sessionStorage.getItem('cv_calc_volume_batch_id');
+      if (calcVol) {
+        if (!batchIdParam || calcBatch === batchIdParam || calcBatch === String(batchIdParam)) {
+          setVolumeGallons(parseFloat(calcVol).toFixed(1));
+        }
+        sessionStorage.removeItem('cv_calc_volume_gal');
+        sessionStorage.removeItem('cv_calc_volume_batch_id');
+      }
+    } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // --- Auto-save draft ---
   const saveDraft = useCallback(() => {
@@ -455,13 +471,23 @@ export default function FertigationNew() {
           <div className="mb-4">
             {displayBatch.active_recipe_id ? (
               <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-sm font-bold text-green-900" style={{ fontFamily: 'Fraunces, serif' }}>
-                    {displayBatch.active_recipe_name}
-                  </span>
-                  <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full font-semibold">
-                    v{displayBatch.active_recipe_version}
-                  </span>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-green-900" style={{ fontFamily: 'Fraunces, serif' }}>
+                      {displayBatch.active_recipe_name}
+                    </span>
+                    <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full font-semibold">
+                      v{displayBatch.active_recipe_version}
+                    </span>
+                  </div>
+                  {displayBatch.active_recipe_id && (
+                    <Link
+                      to={`/recipes/calculator?recipe_type=fertigation&recipe_id=${displayBatch.active_recipe_id}&return_to=fertigation${batchIdParam ? `&batch_id=${batchIdParam}` : ''}`}
+                      className="text-xs text-green-700 underline font-medium hover:text-green-900 flex-shrink-0"
+                    >
+                      Calculate mix →
+                    </Link>
+                  )}
                 </div>
                 <div className="flex gap-4 text-xs text-green-700" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
                   {(displayBatch.active_recipe_ec_low != null || displayBatch.active_recipe_ec_high != null) && (

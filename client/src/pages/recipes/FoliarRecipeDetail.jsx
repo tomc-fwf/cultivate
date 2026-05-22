@@ -155,6 +155,13 @@ export default function FoliarRecipeDetail() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
+            <Link
+              to={`/recipes/calculator?recipe_type=foliar&recipe_id=${recipe.foliar_recipe_id}`}
+              className="flex items-center gap-1.5 px-4 py-2.5 border border-green-300 bg-green-50 rounded-xl text-sm font-medium text-green-800 hover:bg-green-100 transition-colors"
+              style={{ minHeight: '44px' }}
+            >
+              Mix Calculator
+            </Link>
             <button
               onClick={() => window.print()}
               className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-300 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"

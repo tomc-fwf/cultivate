@@ -11,6 +11,7 @@ import FertigationRecipeEdit from './pages/recipes/FertigationRecipeEdit';
 import FoliarRecipes from './pages/recipes/FoliarRecipes';
 import FoliarRecipeDetail from './pages/recipes/FoliarRecipeDetail';
 import FoliarRecipeEdit from './pages/recipes/FoliarRecipeEdit';
+import MixCalculatorPage from './pages/recipes/MixCalculatorPage';
 import CropInputs from './pages/inputs/CropInputs';
 import CropInputDetail from './pages/inputs/CropInputDetail';
 import Batches from './pages/batches/Batches';
@@ -100,6 +101,7 @@ export default function App() {
               <Route path="/login" element={<Login />} />
               <Route path="/" element={<Protected><Today /></Protected>} />
               <Route path="/recipes" element={<Protected><RecipeIndex /></Protected>} />
+              <Route path="/recipes/calculator" element={<Protected><MixCalculatorPage /></Protected>} />
               <Route path="/recipes/fertigation" element={<Protected><FertigationRecipes /></Protected>} />
               <Route path="/recipes/fertigation/new" element={<Protected minRole="supervisor"><FertigationRecipeEdit /></Protected>} />
               <Route path="/recipes/fertigation/:id" element={<Protected><FertigationRecipeDetail /></Protected>} />
