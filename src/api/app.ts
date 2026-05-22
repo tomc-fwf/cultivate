@@ -23,6 +23,7 @@ import harvestRoutes from './routes/harvest.js';
 import plantLossRoutes from './routes/plant-loss.js';
 import containerLifecycleRoutes from './routes/container-lifecycle.js';
 import exportsRoutes from './routes/exports.js';
+import sensorsRoutes from './routes/sensors.js';
 
 export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -81,6 +82,7 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   await app.register(plantLossRoutes, { prefix: '/api/plant-loss' });
   await app.register(containerLifecycleRoutes, { prefix: '/api/containers' });
   await app.register(exportsRoutes, { prefix: '/api/exports' });
+  await app.register(sensorsRoutes, { prefix: '/api/sensors' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

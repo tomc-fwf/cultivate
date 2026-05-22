@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
 
 const DRAFT_KEY = 'cv_draft_fertigation';
 
@@ -104,6 +105,21 @@ export default function FertigationNew() {
   const [notes, setNotes] = useState('');
 
   const [showOptional, setShowOptional] = useState(false);
+
+  // Sensor auto-fill
+  const { conditions: sensorConditions } = useCurrentConditions(null, (lockedBatch || selectedBatch)?.sub_zone_id ?? null);
+  const [sensorReadingUsed, setSensorReadingUsed] = useState(null);
+
+  // Auto-fill ambient conditions from sensor when fields are empty
+  useEffect(() => {
+    if (!sensorConditions || !sensorConditions.temp_f) return;
+    if (ambientTempF === '' && ambientRh === '') {
+      setAmbientTempF(String(sensorConditions.temp_f.toFixed(1)));
+      setAmbientRh(String(Math.round(sensorConditions.humidity_rh)));
+      setSensorReadingUsed(sensorConditions);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorConditions]);
 
   // Save state
   const [saving, setSaving] = useState(false);
@@ -581,10 +597,11 @@ export default function FertigationNew() {
                     step="0.1"
                     placeholder="—"
                     value={ambientTempF}
-                    onChange={e => setAmbientTempF(e.target.value)}
+                    onChange={e => { setAmbientTempF(e.target.value); setSensorReadingUsed(null); }}
                     className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
                     style={{ minHeight: '56px' }}
                   />
+                  {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} />}
                 </div>
               </div>
 
@@ -599,7 +616,7 @@ export default function FertigationNew() {
                   max="100"
                   placeholder="—"
                   value={ambientRh}
-                  onChange={e => setAmbientRh(e.target.value)}
+                  onChange={e => { setAmbientRh(e.target.value); setSensorReadingUsed(null); }}
                   className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent"
                   style={{ minHeight: '56px' }}
                 />

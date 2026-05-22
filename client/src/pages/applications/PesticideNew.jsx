@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
 
 const DRAFT_KEY = 'cv_draft_pesticide';
 
@@ -272,6 +273,21 @@ export default function PesticideNew() {
   const [appliedAt, setAppliedAt] = useState(toLocalDatetimeString());
   const [notes, setNotes] = useState('');
   const [showOptional, setShowOptional] = useState(false);
+
+  // Sensor auto-fill
+  const { conditions: sensorConditions } = useCurrentConditions(null, (lockedBatch || selectedBatch)?.sub_zone_id ?? null);
+  const [sensorReadingUsed, setSensorReadingUsed] = useState(null);
+
+  // Auto-fill ambient conditions from sensor when batch is selected and fields are empty
+  useEffect(() => {
+    if (!sensorConditions || !sensorConditions.temp_f) return;
+    if (ambientTempF === '' && ambientRh === '') {
+      setAmbientTempF(String(sensorConditions.temp_f.toFixed(1)));
+      setAmbientRh(String(Math.round(sensorConditions.humidity_rh)));
+      setSensorReadingUsed(sensorConditions);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorConditions]);
 
   // PHI override
   const [phiOverrideAcknowledged, setPhiOverrideAcknowledged] = useState(false);
@@ -790,10 +806,11 @@ export default function PesticideNew() {
             <div>
               <label className="block text-xs text-gray-500 mb-1 font-medium">Ambient temp (°F) *</label>
               <input type="number" inputMode="decimal" step="0.1" placeholder="—"
-                value={ambientTempF} onChange={e => setAmbientTempF(e.target.value)}
+                value={ambientTempF} onChange={e => { setAmbientTempF(e.target.value); setSensorReadingUsed(null); }}
                 className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
                 style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
               />
+              {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} />}
             </div>
             <div>
               <label className="block text-xs text-gray-500 mb-1 font-medium">Wind speed (mph) *</label>
@@ -835,7 +852,7 @@ export default function PesticideNew() {
               <div>
                 <label className="block text-xs text-gray-500 mb-1 font-medium">RH (%)</label>
                 <input type="number" inputMode="decimal" step="1" min="0" max="100" placeholder="—"
-                  value={ambientRh} onChange={e => setAmbientRh(e.target.value)}
+                  value={ambientRh} onChange={e => { setAmbientRh(e.target.value); setSensorReadingUsed(null); }}
                   className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-400"
                   style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
                 />
