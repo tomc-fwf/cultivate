@@ -23,6 +23,11 @@ export async function initDB(): Promise<Database.Database> {
   db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('synchronous = NORMAL');
+  db.pragma('cache_size = -20000');
+  db.pragma('temp_store = MEMORY');
+  db.pragma('mmap_size = 268435456');
 
   const isCompiled = __filename.endsWith('.js');
   const k = createKnex({
