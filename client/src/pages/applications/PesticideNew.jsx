@@ -380,6 +380,7 @@ export default function PesticideNew() {
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pendingSync, setPendingSync] = useState(false);
   const [reiModal, setReiModal] = useState(null); // { rei_expires_at, target_area }
   const [stageBlock, setStageBlock] = useState(null); // { reason } when stage blocked
 
@@ -571,7 +572,10 @@ export default function PesticideNew() {
       }
     } catch (e) {
       setSaving(false);
-      if (e.message?.includes('stage_blocked') || e.message?.includes('not permitted during')) {
+      if (e.message === 'Failed to fetch' || (e.message && e.message.includes('NetworkError'))) {
+        setPendingSync(true);
+        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
+      } else if (e.message?.includes('stage_blocked') || e.message?.includes('not permitted during')) {
         setStageBlock({ reason: e.message });
       } else if (e.message?.includes('PHI violation')) {
         setPhiStatus('violation');
@@ -1045,6 +1049,12 @@ export default function PesticideNew() {
         {saveError && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">
             {saveError}
+          </div>
+        )}
+
+        {pendingSync && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700 font-medium">
+            ⏱ Saved locally — will sync when connection is restored
           </div>
         )}
       </div>
