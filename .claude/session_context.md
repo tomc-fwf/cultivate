@@ -2108,3 +2108,74 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - 321 tests passing (up from 315); `npx tsc --noEmit` clean; committed 5270970 and pushed to origin/master
 - The `teardown_eligible_count` field is included in every GET /batches/:id response for all batch statuses — it will be 0 for non-closed batches since their containers won't have `current_batch_id` pointing to them in teardown-eligible states
 - Bulk Startup (transitioning teardown → startup for a batch) is a natural follow-on; not built yet
+
+---
+
+## Task: Bulk METRC Tag Assignment scan-loop mode (P2-04)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `BulkScanOverlay` component to `TagAssignmentWalkthrough.jsx` — a full-screen camera scan-loop for fast batch tagging
+- Scan Mode flow: scan container QR → app identifies untagged placement → shows container ID → operator scans/types 24-char METRC tag → auto-submits → green flash → loops back to scan next container
+- 409 conflict shows existing `ReassignModal`; torch toggle, manual container ID fallback, and "Exit Scan Mode" button included
+- Stable `tick` callback with no deps (uses mutable refs for fresh rows/completedIds data) — avoids stale closure issues in the RAF loop
+- Added `completedIds` Set state to parent so both list mode and scan mode share the same completion tracking
+- "Exit Scan Mode" reloads the list from the API to reflect tagged items
+- Added `Scan Mode` button to list view header (visible when untagged placements exist)
+- Added `Bulk Scan Mode` link to `BatchDetail.jsx` quick actions (shown when `batch.untagged_count > 0`)
+- Added `untagged_count` to `GET /batches/:id` response in `src/api/routes/batches.ts`
+
+### Key Decisions
+- Used mutable refs (`rowsRef`, `completedIdsRef`) updated via `useEffect` to give the stable RAF `tick` access to always-fresh placement data without needing deps
+- Camera stream kept alive throughout overlay (video hidden during enter-tag step, RAF paused) so scanning resumes instantly without camera restart latency
+- Success flash is 700ms then auto-returns to scan-container step — no user tap needed between containers
+- `jsQR` already a dependency (used by ContainerScanner); no new packages needed
+
+### Files Modified/Created
+- `client/src/pages/containers/TagAssignmentWalkthrough.jsx` — added `BulkScanOverlay`, `completedIds` state, `scanMode` state, `exitScanMode`
+- `client/src/pages/batches/BatchDetail.jsx` — added "Bulk Scan Mode" Link in quick actions section
+- `src/api/routes/batches.ts` — added `untagged_count` query to GET /:id response
+
+### Notes for Next Tasks
+- Committed d7c9a9c and pushed to origin/master
+- `npm run build` passes clean (tsc + vite)
+- The `Scan Mode` button in the walkthrough header only appears when `totalPlacements > 0` and loading is complete
+- BatchDetail's `untagged_count` field is only in the detail endpoint response (GET /:id), not the list endpoint
+
+---
+
+## Task: Move/Transplant Tracking (P2-05)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `POST /api/tag-assignments/:assignmentId/move` to `src/api/routes/tag-assignments.ts`
+  - Validates assignment is active, destination exists, destination is 'ready' or 'empty'
+  - For 'empty' destinations, enforces same-batch constraint
+  - Transaction: moves assignment to new container, activates destination, records state transitions, empties source if no plants remain
+- Added `api.moveTagAssignment(assignmentId, body)` to `client/src/api.js`
+- Created `client/src/pages/containers/PlantMoveForm.jsx` at `/containers/:containerId/move`
+  - Loads source container + active assignments; multi-plant picker if `plants_per_container > 1`
+  - Inline `ScanOverlay` component using jsQR for camera scan of destination QR
+  - Destination preview card (state chip + pot size) with error for invalid states
+  - Reason (required) + Notes (optional); draft persistence under `cv_draft_plant_move_*`
+  - On success: navigates to destination container
+- Added "Move Plant" button to `ContainerDetail.jsx` (state === 'active' section)
+- Registered route `/containers/:containerId/move` in `App.jsx` (before the `:containerId` catch-all)
+
+### Key Decisions
+- `cv_plant_assignments` has no `updated_at` column — only `container_id` is updated (task spec included `updated_at` but that column doesn't exist on this table; per migration 014 schema)
+- Destination trigger_event is `'plant_replaced'` for both destination activation and source emptying — closest semantic match in the existing enum
+- ScanOverlay is a self-contained inline component (not a separate page/route) — avoids needing a callback URL pattern; same jsQR approach as ContainerScanner
+
+### Files Modified/Created
+- `src/api/routes/tag-assignments.ts` (MoveSchema + AssignmentMoveParams + POST /:assignmentId/move handler)
+- `client/src/api.js` (moveTagAssignment added)
+- `client/src/pages/containers/PlantMoveForm.jsx` (new — 290 lines)
+- `client/src/pages/containers/ContainerDetail.jsx` ("Move Plant" button added)
+- `client/src/App.jsx` (import + route registered)
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes clean
+- Committed d394512 and pushed to origin/master
+- The move route does NOT create a METRC sync event — moves within a batch do not require METRC notification in Phase 1 (Phase 4 will add this)
+- If the source container had multiple plants (plants_per_container > 1), only the moved plant's assignment changes; remaining plants stay in the source (source stays 'active')
