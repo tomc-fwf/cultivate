@@ -7,11 +7,113 @@ This file orients Claude Code to the cultivation tracking application: what it d
 **Read order for new Claude Code sessions:**
 1. This file — project context, domain model, and development standards
 2. `docs/harvest-model.md` — harvest, partial harvest, and waste trim model detail
-3. `docs/sibling-app-resolution.md` — approved farmstock ↔ cultivate integration decisions
-4. Recent git log (`git log --oneline -20`) — understand what has been built
-5. Then begin work. Do not re-read farmstock or the broader family on every session; those decisions are settled.
+3. `docs/sibling-app-resolution.md` — approved farmstock ↔ cultivate integration decisions (Option B — separate DBs, cross-app API calls; this is settled and implemented)
+4. `.claude/session_context.md` — detailed log of every completed task, files touched, and decisions made; the fastest way to understand what is built and why
+5. Recent git log (`git log --oneline -20`) — verify session_context is current
+6. `docs/backlog.md` — prioritized list of remaining work (P0/P1/P2 + Phase 2–4)
+7. Then begin work. Do not re-read farmstock or the broader family on every session; those decisions are settled.
 
-**Current state (as of May 2026):** Sibling app integration is resolved (shared DB, Option A). Phase 1 is in progress — features 1–16 are built. See Application Surface section for remaining work.
+**Current state (as of May 2026):** Sibling app integration is resolved (separate DBs, Option B — farmstock catalog accessed via cross-app API calls). **All Phase 1 features (1–26) are complete.** All Phase 1 P0 critical fixes are resolved. Phase 2 is now unblocked. See the "Current Implementation Status" section and Application Surface for detail.
+
+---
+
+## Current Implementation Status
+
+> **Last updated: May 2026.** This section summarizes what is built. For task-level detail see `.claude/session_context.md`.
+
+### What Is Built
+
+**Phase 1 — All features complete:**
+
+| # | Feature | Status | Key Files |
+|---|---------|--------|-----------|
+| 1 | Fertigation Recipe Library | ✅ Complete | `FertigationRecipes`, `FertigationRecipeDetail`, `FertigationRecipeEdit` |
+| 2 | Foliar Recipe Library | ✅ Complete | `FoliarRecipes`, `FoliarRecipeDetail`, `FoliarRecipeEdit` |
+| 3 | Crop Input Inventory | ✅ Complete | `CropInputs`, `CropInputDetail`; catalog fetched from farmstock via `/api/catalog` proxy |
+| 4 | Batch Management | ✅ Complete | `Batches`, `BatchNew`, `BatchDetail` + lifecycle transitions in `batches.ts` |
+| 5 | Fertigation Application Entry | ✅ Complete | `FertigationNew`, `FertigationLog` |
+| 6 | Foliar Application Entry (non-pesticide) | ✅ Complete | `FoliarNew`, `FoliarLog` |
+| 7 | Container Amendment Entry | ✅ Complete | `AmendmentNew`, `AmendmentLog` |
+| 8 | Pesticide Application Entry | ✅ Complete | `PesticideNew`, `PesticideLog`; includes REI gate, PHI check, skill validation panel |
+| 9 | REI Status Dashboard | ✅ Complete | `REIDashboard` |
+| 10 | Observation Logging | ✅ Complete | `ObservationNew`, `ObservationLog`; includes harvest_readiness category |
+| 11 | METRC Application Export | ✅ Complete | `MetrcExport`; includes ingredient-level fertigation rows |
+| 12 | MN MDA Pesticide Report | ✅ Complete | `MdaReport` |
+| 13 | Cultivation Record (Audit Export) | ✅ Complete | `CultivationRecord` |
+| 14 | Today Screen | ✅ Complete | `Today.jsx`; surfaces REIs, batch cards, lifecycle action items, current conditions |
+| 15 | QR Code Container Scanner | ✅ Complete | `ContainerScanner`; full-screen camera scanner, REI pre-entry gate, manual fallback |
+| 16 | METRC Plant Tag Assignment | ✅ Complete | `TagAssignmentWalkthrough` + `InlineTagInput` in `ContainerDetail` |
+| 17 | Container Tag Label Printing | ✅ Complete | `ContainerLabels` (admin); Avery 5160 format, zone color stripes |
+| 18a | Partial Harvest Entry | ✅ Complete | `PartialHarvestForm`; METRC tag last-4 display, product type chips |
+| 18b | Final Harvest Entry | ✅ Complete | `FinalHarvestForm`; tag verification gate, draft persistence, offline detection |
+| 18c | Waste Trim Entry | ✅ Complete | `WasteTrimForm`; available at any batch status |
+| 18d | Weather Event Force Close | ✅ Complete | `WeatherEventClose`; supervisor only, creates new harvest batch |
+| 19 | Plant Loss Quick Action | ✅ Complete | `PlantLossForm`; three-tap optimized, METRC sync queued |
+| 20 | Mid-Batch Plant Replacement | ✅ Complete | `PlantReplacementForm`; container EMPTY → ACTIVE, tag assigned separately |
+| 21 | Container Detail / History View | ✅ Complete | `ContainerDetail`; state history, amendments, soil samples, lifecycle buttons, REI gate |
+| 22 | Container Status Dashboard | ✅ Complete | `ContainerDashboard` |
+| 23 | Teardown Workflow | ✅ Complete | `TeardownForm`; checklist with soil sample branch |
+| 24 | Soil Sample Entry & Tracking | ✅ Complete | `SoilSampleForm`; lab tracking, per-parameter results with interpretation flags |
+| 25 | Startup Workflow | ✅ Complete | `StartupForm`, `StartupReadyForm`; supervisor sign-off gate |
+| 26 | Today Screen lifecycle items | ✅ Complete | Surfaced in `Today.jsx` (teardown pending, startup pending, unsynced losses) |
+
+**Additional features built beyond the Phase 1 spec:**
+
+| Feature | Status | Key Files |
+|---------|--------|-----------|
+| Mix Calculator | ✅ Complete | `MixCalculatorPage`, `client/src/lib/mix-calculator.js`; sub-zone/row/plant-count/manual scenarios, print card |
+| Location View | ✅ Complete | `LocationView`; pre-field + field sections, planting plan links |
+| Planting Plans UI | ✅ Complete | `PlantingPlanList`, `PlantingPlanNew`, `PlantingPlanDetail`; container grid, commit workflow |
+| Compliance Dashboard | ✅ Complete | `ComplianceDashboard`; 8 RAG-status panels, auto-refresh |
+| Plant Inventory | ✅ Complete | `PlantInventory`; tagged count, REI flag, days in stage |
+| Tag Verification | ✅ Complete | `TagVerification`; sub-zone filter, CSV export |
+| METRC Reconciliation | ✅ Complete | `MetrcReconciliation`; sync status accordion per event type |
+| METRC Waste Export | ✅ Complete | `GET /api/exports/metrc-waste`; unified waste trim + plant loss |
+| SensorPush Integration | ✅ Complete | `sensors.ts` routes, `sensor-poller.ts`, `SensorManagement` admin page |
+| Sensor Auto-fill | ✅ Complete | `useCurrentConditions` hook; pesticide and fertigation forms auto-fill temp/RH |
+| Environmental Dashboard | ✅ Complete | `CurrentConditionsCard`, `EnvironmentalHistory`, conditions on Today + BatchDetail |
+| SSO Phase 1 | ✅ Complete | `@fastify/cookie`; `hatstak_token` httpOnly cookie shared across `*.hatstak.app` subdomains |
+| UEM Skill Validation (PoC) | ✅ Complete | `skills.ts`, `skill-validator.ts`, `cv_skill_instances`; live precondition badges in PesticideNew |
+| DB Backup Scripts | ✅ Complete | `scripts/backup.sh`, `scripts/backup.ps1` |
+| Deployment Runbook | ✅ Complete | `docs/deployment.md` |
+
+**Test infrastructure:**
+- Backend: `vitest` — 287 tests passing (unit + integration)
+- Frontend: `vitest` + `@testing-library/react` — client smoke tests
+- Integration test helpers: `src/tests/helpers/db.ts`, `auth.ts`, `fixtures.ts`
+- Coverage: all Tier 1 regulatory rules tested; Tier 2 regulatory gap tests in `regulatory-gaps.test.ts`
+
+**Documentation produced in Phase 1:**
+- `docs/audit-schema-performance.md` — schema gaps, 29 index recommendations
+- `docs/audit-api-security.md` — security findings (all P0 items now resolved)
+- `docs/audit-frontend-ux.md` — field UX gap analysis
+- `docs/audit-regulatory-compliance.md` — compliance gap analysis
+- `docs/backlog.md` — prioritized P0/P1/P2 backlog (**start here for remaining work**)
+- `docs/roadmap-phase2-4.md` — Phase 2–4 feature specs with effort estimates
+- `docs/metrc-integration-design.md` — Phase 4 METRC API integration design
+- `docs/sensorpush-integration-design.md` — SensorPush integration design
+- `docs/sso-design.md` — SSO Phase 2 design (consolidate user tables)
+- `docs/uem-architecture.md` — Uniform Enterprise Management skill architecture
+- `docs/agent-sdk-design.md` — MCP/Agent SDK design for skill execution agents
+- `docs/pest-identification-agent-design.md` — Claude vision pest ID agent design
+- `docs/mix-calculator-design.md` — mix calculator specification
+- `docs/ux-field-analysis.md` — field UX improvement roadmap
+- `docs/ocm-reporting-requirements.md` — OCM compliance dashboard design
+- `docs/openapi.yaml` — Complete OpenAPI 3.0.3 spec (5,609 lines)
+- `docs/test-plan.md` — Tier 1 and Tier 2 test plan
+- `README.md` — Developer onboarding documentation
+
+### Known Remaining Issues (Phase 1 P1 category)
+
+See `docs/backlog.md` for the full list. Key items not yet resolved:
+- MDA report strips time from `applied_at` (18B.37 requires time); lot number missing from MDA export
+- No METRC UID gate before harvest event creation (Rule 6 — warn but don't block)
+- `updated_at` missing from 6 application tables (requires migration)
+- PDF cultivation record (currently JSON download only)
+- Waste trim 'held' and 'reported' states have no PATCH endpoints
+- `cv_batch_stage_recipes.recipe_id` missing FK (never wired in migration 006)
+- Sensor background polling not scheduled in Railway (manual polling only via admin trigger)
+- SSO Phase 2 (consolidate `cv_users` + farmstock `users` into `hatstak_users`) not yet done
 
 ---
 
@@ -30,13 +132,16 @@ The system is **single-tenant** (one cultivation operation), deployed at `cultiv
 
 ## Sibling App Boundary — IMPORTANT: Read Before Building Anything
 
-This application has a sibling app called **farmstock** (deployed at `farmstock.hatstak.app`, codebase at `C:\projects\farmstock`) that **predates cultivate and has begun branching into recipes and applications**. There is real overlap between what farmstock currently does and what cultivate proposes to do.
+This application has a sibling app called **farmstock** (deployed at `farmstock.hatstak.app`, codebase at `C:\projects\farmstock`) that manages crop input catalog, lot tracking, and inventory.
 
-**Before Claude Code writes any code or designs any schema, it must:**
+**Integration is settled — Option B (separate DBs, cross-app API calls).** See `docs/sibling-app-resolution.md` for the full decision record. Summary:
+- Farmstock owns the crop input catalog (`items` table) and lot/stock tracking
+- Cultivate calls farmstock's API to look up products; the `/api/catalog` route in cultivate proxies farmstock
+- When cultivate logs an application, it fire-and-forgets a depletion call to farmstock (`src/lib/farmstock-client.ts`)
+- Product names and EPA reg numbers are snapshotted at save time (`product_name_snapshot`, `epa_reg_no_snapshot` columns) for 5-year retention
+- Both apps have separate user tables; SSO Phase 1 (shared `hatstak_token` cookie) is implemented; SSO Phase 2 (unified user table) is in `docs/sso-design.md`
 
-1. **Read the farmstock codebase thoroughly.** Understand what data tables, features, UI screens, and business logic already exist.
-2. **Identify all overlap dimensions in concrete terms.** Specifically: what tables exist in farmstock that cultivate also needs? What features did farmstock start building that cultivate plans to do at greater depth?
-3. **Propose a resolution to the operator** before implementing anything. Do not assume — propose, get approval, then build.
+**Do not re-investigate the integration pattern.** Do not propose re-reading farmstock on every session. The decisions are final and implemented.
 
 ### Expected Domain Boundaries
 
@@ -569,9 +674,9 @@ plant_assignments
 assignment_id       PK
 plant_batch_id      FK → plant_batches
 container_id        FK → containers (physical position, e.g. Z1-A-R3-C12)
-metrc_plant_tag     text — METRC UID (24-char), unique while active
-assigned_at         timestamp
-assigned_by         FK → users
+metrc_plant_tag     text — METRC UID (24-char), unique while active; NULL for untagged replacements
+placed_at           timestamp     ← NOTE: migration 014 renamed from assigned_at → placed_at
+placed_by           FK → users    ← NOTE: migration 014 renamed from assigned_by → placed_by
 unassigned_at       timestamp, nullable
 unassign_reason     nullable enum: harvested | destroyed | died | moved | replaced | other
 unassign_notes      text, nullable
@@ -958,6 +1063,124 @@ error               text, nullable
 
 All tables should have `created_at`, `updated_at`, and `created_by`/`updated_by` audit columns per our framework conventions.
 
+### Additional Tables (built in Phase 1 — not in original spec)
+
+These tables are in the actual database but were not in the original CLAUDE.md spec:
+
+```
+cv_locations  (migration 011)
+─────────────
+(physical locations a batch passes through — seed data, not user-managed)
+location_id         PK
+name                e.g. "Germ-01", "Seedlings", "Cult-Hoop", "Field"
+location_type       enum: germination | seedling | veg | field
+metrc_name          text — exact METRC room name; must match METRC account config
+display_order       integer
+
+cv_batch_phase_history  (migration 012)
+─────────────
+(append-only log of batch status transitions)
+phase_history_id    PK
+batch_id            FK → cv_batches
+status              enum (same as batch.status)
+entered_at          timestamp
+entered_by          FK → cv_users
+notes               text, nullable
+
+cv_batch_location_history  (migration 012)
+─────────────
+(append-only log of batch physical location moves)
+location_history_id PK
+batch_id            FK → cv_batches
+location_id         FK → cv_locations
+moved_at            timestamp
+moved_by            FK → cv_users
+notes               text, nullable
+
+cv_planting_plans  (migration 013)
+─────────────
+(supervisor-managed plan for which containers will receive plants from a batch)
+plan_id             PK
+batch_id            FK → cv_batches
+version             integer default 1 (increments when superseded)
+status              enum: draft | active | superseded | cancelled
+committed_count     integer — count of committed items
+draft_count         integer — count of uncommitted draft items
+created_by          FK → cv_users
+committed_at        timestamp, nullable
+superseded_by       FK → cv_planting_plans, nullable
+
+cv_planting_plan_items  (migration 013)
+─────────────
+(individual container assignments within a planting plan)
+item_id             PK
+plan_id             FK → cv_planting_plans
+container_id        FK → cv_containers
+status              enum: draft | committed
+committed_at        timestamp, nullable
+committed_by        FK → cv_users, nullable
+
+cv_sensors  (migration 016)
+─────────────
+sensor_id           PK (SensorPush device ID)
+name                text — display name
+battery_pct         integer nullable
+last_seen_at        timestamp nullable
+active              boolean default true
+
+cv_sensor_location_assignments  (migration 016)
+─────────────
+sensor_id           FK → cv_sensors
+location_id         FK → cv_locations
+sub_zone_id         text nullable — e.g. "Z1A"
+assigned_at         timestamp
+unassigned_at       timestamp nullable
+
+cv_sensor_readings  (migration 016)
+─────────────
+reading_id          PK
+sensor_id           FK → cv_sensors
+location_id         FK → cv_locations nullable (denormalized from assignment)
+sub_zone_id         text nullable (denormalized)
+observed_at         timestamp
+temp_f              float nullable
+humidity_pct        float nullable
+dew_point_f         float nullable
+vpd_kpa             float nullable
+UNIQUE (sensor_id, observed_at)  — enables INSERT OR IGNORE for idempotent polling
+
+cv_sensor_readings_hourly  (migration 016)
+─────────────
+(downsample of cv_sensor_readings, permanent retention)
+hour_bucket         timestamp (truncated to hour)
+sensor_id           FK → cv_sensors
+avg_temp_f, min_temp_f, max_temp_f
+avg_humidity_pct
+avg_dew_point_f
+avg_vpd_kpa
+sample_count
+
+cv_skill_instances  (migration 017)
+─────────────
+(evidence trail: each application that was guided by a UEM skill schema creates a record here)
+instance_id         PK
+skill_id            text — e.g. "pesticide-application" (matches skills/*.skill.json)
+output_table        text — e.g. "cv_applications_pesticide"
+output_record_id    integer
+batch_id            FK → cv_batches nullable
+validation_passed   boolean
+validation_result   TEXT (JSON — per-check results)
+created_by          FK → cv_users
+created_at          timestamp
+
+product_name_snapshot, epa_reg_no_snapshot columns  (migration 018)
+─────────────
+Added to: cv_applications_pesticide, cv_applications_foliar, cv_container_amendments
+Captures the farmstock product name and EPA reg number at application save time.
+Ensures 5-year retention compliance even if the farmstock catalog item changes.
+Values are NULL if farmstock is unavailable at save time (best-effort).
+```
+
 ---
 
 ## Business Rules — Hard Requirements
@@ -1101,29 +1324,31 @@ These are non-negotiable. If implementation forces a tradeoff, flag it before de
 
 ## Application Surface — Screens & Workflows
 
+> **Status as of May 2026:** All Phase 1 features (1–26) are complete. Phase 2 is unblocked. Features are documented here as the canonical specification; for implementation detail see `.claude/session_context.md`. Items marked ✅ are built and in production.
+
 Each screen below is a feature increment. Build in this priority order unless directed otherwise.
 
-### Phase 1 — MVP (build first)
+### Phase 1 — MVP ✅ All complete
 
-**1. Fertigation Recipe Library**
+**1. ✅ Fertigation Recipe Library**
 - List view of all 7 fertigation recipes with current version and active status
 - Detail view: ingredients, rates, EC/pH targets, mixing order, version history
 - Edit form (creates new version on save — old version preserved)
 - Print/Export: PDF recipe card per recipe (visual style should match the wall chart PDF in `/reference/` — Fraunces serif headers, JetBrains Mono for numbers, earthy palette: cream `#faf6ed`, leaf-dark `#1f3320`, rust `#a04727`)
 
-**2. Foliar Recipe Library**
+**2. ✅ Foliar Recipe Library**
 - Same structure as fertigation but for foliar mixes
 - Initially empty — recipes added as the operation defines repeat foliar mixes
 - Same versioning and approval flow
 
-**3. Crop Input Inventory**
+**3. ✅ Crop Input Inventory**
 - List view: all inputs with **category**, manufacturer, EPA/OMRI/MN reg #, current lot, expiration
 - Filters by category (fertilizer, foliar nutrient, amendment, pesticide, fungicide, biocontrol)
 - Detail/edit form with category-specific fields (PHI/REI/signal word/target organisms appear for pesticides only)
 - Lot tracking: receive new lot, deplete on use, expire automatically
 - **Required: Safety Data Sheet upload for pesticides**
 
-**4. Batch Management**
+**4. ✅ Batch Management**
 - Batch list with current status, days-in-stage, sub-zone, strain
 - Create new batch: pick strain, sub-zone, plant count, sow date, expected harvest date
 - Batch lifecycle actions: "Move to Seedlings", "Move to Cult-Hoop", "Move to Field", "Begin Flower", "Begin Flush", "Begin Harvest Window", "Begin Harvesting", "Close Batch"
@@ -1134,20 +1359,20 @@ Each screen below is a feature increment. Build in this priority order unless di
 - **Active REI/PHI status visible on each batch card**
 - **Harvest window: row readiness summary visible on batch card** — "Z1-A-R1: 28/30 ready" etc.
 
-**5. Fertigation Application Entry**
+**5. ✅ Fertigation Application Entry**
 - **Field-optimized per the Field UX Requirements section** — three-tap maximum, thumb-zone save, large touch targets
 - Quick-entry form: pick batch → pre-fills active fertigation recipe → enter volume/EC/pH → save
 - "Recent applications" view for the day, allowing edits within 24h, then locked
 - Bulk entry: "Apply [recipe] to [sub-zones A, B, C] at [time]" — for days when multiple batches get same treatment
 
-**6. Foliar Application Entry (Non-Pesticide)**
+**6. ✅ Foliar Application Entry (Non-Pesticide)**
 - **Field-optimized per the Field UX Requirements section**
 - Form: batch, row/container target, foliar recipe OR single product, rate, purpose, applicator
 - Product picker filtered to non-pesticide categories only — if user selects a product with an EPA number, system redirects to Pesticide Application Entry
 - **PHI check banner for biological products** — even non-pesticide biologicals enforce operational PHI; if applying during a stage flagged in `input_phi_stage_overrides` (e.g., "no biological foliars after flower week 3"), system blocks with explanation
 - Photo attachment recommended
 
-**7. Container Amendment Entry**
+**7. ✅ Container Amendment Entry**
 - Form for adding amendments to container media: compost, nematodes, mycorrhizae, organic matter, pH correctors, biological inoculants, etc.
 - Trigger paths:
   - From a container record (scanned via QR or selected): "Add Amendment"
@@ -1158,7 +1383,7 @@ Each screen below is a feature increment. Build in this priority order unless di
 - Automatically captures container's current state (active/empty/teardown/startup) — appears in record
 - If applied during an active plant batch, captures `plant_batch_id` to enable plant-batch-scoped views
 
-**8. Pesticide Application Entry — Distinct Form**
+**8. ✅ Pesticide Application Entry — Distinct Form**
 - **Separate, prominent screen** — not buried in a generic "application" flow
 - **Reached automatically if user picks an EPA-registered product from any other application form**
 - Form: batch, row/container target, product (filtered to pesticide-family categories), **lot (required)**, rate, volume, application method
@@ -1172,13 +1397,13 @@ Each screen below is a feature increment. Build in this priority order unless di
 - On save: creates "REI active" status flag on affected location until cleared
 - **Full-screen REI confirmation modal** on save — applicator must acknowledge before exiting
 
-**9. REI Status Dashboard**
+**9. ✅ REI Status Dashboard**
 - At-a-glance view of all active REIs across all sub-zones/rows
 - Clear-REI action (sign-off when posted as safe to re-enter)
 - **Full-screen warning modal** whenever an applicator attempts entry into a row with active REI — must acknowledge to proceed
 - Persistent banner on Today screen if any REI is active
 
-**10. Observation Logging**
+**10. ✅ Observation Logging**
 - Quick form: batch, row/container, category, severity, note, optional photo
 - **Voice input** supported for notes
 - Inspection mode: walk a row, tap-through containers, log issues (see Field UX → Inspection Mode)
@@ -1188,54 +1413,54 @@ Each screen below is a feature increment. Build in this priority order unless di
   - Additional fields: maturity_pct (0–100 slider), ready_to_harvest (yes/no), harvest_priority
   - Row summary view after completing a row: "28/30 ready"
 
-**11. METRC Application Export**
+**11. ✅ METRC Application Export**
 - Filter by date range and/or batch
 - Generates CSV/PDF formatted for METRC "Record Additives" entry
 - **Includes all four application types** (fertigation, foliar, amendment, pesticide)
 - Marks records as "exported" with timestamp
 
-**12. MN MDA Pesticide Report Export (MDA-Ready)**
+**12. ✅ MN MDA Pesticide Report Export (MDA-Ready)**
 - Per-month or per-date-range export of all pesticide applications
 - **Matches MDA template field-for-field** per Statute 18B.37
 - PDF and CSV formats
 - Not required for current (unlicensed) operations; available on demand for future licensing and defensive recordkeeping
 
-**13. Cultivation Record (Audit Export)**
+**13. ✅ Cultivation Record (Audit Export)**
 - Per-batch complete history PDF
 - Includes: batch details, every fertigation/foliar/amendment/pesticide application with full input expansion, every observation, recipe versions used, supervisor sign-offs, all REI clearances, all harvest events (partial and final) with wet weights, all waste trim events with disposal records
 - Designed for regulator handoff — meets MN Statute 342.25 record requirements
 
-**14. Today Screen (App Home)**
+**14. ✅ Today Screen (App Home)**
 - See Field UX Requirements → "The Today Screen"
 - This is the app's front door — not a generic dashboard
 - Surfaces active REIs, pending tasks, recent entries, sync status, and at-a-glance batch cards
 
-**15. QR Code Container Scanner — The Universal Entry Point**
+**15. ✅ QR Code Container Scanner — The Universal Entry Point**
 - Camera-based scan view with full-screen viewfinder, tap-to-focus, flash toggle
 - On successful scan of a container QR (e.g. `Z1-A-R3-C12`): app navigates directly to that container's record
 - Container record shows: position, current batch assignment, METRC plant tag (if assigned), strain, days-in-stage, recent activity, observations, REI/PHI status
 - From container record, one-tap entry to: Add Observation, Log Foliar, Log Amendment, Log Pesticide, Add Photo, Begin Harvest
 - Failure handling: clear full-screen error if QR doesn't decode or doesn't match a known container
 
-**16. METRC Plant Tag Assignment**
+**16. ✅ METRC Plant Tag Assignment**
 - Workflow: scan container QR → if no tag assigned, tap "Assign METRC Tag" → camera opens in barcode-scan mode → aim at printed barcode on the METRC tag → app captures 24-char UID → confirm → assignment recorded
 - Manual fallback: type the 24-char UID if camera scanning fails
 - Validates: tag not already assigned elsewhere, container not already assigned, format is valid 24-char METRC UID
 - **Bulk assignment mode**: streamlined loop for tagging entire batches (scan container → scan tag → next container → next tag)
 - Creates `plant_assignments` record
 
-**17. Container Tag Label Printing (Admin)**
+**17. ✅ Container Tag Label Printing (Admin)**
 - Admin/setup screen to generate printable PDFs of container QR labels
 - Selects: all containers, by zone, by sub-zone, or custom subset
 - Output: weatherproof Avery-format label sheets (~1" × 2.5" each, 30 per sheet)
 - Label content: large QR code + position ID + zone color stripe
 - Used for initial setup and replacement of damaged labels
 
-**18. Harvest Workflows**
+**18. ✅ Harvest Workflows**
 
 Requires batch status `harvesting`. Three distinct entry points, all field-optimized.
 
-**18a. Partial Harvest Entry (METRC: "manicure" — do not use that term in UI)**
+**18a. ✅ Partial Harvest Entry (METRC: "manicure" — do not use that term in UI)**
 - Triggered from container record during `harvesting` batch status: tap "Partial Harvest"
 - App displays assigned METRC tag last 4 digits for visual verification
 - Form: product_type (flower / larf / popcorn / other), wet_weight, weight_unit, notes
@@ -1243,7 +1468,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
 - Multiple partial harvests allowed per plant per harvest batch
 - METRC sync queued as partial harvest lot
 
-**18b. Final Harvest Entry**
+**18b. ✅ Final Harvest Entry**
 - Triggered from container record: tap "Final Harvest"
 - **If container has multiple active assignments** (plants_per_container > 1), app lists all assigned plants — operator selects which plant is being harvested
 - App displays the selected METRC tag's last 4 digits in large text (e.g., "...6789")
@@ -1258,7 +1483,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
   - System checks if all plants in batch are final-harvested → batch auto-closes if so
 - METRC sync queued (Phase 4 pushes to METRC API; Phase 1 queues for manual entry)
 
-**18c. Waste Trim Entry**
+**18c. ✅ Waste Trim Entry**
 - Available at any batch status (not gated on `harvesting`)
 - Triggered from container record or row record: tap "Record Waste Trim"
 - Form: trim_reason (controlled vocabulary), wet_weight, weight_unit, notes
@@ -1266,14 +1491,14 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
 - Waste disposal confirmation flow: operator marks `disposed` with disposition when complete
 - METRC waste sync queued
 
-**18d. Weather Event — Force Close Harvest Batch**
+**18d. ✅ Weather Event — Force Close Harvest Batch**
 - Triggered from harvest batch record: "Force Close (Weather Event)"
 - Requires close_notes describing the weather event
 - Creates new harvest_batch (sequence_number+1) for remaining plants
 - UI surfaces which plants have been final-harvested and which remain
 - Cultivation batch stays in `harvesting` — harvest continues under new batch
 
-**19. Plant Loss Quick Action**
+**19. ✅ Plant Loss Quick Action**
 - Lightweight, fast-entry form for mid-batch plant loss
 - Trigger: scan container QR → "Record Plant Loss" button on container record
 - Form fields (mobile-optimized, three-tap completion target):
@@ -1289,7 +1514,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
   - METRC waste event queued (visible as action item until synced)
 - **Designed for speed** — most common plant loss should be 3 taps from container scan to saved
 
-**20. Mid-Batch Plant Replacement Workflow**
+**20. ✅ Mid-Batch Plant Replacement Workflow**
 - Distinct from quick loss entry — used when assigning a replacement plant
 - Trigger: from EMPTY container record, tap "Assign Replacement Plant"
 - Constraint: replacement must be same strain as the batch
@@ -1298,7 +1523,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
 - Records the replacement context (which loss it replaces, when)
 - Batch plant_count_current updates automatically
 
-**21. Container Detail / History View**
+**21. ✅ Container Detail / History View**
 - Shows full container record:
   - Position, pot size, current state, current batch (if any), assigned METRC tag (if any)
   - State history (chronological list of state transitions)
@@ -1309,14 +1534,14 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
 - Available filters: amendments only, teardowns only, by date range
 - Print/Export: container lifetime report PDF for audit purposes
 
-**22. Container Status Dashboard**
+**22. ✅ Container Status Dashboard**
 - At-a-glance view of all 1,180 containers grouped by state
 - Filter by zone, sub-zone, or state
 - Card view shows: position, current state, current batch (if any), days in state, any flags
 - Click a container card to open Container Detail view
 - Summary counts: "X active, Y empty, Z in teardown, W in startup, V ready"
 
-**23. Teardown Workflow**
+**23. ✅ Teardown Workflow**
 - Triggered when a batch is closed or when an individual EMPTY container needs teardown
 - Guided checklist:
   - Remove plant material (if any) ✓
@@ -1327,7 +1552,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
   - Notes / photos
 - On completion: container state transitions to TEARDOWN, teardown_event created
 
-**24. Soil Sample Entry & Tracking**
+**24. ✅ Soil Sample Entry & Tracking**
 - Form for collecting and tracking soil samples through lab analysis lifecycle
 - Initial entry: sample label, container or sub-zone, sample type, sampled by, lab destination
 - Sample-sent status (date sent to lab)
@@ -1339,7 +1564,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
   - PDF attachment of original lab report
 - View prior samples for a container with trend visualization (Phase 3)
 
-**25. Startup Workflow**
+**25. ✅ Startup Workflow**
 - Triggered from TEARDOWN state when ready to begin soil rebuild
 - Prerequisite: prior soil sample results entered (warning if not, can proceed with documentation)
 - Guided checklist:
@@ -1351,7 +1576,7 @@ Requires batch status `harvesting`. Three distinct entry points, all field-optim
 - Sign-off: applicator confirms container is ready for next batch
 - On completion: container state transitions STARTUP → READY
 
-**26. Today Screen (App Home)**
+**26. ✅ Today Screen (App Home)**
 - See Field UX Requirements → "The Today Screen"
 - This is the app's front door — not a generic dashboard
 - Surfaces active REIs, pending tasks, recent entries, sync status, and at-a-glance batch cards
@@ -1719,7 +1944,7 @@ Documented here only as roadmap context:
 - **Database engine:** SQLite — use the existing migration and ORM patterns from sibling apps. Schema design should account for SQLite's strengths (file-based, single-writer) and limitations (no native enum types, simpler concurrency model).
 - **Hosting:** Railway (backend), Cloudflare (CDN/edge) — use existing deployment pipeline, do not modify
 - **Deployment URL:** `cultivate.hatstak.app` — follows the existing convention of subdomain-per-application within the `hatstak.app` family
-- **Auth/users:** **Inherits from the shared auth system** used across the `hatstak.app` application family. Do not build a parallel user model. References to `users` in the data model refer to the existing shared user table. All FK references to `users` (applicator, observer, approved_by, supervisor, created_by, updated_by) point to this shared table.
+- **Auth/users:** Cultivate has its own `cv_users` table with PIN-based JWT auth (same pattern as farmstock). SSO Phase 1 is implemented: login and refresh set a `hatstak_token` httpOnly cookie scoped to `.hatstak.app`, and `auth.middleware.ts` reads the cookie before falling back to the `Authorization: Bearer` header. `localStorage` key `cv_token` remains the primary offline credential. SSO Phase 2 (consolidating `cv_users` + farmstock users into a `hatstak_users` table) is designed in `docs/sso-design.md` but not yet implemented. Three roles: `grower`, `supervisor`, `admin`. Do not add a new `users` table.
 - **Shell/nav/branding:** This application is **part of the `hatstak.app` family**. Inherit the parent family's shell, navigation, theme, and branding. Do not introduce new global styles, colors, or layout primitives. Add only domain-specific UI components for cultivation features.
 
 ### Discover from the repo (do not assume)

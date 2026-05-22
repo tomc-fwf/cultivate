@@ -1674,3 +1674,59 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - 257 tests passing; build clean; committed 41b7151 and pushed.
 - Backup script does not handle the Railway cron scheduling problem — Railway's native Jobs feature or a sidecar cron container is needed for production scheduled backups. Documented in docs/deployment.md.
 - No `TIMETRACK_URL` or Cloudflare-specific variables were found in the source — not added to `.env.example` (would be noise without a code reference).
+
+---
+
+## Task: Tier 2 data integrity tests
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `src/tests/integration/data-integrity.test.ts` with 28 tests across 5 groups
+- **Group 1: Batch-container relationship** (5 tests) — cross-table consistency between `cv_container_state.current_batch_id` and `cv_plant_assignments`, including active/empty/teardown/ready state invariants
+- **Group 2: Recipe versioning** (5 tests) — API rejects duplicate active recipe name (409), old version deactivated on new version creation, at most one active per name after versioning, at most one NULL effective_to in batch_stage_recipes, recipe ingredient FK integrity
+- **Group 3: Plant assignment** (5 tests) — unassigned_at set after loss, unassigned_at + reason=harvested after final harvest, newly placed assignment has metrc_plant_tag IS NULL, tagged_at set after tag assignment, duplicate tag rejected and DB invariant verified
+- **Group 4: Harvest integrity** (5 tests) — harvest events reference valid harvest_batches (cross-table), final harvest leaves container in teardown + assignment unassigned, harvest batches rejected unless batch is harvesting, referential integrity of harvest_batch.batch_id, initial status is in_progress
+- **Group 5: Location/phase history** (8 tests) — API-created batch has exactly 1 phase_history and 1 location_history entry, initial phase_history from_status IS NULL, current_location_id matches latest location_history to_location_id (at creation and after transition), status transition adds phase_history entry, fixture-created batches also have history entries
+- All 315 tests pass (287 pre-existing + 28 new)
+
+### Key Decisions
+- Mixed approach: some tests query DB directly for cross-table invariants; others drive through the API and verify resulting DB state
+- Avoided duplicating coverage from `regulatory-gaps.test.ts` (METRC tag uniqueness, plant_count_current) and `harvest.test.ts` (container→teardown on final harvest) — focused on cross-table consistency angles not already covered
+- SQL string literals in parameterized queries use `?` placeholders, not inline quoted values — fixed one quoting bug caught by the test runner
+
+### Files Modified/Created
+- `src/tests/integration/data-integrity.test.ts` (new — 315 lines, 28 tests)
+
+### Notes for Next Tasks
+- npm test: 315 tests passing (12 test files)
+- Tier 1 tests are in: harvest.test.ts, plant-loss.test.ts, pesticide.test.ts, batches.test.ts, containers.test.ts, foliar.test.ts, regulatory-gaps.test.ts
+- Tier 2 tests are now in: data-integrity.test.ts
+
+---
+
+## Task: CLAUDE.md update to reflect current state
+**Completed:** 2026-05-22
+
+### What Was Done
+- Updated "Current state" line: corrected Option A → Option B integration, updated "features 1–16" → "all Phase 1 features (1–26) complete"
+- Updated "Read order": added session_context.md, backlog.md references; removed instruction to re-read farmstock each session
+- Added "Current Implementation Status" section near the top: full feature completion table for all 26 Phase 1 features + extra features built (mix calculator, compliance dashboard, sensors, SSO, skill validation, etc.), known remaining P1 issues, list of all docs produced
+- Replaced the "Before Claude Code writes any code" preamble in Sibling App section with a settled-integration summary (Option B, farmstock-client.ts, product snapshots, SSO Phase 1)
+- Marked all Phase 1 features 1–26 in Application Surface with ✅
+- Fixed `plant_assignments` schema: `assigned_at`/`assigned_by` → `placed_at`/`placed_by` (migration 014 renamed these)
+- Added new infrastructure tables section: `cv_locations`, `cv_batch_phase_history`, `cv_batch_location_history`, `cv_planting_plans`, `cv_planting_plan_items`, `cv_sensors` family, `cv_skill_instances`, product snapshot columns (migration 018)
+- Updated Stack section Auth/users entry: removed "shared auth system" fiction, documented actual PIN+JWT+SSO Phase 1 cookie implementation
+
+### Key Decisions
+- Did not remove any content that is still accurate (all original spec, business rules, UX requirements, field rules — all still valid)
+- Added clarifications inline rather than overwriting sections
+- The Sibling App "Resolution Patterns" (Options A–D) section was left intact as historical context but the intro paragraph was replaced with a settled-integration summary
+
+### Files Modified/Created
+- `CLAUDE.md` — updated throughout (+269 lines, -44 lines)
+- `.claude/session_context.md` — appended this entry
+
+### Notes for Next Tasks
+- The `docs/backlog.md` P1 items are the next priority: MDA time/lot# fix, METRC UID gate, updated_at migration, PDF cultivation record
+- Phase 2 features are specified in `docs/roadmap-phase2-4.md`; sub-zone field maps (Feature 2.1) is the recommended first Phase 2 feature
+- `src/tests/integration/data-integrity.test.ts` was committed by a prior Felix session (315 tests); the test count in CLAUDE.md still says 287 — that will auto-update as tasks proceed
