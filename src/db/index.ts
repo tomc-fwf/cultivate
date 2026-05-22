@@ -12,6 +12,10 @@ export function getDB(): Database.Database {
   return db;
 }
 
+export function setDB(instance: Database.Database): void {
+  db = instance;
+}
+
 export async function initDB(): Promise<Database.Database> {
   const dir = path.dirname(DB_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
