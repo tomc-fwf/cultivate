@@ -4,6 +4,7 @@ import fastifyHelmet from '@fastify/helmet';
 import fastifyCors from '@fastify/cors';
 import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyJwt from '@fastify/jwt';
+import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import authRoutes from './routes/auth.js';
 import fertigationRecipesRoutes from './routes/fertigation-recipes.js';
@@ -57,6 +58,8 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
     secret: process.env.JWT_SECRET ?? 'cultivate-dev-secret',
     sign: { expiresIn: '7d' },
   });
+
+  await app.register(fastifyCookie);
 
   if (!opts.skipStatic) {
     await app.register(fastifyStatic, {

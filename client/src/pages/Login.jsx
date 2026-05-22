@@ -15,17 +15,30 @@ export default function Login() {
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
-    async function loadUsers() {
+    async function init() {
+      // Try cookie-based SSO first. If the browser has a valid hatstak_token cookie
+      // (e.g. from a farmstock login on the same device), refresh succeeds and the
+      // user is logged in without seeing the PIN screen.
+      try {
+        const { token, worker } = await api.refreshToken();
+        if (worker) {
+          login(token, worker);
+          navigate('/');
+          return;
+        }
+      } catch {
+        // No valid cookie session — fall through to normal PIN login.
+      }
+
       try {
         const list = await api.getUsers();
         setUsers(list);
-        setPhase('users');
       } catch (e) {
         setLoadError(e.message);
-        setPhase('users');
       }
+      setPhase('users');
     }
-    loadUsers();
+    init();
   }, []);
 
   function pressDigit(d) {

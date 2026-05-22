@@ -77,10 +77,24 @@ export default function App() {
   useEffect(() => {
     const stored = (() => { try { return JSON.parse(localStorage.getItem('cv_user')); } catch { return null; } })();
     const token = localStorage.getItem('cv_token');
-    if (!stored || !token) return;
+    // Always attempt refresh — succeeds via Authorization header (localStorage token)
+    // or via hatstak_token cookie (SSO from another hatstak.app subdomain).
     api.refreshToken()
-      .then(({ token: newToken }) => { localStorage.setItem('cv_token', newToken); setUser(stored); })
-      .catch(() => { localStorage.removeItem('cv_token'); localStorage.removeItem('cv_user'); });
+      .then(({ token: newToken, worker }) => {
+        localStorage.setItem('cv_token', newToken);
+        const userData = worker || stored;
+        if (userData) {
+          localStorage.setItem('cv_user', JSON.stringify(userData));
+          setUser(userData);
+        }
+      })
+      .catch(() => {
+        // No valid session — clear any stale localStorage.
+        if (token) {
+          localStorage.removeItem('cv_token');
+          localStorage.removeItem('cv_user');
+        }
+      });
   }, []);
 
   function login(token, userData) {
@@ -89,6 +103,7 @@ export default function App() {
     setUser(userData);
   }
   function logout() {
+    api.logout().catch(() => {}); // clear server-side cookie (fire-and-forget)
     localStorage.removeItem('cv_token');
     localStorage.removeItem('cv_user');
     setUser(null);

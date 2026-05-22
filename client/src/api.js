@@ -19,6 +19,7 @@ export const api = {
   getUsers: () => req('GET', '/auth/users'),
   login: (user_id, pin) => req('POST', '/auth/login', { user_id, pin }),
   refreshToken: () => req('POST', '/auth/refresh'),
+  logout: () => req('POST', '/auth/logout'),
 
   // Items (reads from farmstock's items table via cultivate's API proxy — routes added in Phase 1)
   getItems: (params = {}) => {
