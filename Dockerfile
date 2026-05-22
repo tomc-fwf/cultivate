@@ -2,7 +2,7 @@ FROM node:20 AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --no-fund --no-audit
+RUN npm ci --no-fund --no-audit --legacy-peer-deps
 
 COPY client/package*.json ./client/
 RUN cd client && npm ci --no-fund --no-audit
