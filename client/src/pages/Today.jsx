@@ -51,18 +51,23 @@ export default function Today() {
   const [batches, setBatches] = useState([]);
   const [batchesLoading, setBatchesLoading] = useState(true);
   const [conditionsExpanded, setConditionsExpanded] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
-  useEffect(() => {
-    // Load active REIs
+  function loadData() {
+    setLoadError('');
+    setReiLoading(true);
+    setBatchesLoading(true);
+
     api.getPesticideApplications({ rei_active: '1', limit: '20' })
       .then(data => { setActiveREIs(data); setReiLoading(false); })
-      .catch(() => setReiLoading(false));
+      .catch(e => { setLoadError(e.message || 'Unable to load'); setReiLoading(false); });
 
-    // Load active batches
     api.getBatches({ status: 'active', limit: '10' })
       .then(data => { setBatches(data.filter(b => b.status !== 'closed')); setBatchesLoading(false); })
-      .catch(() => setBatchesLoading(false));
-  }, []);
+      .catch(e => { setLoadError(e.message || 'Unable to load'); setBatchesLoading(false); });
+  }
+
+  useEffect(() => { loadData(); }, []);
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-24">
@@ -72,6 +77,17 @@ export default function Today() {
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>Today</h1>
         <p className="text-sm text-gray-500 mt-0.5">{today}</p>
       </div>
+
+      {/* ── LOAD ERROR BANNER ────────────────────────────────────────────────── */}
+      {loadError && (
+        <button
+          onClick={loadData}
+          className="w-full mb-4 bg-amber-50 border-2 border-amber-400 text-amber-900 rounded-2xl px-4 py-3 flex items-center justify-between"
+        >
+          <span className="text-sm font-medium">Unable to load — tap to retry</span>
+          <span className="text-amber-600 text-xs">{loadError}</span>
+        </button>
+      )}
 
       {/* ── ACTIVE REI BANNER (prominent, red) ─────────────────────────────── */}
       {!reiLoading && activeREIs.length > 0 && (
