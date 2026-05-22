@@ -1645,3 +1645,32 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - The `/api/stock/deplete` endpoint must exist in farmstock for this to do anything — if farmstock doesn't have that route yet, the depletion will log non-ok status warnings silently
 - The depletion body matches the spec: `{ lot_id, quantity, quantity_unit, depleted_by_app: 'cultivate', reference_id, reference_type }`
 - Fertigation depletion would require adding `input_lot_id` to `cv_applications_fertigation` schema — a future migration if per-lot fertigation tracking is needed
+
+---
+
+## Task: Database backup + .env.example + deployment runbook
+**Completed:** 2026-05-22
+
+### What Was Done
+- **scripts/backup.sh**: Bash script that copies the SQLite DB to a timestamped file (`cultivate-backup-YYYY-MM-DD-HH-MM.db`), keeps the 7 most recent backups, uses `sqlite3 .backup` when available (WAL-safe) and falls back to `cp`. Reads `DB_PATH`/`BACKUP_DIR` env vars with sensible defaults.
+- **scripts/backup.ps1**: Equivalent PowerShell script for Windows dev machines. Same logic using `Copy-Item` and `Get-ChildItem | Sort-Object Name`.
+- **.env.example**: Expanded with section headers, a comment per variable, and two new vars: `SENSORPUSH_EMAIL` and `SENSORPUSH_PASSWORD` (previously missing). All existing values preserved.
+- **docs/deployment.md**: Runbook covering prerequisites (Node ≥18, Railway CLI), required env vars table, initial dev setup, Railway first-time and ongoing deploys, running the backup (cron examples for both Linux and Windows), Felix health checks, and a troubleshooting section (Felix hung, DB locked, migration failed, Railway health check failures).
+- **sensors.ts**: Committed pending Zod validation cleanup for `/current` query params (leftover from prior session).
+
+### Key Decisions
+- Bash script uses `sqlite3 .backup` rather than `cp` when sqlite3 is available — the `.backup` command is safe with WAL mode and produces a consistent snapshot even under concurrent writes.
+- PowerShell script uses `Copy-Item` (no sqlite3 CLI assumed on Windows) — safe in dev where the DB is idle during backup.
+- Both scripts keep `KEEP=7` backups and prune by lexicographic sort on filename (timestamps sort correctly in `YYYY-MM-DD-HH-MM` format).
+
+### Files Modified/Created
+- `scripts/backup.sh` (new)
+- `scripts/backup.ps1` (new)
+- `.env.example` (updated — SENSORPUSH vars added, comments added)
+- `docs/deployment.md` (new)
+- `src/api/routes/sensors.ts` (Zod validation cleanup, committed here)
+
+### Notes for Next Tasks
+- 257 tests passing; build clean; committed 41b7151 and pushed.
+- Backup script does not handle the Railway cron scheduling problem — Railway's native Jobs feature or a sidecar cron container is needed for production scheduled backups. Documented in docs/deployment.md.
+- No `TIMETRACK_URL` or Cloudflare-specific variables were found in the source — not added to `.env.example` (would be noise without a code reference).
