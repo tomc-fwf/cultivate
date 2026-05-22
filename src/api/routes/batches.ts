@@ -324,6 +324,89 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * GET /:id/labor-summary — fetch labor hours for this batch from timetrack.
+   * Calls GET {TIMETRACK_URL}/api/time-entries?cv_batch_id={id}.
+   * Returns { batch_id, total_hours, by_activity, by_worker, date_range } on success,
+   * or { error: 'TIMETRACK_UNAVAILABLE' } if timetrack is unreachable or returns an error.
+   */
+  app.get<{ Params: IdParams }>(
+    '/:id/labor-summary',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const timetackUrl = process.env.TIMETRACK_URL || 'http://localhost:3000';
+      const serviceKey = process.env.TIMETRACK_SERVICE_KEY;
+      const fetchHeaders: Record<string, string> = {};
+      if (serviceKey) fetchHeaders['x-service-key'] = serviceKey;
+
+      try {
+        const r = await fetch(`${timetackUrl}/api/time-entries?cv_batch_id=${id}`, {
+          headers: fetchHeaders,
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (!r.ok) return reply.send({ error: 'TIMETRACK_UNAVAILABLE' });
+
+        type TimeEntry = {
+          duration_minutes: number | null;
+          activity_code: string;
+          worker_name: string;
+          date: string;
+          is_break?: number;
+          end_time?: string | null;
+        };
+
+        const entries = (await r.json()) as TimeEntry[];
+        const completed = entries.filter(e => e.end_time && !e.is_break);
+
+        if (completed.length === 0) {
+          return reply.send({
+            batch_id: id,
+            total_hours: 0,
+            by_activity: {},
+            by_worker: {},
+            date_range: null,
+          });
+        }
+
+        let totalMinutes = 0;
+        const byActivity: Record<string, number> = {};
+        const byWorker: Record<string, number> = {};
+        const dates: string[] = [];
+
+        for (const e of completed) {
+          const mins = e.duration_minutes ?? 0;
+          totalMinutes += mins;
+          byActivity[e.activity_code] = (byActivity[e.activity_code] || 0) + mins;
+          byWorker[e.worker_name] = (byWorker[e.worker_name] || 0) + mins;
+          if (e.date) dates.push(e.date);
+        }
+
+        const minsToHours = (m: number) => Math.round((m / 60) * 100) / 100;
+        const sortedDates = dates.slice().sort();
+
+        return reply.send({
+          batch_id: id,
+          total_hours: minsToHours(totalMinutes),
+          by_activity: Object.fromEntries(
+            Object.entries(byActivity).map(([k, v]) => [k, minsToHours(v)]),
+          ),
+          by_worker: Object.fromEntries(
+            Object.entries(byWorker).map(([k, v]) => [k, minsToHours(v)]),
+          ),
+          date_range: sortedDates.length
+            ? { from: sortedDates[0], to: sortedDates[sortedDates.length - 1] }
+            : null,
+        });
+      } catch {
+        return reply.send({ error: 'TIMETRACK_UNAVAILABLE' });
+      }
+    },
+  );
+
+  /**
    * PATCH /:id/transition — advance batch through lifecycle phases.
    *
    * Writes to cv_batch_phase_history for every transition.
