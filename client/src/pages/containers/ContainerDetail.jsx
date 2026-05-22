@@ -231,6 +231,11 @@ export default function ContainerDetail() {
   // Harvest context — loaded lazily when batch is 'harvesting'
   const [harvestCtx, setHarvestCtx] = useState(null);
 
+  // REI pre-entry check — shown as full-screen modal before the record renders
+  const [reiWarning, setReiWarning] = useState(null); // null | { rei_expires_at, ... }
+  const [reiChecking, setReiChecking] = useState(false);
+  const [reiAcknowledged, setReiAcknowledged] = useState(false);
+
   const isAdmin = user && user.role === 'admin';
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -250,6 +255,20 @@ export default function ContainerDetail() {
       .then(s => { setSoilSamples(s); setLoadingSamples(false); })
       .catch(() => setLoadingSamples(false));
   }, [containerId]);
+
+  // REI check — runs whenever container data loads for a batch
+  useEffect(() => {
+    if (!data?.current_state?.current_batch_id) return;
+    if (reiAcknowledged) return; // don't re-check after acknowledgment
+    const batchId = data.current_state.current_batch_id;
+    setReiChecking(true);
+    api.getPesticideApplications({ rei_active: '1', batch_id: String(batchId), limit: '5' })
+      .then(apps => {
+        if (apps && apps.length > 0) setReiWarning(apps[0]);
+        setReiChecking(false);
+      })
+      .catch(() => { setReiChecking(false); });
+  }, [data?.current_state?.current_batch_id]);
 
   // Load harvest status when batch is in harvesting status and container is active/empty
   useEffect(() => {
@@ -300,7 +319,38 @@ export default function ContainerDetail() {
     setSavingState(false);
   }
 
-  if (loading) {
+  // Full-screen REI gate — must be acknowledged before the container record renders
+  if (reiWarning && !reiAcknowledged) {
+    const expiresStr = reiWarning.rei_expires_at
+      ? new Date(reiWarning.rei_expires_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+      : 'unknown time';
+    return (
+      <div className="fixed inset-0 z-50 bg-red-700 flex flex-col items-center justify-center px-6 text-white">
+        <div className="text-6xl mb-6">⚠</div>
+        <div className="text-2xl font-bold mb-2" style={{ fontFamily: 'Fraunces, serif' }}>REI Active</div>
+        <div className="text-lg font-mono font-semibold mb-4 bg-red-800 px-4 py-1.5 rounded-xl">
+          {containerId}
+        </div>
+        <div className="text-center text-red-100 text-sm mb-2">Re-entry interval is active in this area.</div>
+        <div className="text-center text-red-100 text-sm mb-8">
+          Do not enter without appropriate PPE until REI clears.
+        </div>
+        <div className="text-center text-white font-semibold text-base mb-6">
+          Restricted until:
+          <div className="text-xl font-bold mt-1">{expiresStr}</div>
+        </div>
+        <button
+          onClick={() => setReiAcknowledged(true)}
+          className="w-full max-w-sm bg-white text-red-700 font-bold rounded-2xl py-4 text-base shadow-lg active:bg-red-50"
+          style={{ minHeight: '64px' }}
+        >
+          I understand — REI active until {expiresStr}
+        </button>
+      </div>
+    );
+  }
+
+  if (loading || reiChecking) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-6">
         <div className="text-gray-500 text-sm">Loading…</div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import jsQR from 'jsqr';
 import { X, Zap, ZapOff, Keyboard } from 'lucide-react';
+import { api } from '../../api';
 
 const CONTAINER_PATTERN = /^Z\d-[AB]-R\d{1,2}-C\d{1,2}$/;
 
@@ -20,6 +21,10 @@ export default function ContainerScanner() {
   const [manualId, setManualId] = useState('');
   const [showManual, setShowManual] = useState(false);
   const [manualError, setManualError] = useState('');
+
+  // REI pre-entry check state
+  const [pendingContainerId, setPendingContainerId] = useState(null);
+  const [reiWarning, setReiWarning] = useState(null); // { rei_expires_at } when active
 
   const stopStream = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -47,7 +52,7 @@ export default function ContainerScanner() {
       const val = code.data.trim();
       if (CONTAINER_PATTERN.test(val)) {
         stopStream();
-        navigate(`/containers/${encodeURIComponent(val)}`);
+        setPendingContainerId(val);
         return;
       } else {
         setErrorMsg(`Unrecognized QR code: ${val}. This does not match a container ID.`);
@@ -57,7 +62,30 @@ export default function ContainerScanner() {
       }
     }
     rafRef.current = requestAnimationFrame(tick);
-  }, [navigate, stopStream]);
+  }, [stopStream]);
+
+  // After a successful QR scan: check REI for the container's batch, then navigate.
+  useEffect(() => {
+    if (!pendingContainerId) return;
+    api.getContainer(pendingContainerId)
+      .then(data => {
+        const batchId = data?.current_state?.current_batch_id;
+        if (!batchId) {
+          navigate(`/containers/${encodeURIComponent(pendingContainerId)}`);
+          return;
+        }
+        api.getPesticideApplications({ rei_active: '1', batch_id: String(batchId), limit: '5' })
+          .then(apps => {
+            if (apps && apps.length > 0) {
+              setReiWarning(apps[0]);
+            } else {
+              navigate(`/containers/${encodeURIComponent(pendingContainerId)}`);
+            }
+          })
+          .catch(() => navigate(`/containers/${encodeURIComponent(pendingContainerId)}`));
+      })
+      .catch(() => navigate(`/containers/${encodeURIComponent(pendingContainerId)}`));
+  }, [pendingContainerId, navigate]);
 
   useEffect(() => {
     async function startCamera() {
@@ -147,7 +175,33 @@ export default function ContainerScanner() {
       setManualError(`"${val}" is not a valid container ID. Expected format: Z1-A-R3-C12`);
       return;
     }
-    navigate(`/containers/${encodeURIComponent(val)}`);
+    setPendingContainerId(val);
+  }
+
+  // REI gate — full-screen, must be acknowledged before navigating to the container
+  if (reiWarning && pendingContainerId) {
+    const expiresStr = reiWarning.rei_expires_at
+      ? new Date(reiWarning.rei_expires_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+      : 'unknown time';
+    return (
+      <div className="fixed inset-0 z-50 bg-red-700 flex flex-col items-center justify-center px-6 text-white">
+        <div className="text-6xl mb-6">⚠</div>
+        <div className="text-2xl font-bold mb-2" style={{ fontFamily: 'Fraunces, serif' }}>REI Active</div>
+        <div className="text-lg font-mono font-semibold mb-4 bg-red-800 px-4 py-1.5 rounded-xl">{pendingContainerId}</div>
+        <div className="text-center text-red-100 text-sm mb-2">Re-entry interval is active in this area.</div>
+        <div className="text-center text-red-100 text-sm mb-8">Do not enter without appropriate PPE until REI clears.</div>
+        <div className="text-center text-white font-semibold text-base mb-6">
+          Restricted until: <div className="text-xl font-bold mt-1">{expiresStr}</div>
+        </div>
+        <button
+          onClick={() => { setReiWarning(null); navigate(`/containers/${encodeURIComponent(pendingContainerId)}`); }}
+          className="w-full max-w-sm bg-white text-red-700 font-bold rounded-2xl py-4 text-base shadow-lg active:bg-red-50"
+          style={{ minHeight: '64px' }}
+        >
+          I understand — REI active until {expiresStr}
+        </button>
+      </div>
+    );
   }
 
   return (
