@@ -195,6 +195,12 @@ export const api = {
     return req('GET', `/planting-plans${q ? '?' + q : ''}`);
   },
   getPlantingPlan: (id) => req('GET', `/planting-plans/${id}`),
+  createPlantingPlan: (data) => req('POST', '/planting-plans', data),
+  addPlantingPlanItem: (planId, item) => req('POST', `/planting-plans/${planId}/items`, { items: [item] }),
+  removePlantingPlanItem: (planId, itemId) => req('DELETE', `/planting-plans/${planId}/items/${itemId}`),
+  commitPlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/commit`, body),
+  supersedePlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/supersede`, body),
+  cancelPlantingPlan: (planId) => req('PATCH', `/planting-plans/${planId}/cancel`),
 
   // Batches
   getBatches: (params = {}) => {

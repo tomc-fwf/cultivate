@@ -140,6 +140,7 @@ export default function BatchDetail() {
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
   const [readinessSummary, setReadinessSummary] = useState(null);
+  const [batchPlan, setBatchPlan] = useState(null);
   const [toast, setToast] = useState(null);
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
@@ -160,6 +161,15 @@ export default function BatchDetail() {
       .then(data => setReadinessSummary(data))
       .catch(() => setReadinessSummary(null));
   }, [batch?.status, batch?.batch_id]);
+
+  // Load planting plan for eligible batch statuses
+  useEffect(() => {
+    const eligible = ['germ', 'seedling', 'cult-hoop', 'field-veg'];
+    if (!batch || !eligible.includes(batch.status)) { setBatchPlan(null); return; }
+    api.getPlantingPlans({ batch_id: batch.batch_id })
+      .then(plans => setBatchPlan(plans[0] ?? null))
+      .catch(() => setBatchPlan(null));
+  }, [batch?.batch_id, batch?.status]);
 
   if (loading) return <div className="max-w-2xl mx-auto px-4 py-6 text-gray-500 text-sm">Loading…</div>;
   if (error || !batch) {
@@ -330,6 +340,55 @@ export default function BatchDetail() {
           <span className="text-sm text-amber-600 font-medium">No fertigation recipe assigned</span>
         )}
       </div>
+
+      {/* ── Planting Plan — shown for pre-field and field-veg batches ── */}
+      {['germ', 'seedling', 'cult-hoop', 'field-veg'].includes(batch.status) && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Planting Plan</h2>
+            {isSupervisor && !batchPlan && (
+              <Link
+                to={`/planting-plans/new?batch_id=${batch.batch_id}`}
+                className="text-xs text-green-700 font-medium hover:text-green-900"
+                style={{ textDecoration: 'none' }}
+              >
+                + Create
+              </Link>
+            )}
+          </div>
+          {batchPlan ? (
+            <div>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                  batchPlan.status === 'active' ? 'bg-green-100 text-green-800'
+                  : batchPlan.status === 'draft' ? 'bg-amber-100 text-amber-700'
+                  : 'bg-gray-100 text-gray-500'
+                }`}>{batchPlan.status}</span>
+                <span className="text-xs text-gray-500">v{batchPlan.version} · {batchPlan.sub_zone_id}</span>
+              </div>
+              <div className="text-xs text-gray-500 mb-2">
+                {batchPlan.committed_count ?? 0} committed · {batchPlan.draft_count ?? 0} draft · {batchPlan.plants_to_place} to place
+              </div>
+              {isSupervisor && (
+                <Link
+                  to={`/planting-plans/${batchPlan.plan_id}`}
+                  className="text-sm font-semibold text-green-800 hover:text-green-900"
+                  style={{ textDecoration: 'none' }}
+                >
+                  Open Plan Builder →
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-gray-500">
+              No planting plan yet.
+              {isSupervisor && batch.status === 'cult-hoop' && (
+                <span className="text-amber-600 font-medium ml-1">Create one to commit plants to field.</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Harvest Readiness Summary — shown during harvest_window ── */}
       {batch.status === 'harvest_window' && (

@@ -52,6 +52,9 @@ import TagVerification from './pages/compliance/TagVerification';
 import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
 import ContainerScanner from './pages/containers/ContainerScanner';
 import TagAssignmentWalkthrough from './pages/containers/TagAssignmentWalkthrough';
+import PlantingPlanList from './pages/planting-plans/PlantingPlanList';
+import PlantingPlanNew from './pages/planting-plans/PlantingPlanNew';
+import PlantingPlanDetail from './pages/planting-plans/PlantingPlanDetail';
 import LocationView from './pages/locations/LocationView';
 import ContainerLabels from './pages/admin/ContainerLabels';
 import SensorManagement from './pages/admin/SensorManagement';
@@ -166,6 +169,9 @@ export default function App() {
               <Route path="/compliance/plant-inventory" element={<Protected><PlantInventory /></Protected>} />
               <Route path="/compliance/tag-verification" element={<Protected><TagVerification /></Protected>} />
               <Route path="/compliance/metrc-reconciliation" element={<Protected><MetrcReconciliation /></Protected>} />
+              <Route path="/planting-plans" element={<Protected minRole="supervisor"><PlantingPlanList /></Protected>} />
+              <Route path="/planting-plans/new" element={<Protected minRole="supervisor"><PlantingPlanNew /></Protected>} />
+              <Route path="/planting-plans/:id" element={<Protected minRole="supervisor"><PlantingPlanDetail /></Protected>} />
               <Route path="/locations" element={<Protected><LocationView /></Protected>} />
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/tag-assignments" element={<Protected><TagAssignmentWalkthrough /></Protected>} />
