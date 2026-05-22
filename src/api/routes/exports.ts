@@ -558,8 +558,27 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       ORDER BY ca.applied_at DESC
     `).all(...aw.params) as Array<Record<string, unknown>>;
 
-    // Resolve farmstock item names
+    // Load fertigation recipe ingredients for all recipes used in fertigRows
+    const recipeIds = Array.from(new Set(fertigRows.map(r => r['recipe_id'] as number).filter(Boolean)));
+    type RecipeIngredient = { recipe_id: number; input_id: number; rate_value: number; rate_unit: string };
+    const recipeIngredients: RecipeIngredient[] = recipeIds.length > 0
+      ? (db.prepare(`
+          SELECT recipe_id, input_id, rate_value, rate_unit
+          FROM cv_fertigation_recipe_ingredients
+          WHERE recipe_id IN (${recipeIds.map(() => '?').join(',')})
+          ORDER BY recipe_id, order_index
+        `).all(...recipeIds) as RecipeIngredient[])
+      : [];
+    const ingredientsByRecipe = new Map<number, RecipeIngredient[]>();
+    for (const ing of recipeIngredients) {
+      const arr = ingredientsByRecipe.get(ing.recipe_id) ?? [];
+      arr.push(ing);
+      ingredientsByRecipe.set(ing.recipe_id, arr);
+    }
+
+    // Resolve farmstock item names — include fertigation ingredients
     const inputIds = Array.from(new Set([
+      ...recipeIngredients.map(i => i.input_id),
       ...foliarRows.map(r => r['input_id']),
       ...pesticideRows.map(r => r['input_id']),
       ...amendmentRows.map(r => r['input_id']),
@@ -569,20 +588,47 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
     const rows: Record<string, unknown>[] = [];
 
     for (const r of fertigRows) {
-      rows.push({
-        application_type: 'fertigation',
-        applied_at: r['applied_at'],
-        batch_name: batchDisplayName(r),
-        product_name: `${r['recipe_name']} v${r['recipe_version']}`,
-        lot_number: null,
-        rate: null,
-        rate_unit: null,
-        volume_applied: r['volume_gallons'],
-        volume_unit: 'gal',
-        applicator_name: r['applicator_name'] ?? null,
-        location: r['sub_zone_id'] ?? null,
-        notes: `EC: ${r['ec_measured']} | pH: ${r['ph_measured']}${r['notes'] ? ' | ' + r['notes'] : ''}`,
-      });
+      const recipeId = r['recipe_id'] as number | undefined;
+      const ings = recipeId ? (ingredientsByRecipe.get(recipeId) ?? []) : [];
+      const volGal = Number(r['volume_gallons'] ?? 0);
+      const baseNotes = `EC: ${r['ec_measured']} | pH: ${r['ph_measured']}${r['notes'] ? ' | ' + r['notes'] : ''} | Recipe: ${r['recipe_name']} v${r['recipe_version']}`;
+
+      if (ings.length === 0) {
+        // No ingredient data — emit a recipe-level row as fallback
+        rows.push({
+          application_type: 'fertigation',
+          applied_at: r['applied_at'],
+          batch_name: batchDisplayName(r),
+          product_name: `${r['recipe_name']} v${r['recipe_version']}`,
+          lot_number: null,
+          rate: null,
+          rate_unit: null,
+          volume_applied: volGal,
+          volume_unit: 'gal',
+          applicator_name: r['applicator_name'] ?? null,
+          location: r['sub_zone_id'] ?? null,
+          notes: baseNotes,
+        });
+      } else {
+        // Expand into one row per ingredient with computed quantity
+        for (const ing of ings) {
+          const item = itemMap.get(ing.input_id);
+          rows.push({
+            application_type: 'fertigation',
+            applied_at: r['applied_at'],
+            batch_name: batchDisplayName(r),
+            product_name: itemName(item ?? null, ing.input_id),
+            lot_number: null,
+            rate: ing.rate_value,
+            rate_unit: ing.rate_unit,
+            volume_applied: volGal,
+            volume_unit: 'gal',
+            applicator_name: r['applicator_name'] ?? null,
+            location: r['sub_zone_id'] ?? null,
+            notes: baseNotes,
+          });
+        }
+      }
     }
 
     for (const r of foliarRows) {
@@ -794,7 +840,7 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY bsr.effective_from ASC
       `).all(batchId) as Array<Record<string, unknown>>;
 
-      const fertigationApps = db.prepare(`
+      const fertigationAppsRaw = db.prepare(`
         SELECT af.*, fr.name AS recipe_name, fr.version AS recipe_version,
                u.name AS applicator_name
         FROM cv_applications_fertigation af
@@ -803,6 +849,34 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
         WHERE af.batch_id = ?
         ORDER BY af.applied_at ASC
       `).all(batchId) as Array<Record<string, unknown>>;
+
+      // Expand recipe ingredients for each fertigation application (MN 342.25 — per-product quantities required)
+      const fertRecipeIds = Array.from(new Set(fertigationAppsRaw.map(r => r['recipe_id'] as number).filter(Boolean)));
+      type FertIng = { recipe_id: number; input_id: number; rate_value: number; rate_unit: string; order_index: number };
+      const fertIngRows = fertRecipeIds.length > 0
+        ? (db.prepare(`
+            SELECT recipe_id, input_id, rate_value, rate_unit, order_index
+            FROM cv_fertigation_recipe_ingredients
+            WHERE recipe_id IN (${fertRecipeIds.map(() => '?').join(',')})
+            ORDER BY recipe_id, order_index
+          `).all(...fertRecipeIds) as FertIng[])
+        : [];
+      const fertIngByRecipe = new Map<number, FertIng[]>();
+      for (const ing of fertIngRows) {
+        const arr = fertIngByRecipe.get(ing.recipe_id) ?? [];
+        arr.push(ing);
+        fertIngByRecipe.set(ing.recipe_id, arr);
+      }
+
+      const fertigationApps = fertigationAppsRaw.map(r => ({
+        ...r,
+        ingredients: (fertIngByRecipe.get(r['recipe_id'] as number) ?? []).map(ing => ({
+          input_id: ing.input_id,
+          rate_value: ing.rate_value,
+          rate_unit: ing.rate_unit,
+          order_index: ing.order_index,
+        })),
+      }));
 
       const foliarApps = db.prepare(`
         SELECT af.*, fr.name AS recipe_name,
