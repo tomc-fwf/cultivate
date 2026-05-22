@@ -522,3 +522,251 @@
 ### Notes for Next Tasks
 - README references docs/ audit files which contain prioritized fix lists — good starting point for next work session
 - README does not document a `npm run seed:demo` script because no seed-demo.ts file exists in the codebase; omitted rather than documented incorrectly
+
+---
+
+## Task: METRC API integration design
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read all 14 migrations, harvest-model.md, domain-utils.ts, and session context to understand the full schema
+- Produced `docs/metrc-integration-design.md` — 1,246-line Phase 4 integration design document
+- Committed and pushed as `docs: METRC API integration design for Phase 4`
+
+### Key Decisions
+- METRC uses batch NAME (not a numeric UID) as the identifier for plant batch operations — `metrc_plant_batch_uid` stores the name string, not a separate ID
+- `metrc_sync_status` is the queue — no separate queue table needed; worker polls existing tables
+- Identified critical schema gap: `cv_applications_fertigation`, `_foliar`, `_pesticide`, and `cv_container_amendments` are missing `metrc_sync_status` and `metrc_synced_at` — requires migration `016_additive_sync.ts` before Phase 4 begins
+- Sync ordering invariant: batch creation → phase changes → location moves → harvest batch creation → harvest plant events → additives → waste/loss
+- `'processing'` intermediate state prevents double-submission on worker restart; records stuck >10min reset to `'pending'` at startup
+- Historical records on a live DB should get `metrc_sync_status = 'not_required'` to avoid mass-submitting months of backfill
+
+### Files Modified/Created
+- `docs/metrc-integration-design.md` (new — 1,246 lines)
+- `.claude/session_context.md` (appended this entry)
+
+### Notes for Next Tasks
+- Phase 4 implementation begins with Step 1: `src/sync/metrc-client.ts` + test connection endpoint
+- Migration `016_additive_sync.ts` must be written before any additive sync work begins (adds metrc_sync_status to 4 application tables)
+- `toMetrcPhase()` and `makeBatchName()`/`makeHarvestBatchName()` in `src/lib/domain-utils.ts` are the canonical source for METRC name/phase formatting — use them in the sync worker
+- The sandbox URL is `https://sandbox-api-mn.metrc.com` — sandbox credentials require separate request to MN OCM
+- `cv_locations.metrc_name` stores the exact METRC room name — must match METRC account configuration exactly; values are currently placeholders (see migration 011)
+
+---
+
+## Task: Phase 2-4 roadmap with concrete feature specifications
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read CLAUDE.md Application Surface sections, docs/harvest-model.md, docs/metrc-integration-design.md, all 18 route files, and client/src/App.jsx
+- Produced `docs/roadmap-phase2-4.md` (818 lines) with:
+  - Phase 1 critical fix gate (9 items from audit docs that must ship before Phase 2)
+  - Feature 2.1 Sub-zone Field Maps: CSS grid layout, color coding table, computed fields (has_open_observation, rei_active_until) to add to containers endpoint
+  - Feature 2.2 Inspection Mode: swipe carousel via TouchEvent, harvest readiness variant, landscape split-pane
+  - Feature 2.3 Offline Hardening: IndexedDB via idb library, BackgroundSync SW, conflict resolution matrix per record type, sync UI design
+  - Feature 2.4 Bulk Tag Assignment: scan-loop workflow, error recovery, no new backend needed
+  - Feature 2.5 Move/Transplant: new POST /api/tag-assignments/:id/move endpoint design
+  - Feature 2.6 Soil Sample Tracker: 3-tab dashboard (awaiting collection, sent to lab, results received)
+  - Phase 3 features: Gantt (CSS grid approach), EC/pH trend charts (recharts), recipe performance analysis (join strategy + data gap notes), cross-batch comparisons
+  - Phase 4: implementation sequence table referencing metrc-integration-design.md
+  - 18-week implementation timeline with sequencing
+  - Schema gap analysis: migrations 015 (indexes), 016 (additive sync columns), 017 (scan history), 018 (conflict log), 019 (analytics cache) with migration skeletons
+
+### Key Decisions
+- recharts chosen over Chart.js (better React integration, tree-shakeable)
+- CSS grid chosen over SVG for sub-zone field maps (accessibility, simpler click handling)
+- Offline queue uses IndexedDB (idb library) not localStorage — survives page reload
+- Conflict resolution matrix: observations use last-write-wins; final harvest and batch transitions reject stale-state (hard to undo)
+- Migration 016 default: `not_required` for existing additive records — correct, avoids retroactive METRC backfill
+
+### Files Modified/Created
+- `docs/roadmap-phase2-4.md` (new)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Phase 2 recommended start: Feature 2.1 (Sub-zone Field Maps) is smallest/most self-contained — good first Phase 2 feature
+- Offline hardening (2.3) is the most complex Phase 2 feature — allow 5 days, affects all form entry paths
+- Migration 016 content is spelled out in the roadmap — copy-paste ready for implementation
+- `has_open_observation` and `rei_active_until` computed fields need to be added to the GET /api/containers query before Feature 2.1 can render correctly
+- Phase 3 analytics all go in a new `src/api/routes/analytics.ts` file
+
+---
+
+## Task: Comprehensive backlog + known issues
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read all four audit docs (api-security, frontend-ux, regulatory-compliance, schema-performance) and the Phase 2-4 roadmap
+- Produced `docs/backlog.md` (748 lines) with 8 sections:
+  - **10 CRITICAL (P0)** items: auth missing on `/api/auth/users`, DELETE on compliance tables, recipe ingredient expansion missing, product name snapshot missing, no METRC waste export, batch-close container teardown missing, REI pre-entry check missing, Today silent errors, BatchDetail amendment missing batch_id, PesticideNew no offline handling
+  - **17 HIGH (P1)** items: MDA time stripped, lot# missing from MDA, no METRC UID gate before harvest, missing updated_at on 6 tables, 3 missing METRC exports, no PDF cultivation record, planting plans UI missing, tag assignment write routes missing, waste trim disposal not wired, navigation to recipes/inputs broken, Today lifecycle actions missing, 8 forms missing draft persistence, NavBar touch targets, success toast gaps, broken api.getItems
+  - **5 Phase 1 Remaining** items
+  - **17 Technical Debt** items (indexes, Zod gaps, deprecated code, missing down() migrations)
+  - **Phase 2/3/4 features** with effort estimates from roadmap
+  - **11 Known Issues** with impact and workaround
+- Committed and pushed as `docs: comprehensive backlog and known issues tracker`
+
+### Key Decisions
+- Effort sizes: S=hours, M=1-2 days, L=3-5 days, XL=1+ week
+- Kept compliance gaps in both Critical section AND Phase 1 Remaining where applicable
+
+### Files Modified/Created
+- `docs/backlog.md` (new — 748 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Highest-impact quick wins: CRIT-09 (one-liner batch_id fix), CRIT-01 (one-liner auth middleware), DEBT-01 (migration 015 — all content in audit-schema-performance.md Section 6)
+- Most complex Phase 1 fix: HIGH-08 (PDF cultivation record) — needs server-side PDF tooling decision
+- Phase 2 cannot begin until all 10 CRITICAL items are resolved
+
+---
+
+## Task: OCM reporting requirements analysis
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read all 14 migration files, all route files, docs/audit-regulatory-compliance.md, and CLAUDE.md regulatory references
+- Produced `docs/ocm-reporting-requirements.md` (1,030 lines, 6 sections):
+  - **Section 1:** Regulatory framework — 342.25 (what inspectors ask for, retention, production timelines), Rule 4770 (unified crop input log requirements), 18B.37 (full field-by-field table with current status), METRC (what OCM sees directly vs. what they request), MDA (separate enforcement authority, inspection triggers)
+  - **Section 2:** Inspection scenario analysis — 8 OCM inspection questions (A1–A8), 5 MDA inspection questions (B1–B5), 4 METRC reconciliation questions (C1–C4); each maps to specific report and identifies current capability vs. gap
+  - **Section 3:** 11 report specifications — each with purpose, requestor, trigger, format, target production time (< 30–60s), filter params, required fields with data sources, and gap analysis
+  - **Section 4:** OCM Compliance Dashboard design — 8 panels with RAG status logic, SQL sketches for each panel query, layout diagram, and the `/api/reports/compliance-status` route spec
+  - **Section 5:** Report gap matrix (11 reports × 4 dimensions) + 5 critical schema changes needed (product snapshots, additive sync columns, updated_at, tag assignment sync, user license)
+  - **Section 6:** Pre-inspection readiness checklist (batch compliance, pesticide compliance, METRC reporting, records) + pre-harvest gate checklist (7 items)
+- Committed as `docs: OCM reporting requirements analysis and report design spec`, pushed
+
+### Key Decisions
+- Identified 11 net-new routes needed across two route files: `GET /api/reports/*` for 8 standalone reports + `GET /api/reports/compliance-status` for the dashboard + 2 fixes to existing exports.ts routes
+- Dashboard overall status is RED (any active REI, any failed METRC sync, any PHI non-compliance on harvesting batch), AMBER (pending syncs, untagged plants, missing UIDs), GREEN (all panels clear)
+- Pre-harvest gate is 7-item checklist that prevents harvest from starting on any batch with unresolved compliance gaps
+
+### Files Modified/Created
+- `docs/ocm-reporting-requirements.md` (new — 1,030 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Implementation priority: Reports 1, 3, 5, 6, 7 are S-effort (new routes, no schema changes) — good quick wins
+- Reports 8 (METRC Reconciliation) and 2 (Cultivation Record ingredient expansion) require migration 016 and exports.ts changes respectively
+- Dashboard (`GET /api/reports/compliance-status`) is a single-query aggregation — can be built before individual report routes
+- All 11 reports use existing tables; no schema changes except for the 5 listed in Section 5
+- The pre-harvest gate checklist in Section 6 should drive the implementation of Rule 6 enforcement in harvest.ts (currently METRC UID is not verified before harvest events)
+
+---
+
+## Task: SensorPush schema + API routes + UI
+**Completed:** 2026-05-21T20:45:00Z
+
+### What Was Done
+- **Migration `016_sensors.ts`**: cv_sensors, cv_sensor_location_assignments, cv_sensor_readings, cv_sensor_readings_hourly tables + indexes. Used `.float()` not `.real()` (Knex convention). UNIQUE index on (sensor_id, observed_at) enables INSERT OR IGNORE for idempotent polling.
+- **`src/lib/sensorpush-client.ts`**: Singleton SensorPushClient with two-step OAuth, 55-min token cache, automatic 401 retry. getSensors() / getSamples() methods.
+- **`src/lib/domain-utils.ts`**: Added calcDewPoint() (Magnus formula, °C in / °F out), calcVPD() (Tetens, 3 decimal kPa), celsiusToFahrenheit() (1 decimal).
+- **`src/lib/sensor-poller.ts`**: pollSensors() fetches samples + sensor list in parallel, inserts readings with INSERT OR IGNORE, updates battery/last_seen metadata, runs hourly downsampler.
+- **`src/api/routes/sensors.ts`**: 8 routes at /api/sensors — GET / (list), POST /sync (upsert from SensorPush), GET /assignments, POST /assignments (assign with auto-unassign), DELETE /assignments/:id, GET /current (Option C on-demand poll with 5-min cache, 30-min stale threshold), GET /:id/readings (raw 7-day limit or hourly), POST /poll (admin trigger).
+- **`client/src/hooks/useCurrentConditions.jsx`**: Hook + inline SensorBadge component (renamed to .jsx from .js because JSX content).
+- **PesticideNew.jsx + FertigationNew.jsx**: Added `useCurrentConditions` hook, auto-fill effect for ambient_temp_f / ambient_rh when batch sub_zone_id is known and fields are empty. SensorBadge renders below temp field; clears on manual edit.
+- **`client/src/pages/admin/SensorManagement.jsx`**: Admin page at /admin/sensors. Sync from SensorPush, test poll, per-sensor assign/unassign/reassign via modal, battery bar, latest reading display.
+- **ApplicationsHub.jsx**: Added "Sensor Management" entry to Admin section.
+- **App.jsx**: Added /admin/sensors route (minRole=admin).
+- **`src/tests/unit/domain-utils.test.ts`**: 16 unit tests for the three new functions.
+- 191 tests total pass; `npx tsc --noEmit` passes; `npm run build` passes.
+
+### Key Decisions
+- Used `.float()` not `.real()` in Knex migration (`.real()` doesn't exist on CreateTableBuilder).
+- Hook file is `.jsx` not `.js` because it exports a JSX component (SensorBadge).
+- Both PesticideNew and FertigationNew already had their own `activeBatch` variable — sensor hook uses `(lockedBatch || selectedBatch)` inline to avoid naming conflict.
+- On-demand poll in GET /current tries to poll stale sensors but silently ignores failures (returns DB data either way).
+- pollSensors() fetches samples and sensor list in parallel (Promise.all) for efficiency.
+
+### Files Modified/Created
+- `src/db/migrations/016_sensors.ts` (new)
+- `src/lib/sensorpush-client.ts` (new)
+- `src/lib/domain-utils.ts` (3 functions added)
+- `src/lib/sensor-poller.ts` (new)
+- `src/api/routes/sensors.ts` (new)
+- `src/api/app.ts` (import + register)
+- `src/tests/unit/domain-utils.test.ts` (new — 16 tests)
+- `client/src/api.js` (8 sensor methods added)
+- `client/src/hooks/useCurrentConditions.jsx` (new)
+- `client/src/pages/admin/SensorManagement.jsx` (new)
+- `client/src/pages/applications/ApplicationsHub.jsx` (sensor management link)
+- `client/src/pages/applications/PesticideNew.jsx` (sensor auto-fill wired)
+- `client/src/pages/applications/FertigationNew.jsx` (sensor auto-fill wired)
+- `client/src/App.jsx` (new route)
+
+### Notes for Next Tasks
+- Background polling (`src/sensor-poller.ts`) is the standalone export — wire it to a Task Scheduler script or Railway cron in a separate step (no cron configured yet).
+- The Today screen "Current Conditions" panel (Section 5 of design doc) is not yet implemented — requires adding `api.getCurrentConditions()` call to `Today.jsx`.
+- `sensor_reading_id` FK linkage on application tables (design doc Section 8, audit chain) is not implemented — would need migration 017.
+- SensorManagement hardcodes the 11 location names (from migration 011 seed) rather than fetching from a `/api/locations` endpoint — that endpoint doesn't exist yet.
+
+---
+
+## Task: SensorPush API integration design
+**Completed:** 2026-05-21
+
+### What Was Done
+- Read migrations 007, 009, 011, batches.ts routes, and session context to understand all ambient condition fields and location structure
+- Produced `docs/sensorpush-integration-design.md` — 1,167-line design document covering all 8 sections
+- Committed and pushed as `docs: SensorPush API integration design`
+
+### Key Decisions
+- Recommended Option B (separate `src/sensor-poller.ts` script) for production, Option C (on-demand poll with 5-min cache) as Phase 1 fallback
+- Migration numbered `016_sensors.ts` — creates `cv_sensors`, `cv_sensor_location_assignments`, `cv_sensor_readings`, and `cv_sensor_readings_hourly` tables
+- Readings are denormalized at ingest time: `location_id` and `sub_zone_id` copied from the active assignment onto each reading row — makes historical queries fast without joining through assignment history
+- VPD thresholds stored in `src/lib/sensor-thresholds.ts` (application constants, not DB config) since they are agronomic standards
+- Full-resolution readings retained 90 days (configurable via `SENSORPUSH_RETENTION_DAYS`); hourly summaries are permanent and drive Phase 3 charts
+- Identified future migration opportunity: `sensor_reading_id` FK on application tables to create an auditable chain from pesticide records to the exact calibrated sensor reading used for auto-fill
+
+### Files Modified/Created
+- `docs/sensorpush-integration-design.md` (new — 1,167 lines)
+- `.claude/session_context.md` (this entry)
+
+### Notes for Next Tasks
+- Phase 2 implementation starts with migration `016_sensors.ts` + `POST /api/sensors/sync`
+- `src/lib/sensor-thresholds.ts` is a new file to create — VPD optimal ranges per batch status
+- Auto-fill hook pattern is documented in Section 4 — copy into `PesticideNew.jsx` first (highest compliance value), then `FertigationNew.jsx` and `HarvestDashboard.jsx`
+- `SensorBadge` component is a small shared component in `client/src/components/`
+- The SensorPush auth flow has a known quirk: access tokens may not need "Bearer" prefix — verify during implementation against current SensorPush API docs
+- Wind speed is NOT available from SensorPush — `wind_speed_mph` on pesticide applications remains manually entered
+
+---
+
+## Task: OCM compliance dashboard + reports
+**Completed:** 2026-05-21
+
+### What Was Done
+- Added 4 backend endpoints to `src/api/routes/exports.ts` (under existing `/api/exports` prefix):
+  - `GET /compliance-dashboard` — 8-panel RAG-status aggregation (active REIs, PHI watch, METRC pending/failed, untagged plants, missing batch UIDs, losses unsynced, waste pending disposal)
+  - `GET /plant-inventory` — all non-closed batches with derived counts (plant_count_current, tagged_count), days in stage, current recipe, REI flag, METRC UID status
+  - `GET /tag-verification` — active plant assignments joined with container/row/batch/strain; optional sub_zone_id filter; JSON or CSV
+  - `GET /metrc-reconciliation` — sync status counts + pending/failed item lists for phase_history, location_history, harvest_events, waste_trim, plant_loss
+- Added 5 API methods to `client/src/api.js`: getComplianceDashboard, getPlantInventory, getTagVerification, getMetrcReconciliation, downloadTagVerificationCsv
+- Created 4 frontend pages under `client/src/pages/compliance/`:
+  - `ComplianceDashboard.jsx` — route `/compliance`; panel grid; auto-refresh every 5 min; overall status banner (green/amber/red)
+  - `PlantInventory.jsx` — route `/compliance/plant-inventory`; table with stats summary; print button; links to batch detail on row click
+  - `TagVerification.jsx` — route `/compliance/tag-verification`; sub-zone filter; grouped by sub-zone → row; last 4 of tag shown bold; CSV download
+  - `MetrcReconciliation.jsx` — route `/compliance/metrc-reconciliation`; summary bar; accordion sections per event type with pending/failed item tables
+- Updated `ApplicationsHub.jsx`: renamed "Exports & Reports" to "Compliance & Reports" and added 4 new compliance links above the existing export links
+- Updated `App.jsx`: imported and registered 4 new routes
+
+### Key Decisions
+- Helper functions `getCount()` and `getSyncCounts()` defined at module level (not inside exportsRoutes) to avoid code repetition across 4 new endpoints
+- `result: Array<Record<string, unknown>>` explicit type annotation required on the plant-inventory map() to avoid TS7053 when accessing spread fields
+- Pre-existing TS errors in `016_sensors.ts` are unrelated to this task; `npx tsc --noEmit` shows only those errors (not in my files)
+- PHI watch panel: RED if any phi_compliant=0 on a 'harvesting' batch; AMBER if on flush/harvest_window batch
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` (4 new endpoints + 3 helper functions)
+- `client/src/api.js` (5 new methods)
+- `client/src/pages/compliance/ComplianceDashboard.jsx` (new)
+- `client/src/pages/compliance/PlantInventory.jsx` (new)
+- `client/src/pages/compliance/TagVerification.jsx` (new)
+- `client/src/pages/compliance/MetrcReconciliation.jsx` (new)
+- `client/src/pages/applications/ApplicationsHub.jsx` (section renamed + 4 links added)
+- `client/src/App.jsx` (4 imports + 4 routes)
+
+### Notes for Next Tasks
+- `/compliance` is accessible to all authenticated users (no minRole guard) — consider adding supervisor or admin gate if needed
+- CSV download for tag verification uses `window.open()` (same pattern as existing exports) — this sends no auth header and will 401 for authenticated routes; a proper blob-fetch approach would be needed to fix this for all export CSV downloads
+- `getCount()` helper uses SQLite's `COUNT(*) AS cnt` pattern — must use `cnt` alias consistently
+- 175 tests passing, build passes clean
