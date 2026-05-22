@@ -279,6 +279,7 @@ const observationsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });
+      updates.push("updated_at = datetime('now')");
       values.push(id);
       db.prepare(`UPDATE cv_observations SET ${updates.join(', ')} WHERE observation_id = ?`).run(...values);
 

@@ -303,6 +303,7 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
 
       if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });
 
+      updates.push("updated_at = datetime('now')");
       values.push(id);
       db.prepare(
         `UPDATE cv_container_amendments SET ${updates.join(', ')} WHERE amendment_id = ?`

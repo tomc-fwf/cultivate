@@ -311,6 +311,7 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: 'No valid fields to update' });
       }
 
+      updates.push("updated_at = datetime('now')");
       values.push(id);
       db.prepare(`UPDATE cv_applications_fertigation SET ${updates.join(', ')} WHERE application_id = ?`).run(...values);
 
