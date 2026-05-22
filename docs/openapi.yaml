@@ -221,6 +221,241 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
+    ContainerStateSummary:
+      type: object
+      description: Per-sub-zone container state counts (GET /containers/summary)
+      properties:
+        sub_zone_id: { type: string, example: Z1A }
+        zone_id: { type: integer }
+        designation: { type: string, enum: [A, B] }
+        pot_size_gal: { type: integer }
+        container_count: { type: integer }
+        counts:
+          type: object
+          properties:
+            ready: { type: integer }
+            active: { type: integer }
+            empty: { type: integer }
+            teardown: { type: integer }
+            startup: { type: integer }
+            out_of_service: { type: integer }
+
+    ContainerListItem:
+      type: object
+      description: Container row from GET /containers?sub_zone_id= — joined with state, batch, and active tag
+      properties:
+        container_id: { type: string, example: "Z1-A-R3-C12" }
+        position: { type: integer }
+        container_notes: { type: string, nullable: true }
+        row_id: { type: string, example: Z1-A-R3 }
+        row_number: { type: integer }
+        current_state:
+          type: string
+          enum: [ready, active, empty, teardown, startup, out_of_service]
+        state_since: { type: string, format: date-time }
+        current_batch_id: { type: integer, nullable: true }
+        state_notes: { type: string, nullable: true }
+        batch_status: { type: string, nullable: true }
+        strain_name: { type: string, nullable: true }
+        strain_type: { type: string, nullable: true, enum: [auto, photo] }
+        metrc_plant_tag: { type: string, nullable: true }
+
+    ContainerDetail:
+      type: object
+      description: Full container record from GET /containers/{id}
+      properties:
+        container:
+          type: object
+          properties:
+            container_id: { type: string }
+            position: { type: integer }
+            container_notes: { type: string, nullable: true }
+            row_id: { type: string }
+            row_number: { type: integer }
+            sub_zone_id: { type: string }
+            zone_id: { type: integer }
+            pot_size_gal: { type: integer }
+        current_state:
+          type: object
+          nullable: true
+          properties:
+            current_state: { type: string }
+            state_since: { type: string, format: date-time }
+            current_batch_id: { type: integer, nullable: true }
+            notes: { type: string, nullable: true }
+        current_batch:
+          type: object
+          nullable: true
+          description: Minimal batch context (batch_id, status, strain_name, active_recipe_name)
+        current_tag:
+          type: object
+          nullable: true
+          description: Active cv_plant_assignments row (metrc_plant_tag, placed_at, etc.)
+        state_history:
+          type: array
+          items: { type: object }
+          description: State transitions newest first
+        amendments:
+          type: array
+          items: { type: object }
+          description: Container amendments with item_name resolved from farmstock, newest first
+        teardown_events:
+          type: array
+          items: { type: object }
+        startup_events:
+          type: array
+          items: { type: object }
+        past_batches:
+          type: array
+          items: { type: object }
+          description: Distinct batches that have occupied this container (from state_transitions)
+
+    FertigationApplication:
+      type: object
+      description: >
+        Fertigation application record enriched with recipe and strain info.
+        `editable` is true for 24 hours after applied_at; after that the record is locked.
+      properties:
+        application_id: { type: integer }
+        batch_id: { type: integer }
+        recipe_id: { type: integer }
+        applied_at: { type: string, format: date-time }
+        volume_gallons: { type: number }
+        ec_measured: { type: number, description: "Required (Rule 11). Use 0 as placeholder if meter fails — document in notes." }
+        ph_measured: { type: number }
+        solution_temp_f: { type: number, nullable: true }
+        ambient_temp_f: { type: number, nullable: true }
+        ambient_rh: { type: number, nullable: true }
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        batch_strain_name: { type: string, description: Joined from cv_strains }
+        batch_sub_zone_id: { type: string, nullable: true }
+        recipe_name: { type: string }
+        recipe_version: { type: string }
+        applicator_name: { type: string, nullable: true }
+        editable: { type: boolean, description: True within 24 hours of applied_at }
+
+    FoliarApplication:
+      type: object
+      description: >
+        Non-pesticide foliar spray record. stage_compliant=false is a hard block (never
+        persisted); phi_compliant=0 is a warning (persisted with a warning field in the
+        POST response).
+      properties:
+        foliar_id: { type: integer }
+        batch_id: { type: integer }
+        row_id: { type: string, nullable: true }
+        container_id: { type: string, nullable: true }
+        applied_at: { type: string, format: date-time }
+        foliar_recipe_id: { type: integer, nullable: true }
+        input_id: { type: integer, nullable: true }
+        input_lot_id: { type: integer, nullable: true }
+        rate_value: { type: number, nullable: true }
+        rate_unit: { type: string, nullable: true }
+        volume_applied: { type: number, nullable: true }
+        volume_unit: { type: string, nullable: true }
+        purpose: { type: string, description: Required (Rule 12) }
+        ambient_temp_f: { type: number, nullable: true }
+        ambient_rh: { type: number, nullable: true }
+        phi_compliant:
+          type: integer
+          nullable: true
+          enum: [0, 1]
+          description: 1=compliant, 0=PHI violation flagged (saved with warning), null=not computed
+        stage_compliant:
+          type: integer
+          nullable: true
+          enum: [0, 1]
+          description: 1=stage OK, null=stage unknown. Value 0 is never stored (hard block at creation returns 422)
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        batch_strain_name: { type: string }
+        batch_sub_zone_id: { type: string, nullable: true }
+        recipe_name: { type: string, nullable: true }
+        recipe_version: { type: string, nullable: true }
+        applicator_name: { type: string, nullable: true }
+        editable: { type: boolean }
+
+    PesticideApplication:
+      type: object
+      description: >
+        Full MN MDA-compliant pesticide application record. `rei_active` is computed at
+        read time: true when rei_expires_at is set, not cleared, and in the future.
+      properties:
+        pesticide_app_id: { type: integer }
+        batch_id: { type: integer }
+        row_id: { type: string, nullable: true }
+        container_id: { type: string, nullable: true }
+        applied_at: { type: string, format: date-time }
+        input_id: { type: integer }
+        input_lot_id: { type: integer }
+        rate_value: { type: number }
+        rate_unit: { type: string }
+        volume_applied: { type: number }
+        volume_unit: { type: string }
+        application_method: { type: string, enum: [foliar_spray, soil_drench, granular, other] }
+        target_pest: { type: string }
+        pest_pressure: { type: string, nullable: true, enum: [incidental, threshold, outbreak] }
+        ambient_temp_f: { type: number }
+        ambient_rh: { type: number, nullable: true }
+        wind_speed_mph: { type: number }
+        wind_direction: { type: string, nullable: true }
+        phi_compliant: { type: integer, nullable: true, enum: [0, 1] }
+        expected_harvest_date: { type: string, format: date, nullable: true }
+        rei_expires_at: { type: string, format: date-time, nullable: true }
+        rei_cleared_at: { type: string, format: date-time, nullable: true }
+        rei_cleared_by: { type: integer, nullable: true }
+        applicator_license: { type: string, nullable: true }
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        batch_strain_name: { type: string }
+        batch_sub_zone_id: { type: string, nullable: true }
+        applicator_name: { type: string, nullable: true }
+        editable: { type: boolean }
+        rei_active: { type: boolean, description: Computed — true when REI is set and not cleared }
+
+    ContainerAmendment:
+      type: object
+      description: >
+        Container media amendment record. `batch_id` and `container_state` are
+        auto-populated from cv_container_state at submission time and cannot be set
+        by the caller.
+      properties:
+        amendment_id: { type: integer }
+        container_id: { type: string, example: "Z1-A-R3-C12" }
+        batch_id: { type: integer, nullable: true, description: Auto-populated from container state at submission }
+        container_state:
+          type: string
+          enum: [ready, active, empty, teardown, startup, out_of_service]
+          description: State of the container when the amendment was applied
+        applied_at: { type: string, format: date-time }
+        amendment_type:
+          type: string
+          enum: [media_replacement, amendment, inoculation, drench, top_dress, mix_in, correction, removal, other]
+        application_method:
+          type: string
+          nullable: true
+          enum: [top_dress, mix_in, drench, side_dress, replaced, removed, other]
+        input_id: { type: integer, nullable: true }
+        input_lot_id: { type: integer, nullable: true }
+        quantity: { type: number, nullable: true }
+        quantity_unit: { type: string, nullable: true, example: lb }
+        purpose: { type: string, nullable: true }
+        soil_sample_id: { type: integer, nullable: true, description: Links amendment to the soil sample that drove the decision }
+        applicator: { type: integer }
+        notes: { type: string, nullable: true }
+        created_by: { type: integer }
+        created_at: { type: string, format: date-time }
+        applicator_name: { type: string, nullable: true }
+        batch_strain_name: { type: string, nullable: true }
+        editable: { type: boolean }
+
 tags:
   - name: auth
     description: Authentication — PIN login, JWT refresh, user list
@@ -228,6 +463,16 @@ tags:
     description: Plant batch lifecycle management
   - name: strains
     description: Strain catalog
+  - name: containers
+    description: Container state management, sub-zone list, detail view, and admin bulk operations
+  - name: fertigation-applications
+    description: Drip fertigation application records (sub-zone level, bulk entry supported)
+  - name: foliar-applications
+    description: Non-pesticide foliar spray application records (Rule 12–14 enforced)
+  - name: pesticide-applications
+    description: EPA-registered pesticide application records with full PHI/REI/MDA compliance
+  - name: container-amendments
+    description: Container growing-media amendments (compost, nematodes, pH correctors, etc.)
 
 paths:
   # ─── AUTH ────────────────────────────────────────────────────────────────────
@@ -904,6 +1149,1321 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: Strain not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── CONTAINERS ─────────────────────────────────────────────────────────────
+
+  /containers/summary:
+    get:
+      tags: [containers]
+      summary: State counts per sub-zone (dashboard)
+      description: >
+        Returns per-sub-zone aggregates of container states. All 8 sub-zones (Z1A–Z4B)
+        are included. Sorted by zone_id then designation (A before B). Used by the
+        Container Status Dashboard (feature 22).
+      responses:
+        '200':
+          description: Array of sub-zone summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContainerStateSummary'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers:
+    get:
+      tags: [containers]
+      summary: List containers for a sub-zone
+      description: >
+        Returns all containers for the given `sub_zone_id`, joined with current state,
+        active batch context (strain, status), and the active METRC plant tag.
+        Ordered by row_number then position. `sub_zone_id` is required.
+      parameters:
+        - name: sub_zone_id
+          in: query
+          required: true
+          schema: { type: string, example: Z1A }
+          description: Sub-zone identifier (Z1A–Z4B)
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ready, active, empty, teardown, startup, out_of_service]
+          description: Optional state filter
+      responses:
+        '200':
+          description: Sub-zone metadata + containers array
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sub_zone:
+                    type: object
+                    properties:
+                      sub_zone_id: { type: string }
+                      pot_size_gal: { type: integer }
+                      row_count: { type: integer }
+                      container_count: { type: integer }
+                  containers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ContainerListItem'
+        '400':
+          description: Missing sub_zone_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Sub-zone not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers/admin/bulk-set-state:
+    post:
+      tags: [containers]
+      summary: Bulk-set container states (admin)
+      description: >
+        Sets all containers in a given scope to a target state and logs each transition.
+        No-ops (already in target state) are skipped. Returns counts.
+
+        Admin role required.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_state, scope]
+              properties:
+                to_state:
+                  type: string
+                  enum: [ready, active, empty, teardown, startup, out_of_service]
+                scope:
+                  type: string
+                  enum: [all, zone, sub_zone, row]
+                  description: "`all` needs no scope_id; others require scope_id"
+                scope_id:
+                  type: string
+                  nullable: true
+                  description: >
+                    Zone number (e.g. "1"), sub-zone ID (e.g. "Z1A"), or row ID
+                    (e.g. "Z1-A-R3"). Required when scope is not "all".
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Count of changed and scanned containers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated_count: { type: integer }
+                  scanned_count: { type: integer }
+                  message: { type: string }
+        '400':
+          description: Invalid to_state, invalid scope, or missing scope_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers/admin/bulk-reset-ready:
+    post:
+      tags: [containers]
+      summary: Reset all containers to ready (admin, deprecated)
+      description: >
+        **Deprecated** — use `POST /containers/admin/bulk-set-state` with
+        `{ to_state: "ready", scope: "all" }` instead.
+
+        Resets every non-ready container to `ready`. Used only during initial setup.
+        Kept for backward compatibility.
+      responses:
+        '200':
+          description: Count of containers reset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reset_count: { type: integer }
+                  message: { type: string }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers/{id}:
+    get:
+      tags: [containers]
+      summary: Get full container detail
+      description: >
+        Returns the complete container record: base info, current state, current batch,
+        active METRC tag, state transition history, amendment history (enriched with
+        farmstock item names), teardown events, startup events, and past batches.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, example: "Z1-A-R3-C12" }
+          description: Container ID in `Z{zone}-{sub}-R{row}-C{position}` format
+      responses:
+        '200':
+          description: Full container detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerDetail'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers/{id}/state:
+    patch:
+      tags: [containers]
+      summary: Manual container state override (admin)
+      description: >
+        Sets a container's state directly. Admin-only emergency correction path.
+        Clears `current_batch_id` on every manual transition. Logs a `manual` trigger
+        in cv_container_state_transitions.
+
+        Constraint: cannot set `active` or `empty` when no `current_batch_id` is
+        associated — use the batch assignment workflow instead.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, example: "Z1-A-R3-C12" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_state]
+              properties:
+                to_state:
+                  type: string
+                  enum: [ready, active, empty, teardown, startup, out_of_service]
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Raw cv_container_state row after update
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Invalid to_state or active/empty without a current batch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Container or container state record not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /containers/{id}/notes:
+    patch:
+      tags: [containers]
+      summary: Update container notes (supervisor)
+      description: >
+        Updates both cv_containers.notes and cv_container_state.notes simultaneously.
+        Pass `null` to clear. Requires supervisor role.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, example: "Z1-A-R3-C12" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notes]
+              properties:
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated notes value
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  notes: { type: string, nullable: true }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — supervisor required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── FERTIGATION APPLICATIONS ────────────────────────────────────────────────
+
+  /fertigation-applications:
+    get:
+      tags: [fertigation-applications]
+      summary: List fertigation applications
+      description: >
+        Returns fertigation applications enriched with strain, sub-zone, recipe name,
+        version, and applicator name. Default date filter is today (UTC calendar day).
+        Each record includes an `editable` flag (true within 24 hours of applied_at).
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+          description: Filter to a single batch
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: string
+            example: today
+          description: >
+            `today` (default), a specific `YYYY-MM-DD` date, `7d` (last 7 days), or
+            `30d` (last 30 days)
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: Array of fertigation applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FertigationApplication'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [fertigation-applications]
+      summary: Create fertigation application(s)
+      description: >
+        Creates one application record per batch in `batch_ids` — supports bulk entry
+        for applying the same recipe to multiple sub-zones simultaneously.
+
+        Business rules:
+        - Recipe must be active (active=1)
+        - All batch_ids must exist and be non-closed
+        - EC and pH required (Rule 11); use 0 as placeholder if meter fails
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_ids, recipe_id, applied_at, volume_gallons, ec_measured, ph_measured]
+              properties:
+                batch_ids:
+                  type: array
+                  items: { type: integer }
+                  minItems: 1
+                  description: One or more batch IDs — one record created per batch
+                recipe_id:
+                  type: integer
+                  description: Active fertigation recipe (active=1)
+                applied_at: { type: string, format: date-time }
+                volume_gallons: { type: number, description: Total solution volume (gallons) }
+                ec_measured: { type: number, description: EC reading (mS/cm). Required; use 0 if meter failed. }
+                ph_measured: { type: number, description: pH reading. Required; use 0 if meter failed. }
+                solution_temp_f: { type: number, nullable: true }
+                ambient_temp_f: { type: number, nullable: true }
+                ambient_rh: { type: number, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Applications created (one per batch_id)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        application_id: { type: integer }
+                        batch_id: { type: integer }
+        '400':
+          description: Validation error, inactive recipe_id, or batch closed/not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /fertigation-applications/{id}:
+    patch:
+      tags: [fertigation-applications]
+      summary: Edit a fertigation application (24h window)
+      description: >
+        Partial update of measurement fields. Only allowed within 24 hours of
+        `applied_at`; after that the record is locked (409). `applied_at` can only
+        be shifted within the same calendar day.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                volume_gallons: { type: number }
+                ec_measured: { type: number }
+                ph_measured: { type: number }
+                solution_temp_f: { type: number, nullable: true }
+                ambient_temp_f: { type: number, nullable: true }
+                ambient_rh: { type: number, nullable: true }
+                notes: { type: string, nullable: true }
+                applied_at:
+                  type: string
+                  format: date-time
+                  description: Must remain on the same calendar day as original
+      responses:
+        '200':
+          description: Updated application with enriched fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FertigationApplication'
+        '400':
+          description: Validation error, no valid fields, or applied_at day change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24-hour edit window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [fertigation-applications]
+      summary: Delete a fertigation application (admin, 24h window)
+      description: >
+        Hard-deletes the application. Admin only, within 24 hours of applied_at.
+
+        **Note:** Deletion of compliance records violates business rule 5 (5-year
+        retention). This endpoint is scheduled for removal before production — use the
+        `corrects_id` pattern instead.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Application deleted
+        '400':
+          description: Invalid ID
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24-hour window
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── FOLIAR APPLICATIONS ─────────────────────────────────────────────────────
+
+  /foliar-applications:
+    get:
+      tags: [foliar-applications]
+      summary: List foliar applications
+      description: >
+        Returns non-pesticide foliar applications enriched with strain, sub-zone, recipe
+        info, and applicator name. Default date filter is today.
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, example: today }
+          description: "`today` (default), `YYYY-MM-DD`, `7d`, or `30d`"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: Array of foliar applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FoliarApplication'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [foliar-applications]
+      summary: Create a foliar application
+      description: >
+        Records a non-pesticide foliar spray application.
+
+        **Business rules enforced:**
+        - `purpose` required (Rule 12)
+        - Either `foliar_recipe_id` OR `input_id` must be provided (not both)
+        - When `input_id` is provided: `rate_value` and `rate_unit` required
+        - **Rule 13 — EPA redirect (422):** If farmstock item has an EPA number, returns
+          422 `redirect: "pesticide"` instead of saving
+        - **Rule 14 — Stage block (422):** If `input_phi_stage_overrides` blocks the
+          product in the current batch stage, returns 422 `stage_blocked: true`
+        - **Rule 14 — PHI warning:** `phi_compliant` is computed and stored; if 0, a
+          `warning` is returned but the record is saved
+        - Blocked when batch status is `harvesting`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch_id, applied_at, purpose]
+              properties:
+                batch_id: { type: integer }
+                row_id: { type: string, nullable: true, description: "Target row (e.g. Z1-A-R3)" }
+                container_id: { type: string, nullable: true, description: "Target container (e.g. Z1-A-R3-C12)" }
+                applied_at: { type: string, format: date-time }
+                foliar_recipe_id:
+                  type: integer
+                  nullable: true
+                  description: Active foliar recipe. Mutually exclusive with input_id.
+                input_id:
+                  type: integer
+                  nullable: true
+                  description: Single farmstock item ID. Mutually exclusive with foliar_recipe_id.
+                input_lot_id: { type: integer, nullable: true }
+                rate_value:
+                  type: number
+                  nullable: true
+                  description: Required when input_id provided (no recipe)
+                rate_unit:
+                  type: string
+                  nullable: true
+                  description: Required when input_id provided
+                volume_applied: { type: number, nullable: true }
+                volume_unit:
+                  type: string
+                  nullable: true
+                  description: Required when volume_applied is provided
+                purpose:
+                  type: string
+                  description: Why this foliar is being applied (Rule 12 — required)
+                ambient_temp_f: { type: number, nullable: true }
+                ambient_rh: { type: number, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Foliar application created. Includes `warning` field if PHI non-compliant.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  foliar_id: { type: integer }
+                  batch_id: { type: integer }
+                  phi_compliant: { type: integer, nullable: true, enum: [0, 1] }
+                  stage_compliant: { type: integer, nullable: true, enum: [0, 1] }
+                  warning:
+                    type: string
+                    description: Present only when phi_compliant=0
+        '400':
+          description: Validation error, missing recipe/product, rate_value required, or batch closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: >
+            Hard business rule violation — check response fields for client action.
+            `redirect: "pesticide"` — product has EPA number, use pesticide form.
+            `stage_blocked: true` — product not permitted in current growth stage.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  redirect: { type: string, enum: [pesticide] }
+                  stage_blocked: { type: boolean }
+                  reason: { type: string, description: Stage block reason from operator config }
+                  input_id: { type: integer }
+
+  /foliar-applications/{id}:
+    patch:
+      tags: [foliar-applications]
+      summary: Edit a foliar application (24h window)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                row_id: { type: string, nullable: true }
+                container_id: { type: string, nullable: true }
+                applied_at: { type: string, format: date-time, description: Same calendar day only }
+                rate_value: { type: number, nullable: true }
+                rate_unit: { type: string, nullable: true }
+                volume_applied: { type: number, nullable: true }
+                volume_unit: { type: string, nullable: true }
+                purpose: { type: string }
+                ambient_temp_f: { type: number, nullable: true }
+                ambient_rh: { type: number, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated foliar application
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoliarApplication'
+        '400':
+          description: Validation error or applied_at day change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [foliar-applications]
+      summary: Delete a foliar application (admin, 24h window)
+      description: >
+        **Note:** Deletion of compliance records violates business rule 5. Scheduled
+        for removal before production.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Application deleted
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── PESTICIDE APPLICATIONS ──────────────────────────────────────────────────
+
+  /pesticide-applications:
+    get:
+      tags: [pesticide-applications]
+      summary: List pesticide applications
+      description: >
+        Returns pesticide applications enriched with strain, sub-zone, and applicator
+        name. Each record has computed `editable` and `rei_active` flags.
+
+        When `?rei_active=1` the date filter is ignored and only applications with
+        unexpired, uncleared REIs are returned (powers the REI Status Dashboard).
+      parameters:
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, example: today }
+          description: "`today` (default), `YYYY-MM-DD`, `7d`, or `30d`. Ignored when rei_active=1."
+        - name: rei_active
+          in: query
+          required: false
+          schema: { type: string, enum: ['1'] }
+          description: Pass `1` to retrieve all applications with currently active REIs
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: Array of pesticide applications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PesticideApplication'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [pesticide-applications]
+      summary: Create a pesticide application
+      description: >
+        Records a full MN MDA-compliant pesticide application (MN Statute 18B.37).
+
+        **Business rules enforced (hard blocks unless noted):**
+        - Rule 16 — `input_lot_id` required
+        - Rule 17 — `target_pest`, `ambient_temp_f`, `wind_speed_mph` required
+        - Rule 18 — PHI checked using `phi_days_operational` from farmstock; violation
+          requires `phi_override_notes` to proceed (422 otherwise)
+        - Rule 19 — Stage block from `input_phi_stage_overrides`; cannot be overridden
+        - Rule 20 — `rei_expires_at` computed as `applied_at + rei_hours`
+        - Rule 21 — `applicator_license` required for restricted-use products (RUP)
+        - **EPA reverse-check:** No EPA number on item → 422 `redirect: "foliar"`
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - batch_id
+                - applied_at
+                - input_id
+                - input_lot_id
+                - rate_value
+                - rate_unit
+                - volume_applied
+                - volume_unit
+                - application_method
+                - target_pest
+                - ambient_temp_f
+                - wind_speed_mph
+              properties:
+                batch_id: { type: integer }
+                row_id: { type: string, nullable: true }
+                container_id: { type: string, nullable: true }
+                applied_at: { type: string, format: date-time }
+                input_id: { type: integer, description: Farmstock item ID — must be EPA-registered }
+                input_lot_id: { type: integer, description: Required (Rule 16) — lot tracking is non-negotiable for pesticides }
+                rate_value: { type: number }
+                rate_unit: { type: string }
+                volume_applied: { type: number }
+                volume_unit: { type: string }
+                application_method:
+                  type: string
+                  enum: [foliar_spray, soil_drench, granular, other]
+                target_pest:
+                  type: string
+                  description: What is being controlled (Rule 17 — required)
+                pest_pressure:
+                  type: string
+                  nullable: true
+                  enum: [incidental, threshold, outbreak]
+                ambient_temp_f: { type: number, description: Required (MN Statute 18B.37) }
+                ambient_rh: { type: number, nullable: true }
+                wind_speed_mph: { type: number, description: Required (MN Statute 18B.37) }
+                wind_direction: { type: string, nullable: true }
+                expected_harvest_date:
+                  type: string
+                  format: date
+                  nullable: true
+                  description: For PHI calculation. Falls back to batch.harvest_date if omitted.
+                applicator_license:
+                  type: string
+                  nullable: true
+                  description: Required for restricted-use pesticides (Rule 21)
+                phi_override_notes:
+                  type: string
+                  nullable: true
+                  description: Required when applying within the PHI window (Rule 18 override)
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Pesticide application created. Includes `warning` field if PHI override recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pesticide_app_id: { type: integer }
+                  batch_id: { type: integer }
+                  phi_compliant: { type: integer, nullable: true, enum: [0, 1] }
+                  rei_expires_at: { type: string, format: date-time, nullable: true }
+                  rei_hours: { type: number, nullable: true }
+                  target_area: { type: string, nullable: true, description: container_id or row_id }
+                  warning: { type: string, description: Present when phi_compliant=0 and override was recorded }
+        '400':
+          description: Validation error or batch closed/not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: >
+            Hard business rule violation — inspect fields for client action.
+            `redirect: "foliar"` — no EPA number; use foliar form.
+            `restricted_use: true` — RUP requires applicator_license.
+            `phi_violation: true` — within PHI window; provide phi_override_notes.
+            `stage_blocked: true` — product blocked in current growth stage; no override.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  redirect: { type: string, enum: [foliar] }
+                  restricted_use: { type: boolean }
+                  phi_violation: { type: boolean }
+                  phi_days_operational: { type: number }
+                  days_until_harvest: { type: integer }
+                  stage_blocked: { type: boolean }
+                  reason: { type: string }
+                  input_id: { type: integer }
+
+  /pesticide-applications/{id}/clear-rei:
+    post:
+      tags: [pesticide-applications]
+      summary: Clear REI — sign off area as safe to re-enter
+      description: >
+        Records `rei_cleared_at` and `rei_cleared_by` on the application. Called after
+        the re-entry interval has elapsed and the area has been inspected as safe.
+        Returns 409 if already cleared or if no REI exists on this application.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+          description: Pesticide application ID
+      responses:
+        '200':
+          description: REI cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pesticide_app_id: { type: integer }
+                  rei_cleared_at: { type: string, format: date-time }
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: REI already cleared, or this application has no REI
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /pesticide-applications/{id}:
+    patch:
+      tags: [pesticide-applications]
+      summary: Edit a pesticide application (24h window)
+      description: >
+        Limited field edits within 24 hours. Product, lot, rate, volume, and
+        application_method cannot be changed — for those corrections create a new record
+        referencing this one via `corrects_id`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applied_at: { type: string, format: date-time, description: Same calendar day only }
+                target_pest: { type: string }
+                pest_pressure: { type: string, nullable: true, enum: [incidental, threshold, outbreak] }
+                ambient_temp_f: { type: number }
+                ambient_rh: { type: number, nullable: true }
+                wind_speed_mph: { type: number }
+                wind_direction: { type: string, nullable: true }
+                applicator_license: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated pesticide application
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PesticideApplication'
+        '400':
+          description: Validation error or applied_at day change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [pesticide-applications]
+      summary: Delete a pesticide application (admin, 24h window)
+      description: >
+        **Note:** Deletion of compliance records violates business rule 5. Scheduled
+        for removal before production.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Application deleted
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ─── CONTAINER AMENDMENTS ────────────────────────────────────────────────────
+
+  /container-amendments:
+    get:
+      tags: [container-amendments]
+      summary: List container amendments
+      description: >
+        Returns container media amendments enriched with applicator name and batch strain
+        name. Default date filter is today (applied_at).
+      parameters:
+        - name: container_id
+          in: query
+          required: false
+          schema: { type: string, example: "Z1-A-R3-C12" }
+          description: Filter to a specific container
+        - name: batch_id
+          in: query
+          required: false
+          schema: { type: integer }
+          description: Filter to amendments associated with a specific plant batch
+        - name: date
+          in: query
+          required: false
+          schema: { type: string, example: today }
+          description: "`today` (default), `YYYY-MM-DD`, `7d`, or `30d`"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 50, maximum: 500 }
+      responses:
+        '200':
+          description: Array of container amendments
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContainerAmendment'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      tags: [container-amendments]
+      summary: Create a container amendment
+      description: >
+        Records an addition to container growing media (compost, nematodes, pH correctors,
+        biological inoculants, etc.).
+
+        `batch_id` and `container_state` are **auto-populated** from `cv_container_state`
+        at submission time — do not include them in the request.
+
+        **EPA redirect:** If `input_id` has an EPA registration number, returns 422
+        with `redirect: "pesticide"`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [container_id, applied_at, amendment_type]
+              properties:
+                container_id:
+                  type: string
+                  example: Z1-A-R3-C12
+                  description: Must be an existing container
+                applied_at: { type: string, format: date-time }
+                amendment_type:
+                  type: string
+                  enum: [media_replacement, amendment, inoculation, drench, top_dress, mix_in, correction, removal, other]
+                application_method:
+                  type: string
+                  nullable: true
+                  enum: [top_dress, mix_in, drench, side_dress, replaced, removed, other]
+                input_id:
+                  type: integer
+                  nullable: true
+                  description: Farmstock item ID. Must not be EPA-registered.
+                input_lot_id: { type: integer, nullable: true }
+                quantity: { type: number, nullable: true }
+                quantity_unit: { type: string, nullable: true, example: lb }
+                purpose: { type: string, nullable: true }
+                soil_sample_id:
+                  type: integer
+                  nullable: true
+                  description: Links amendment to the soil sample that drove the decision
+                notes: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Amendment created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  amendment_id: { type: integer }
+                  container_id: { type: string }
+                  batch_id: { type: integer, nullable: true, description: Auto-populated from container state }
+                  container_state: { type: string, description: State at time of application }
+        '400':
+          description: Validation error or container not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Product has EPA registration number — use pesticide application form
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string }
+                  redirect: { type: string, enum: [pesticide] }
+                  input_id: { type: integer }
+
+  /container-amendments/{id}:
+    patch:
+      tags: [container-amendments]
+      summary: Edit a container amendment (24h window)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                applied_at: { type: string, format: date-time, description: Same calendar day only }
+                amendment_type:
+                  type: string
+                  enum: [media_replacement, amendment, inoculation, drench, top_dress, mix_in, correction, removal, other]
+                application_method:
+                  type: string
+                  nullable: true
+                  enum: [top_dress, mix_in, drench, side_dress, replaced, removed, other]
+                quantity: { type: number, nullable: true }
+                quantity_unit: { type: string, nullable: true }
+                purpose: { type: string, nullable: true }
+                notes: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated amendment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContainerAmendment'
+        '400':
+          description: Validation error or applied_at day change
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Amendment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      tags: [container-amendments]
+      summary: Delete a container amendment (admin, 24h window)
+      description: >
+        **Note:** Deletion of compliance records violates business rule 5. Scheduled
+        for removal before production.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Amendment deleted
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Insufficient role — admin required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Amendment not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Record locked after 24 hours
           content:
             application/json:
               schema:
