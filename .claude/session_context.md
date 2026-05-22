@@ -1869,3 +1869,139 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - Migration numbering: 020 is now used; next migration is 021
 - The 6 application tables now have a complete audit trail (created_at + updated_at + created_by)
+
+---
+
+## Task: Today screen lifecycle action items (HIGH-13)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/exports/pending-actions` route to `src/api/routes/exports.ts`. Returns four integer counts: `teardown_pending` (containers in teardown state with no soil sample collected on their latest teardown event), `startup_pending` (containers in startup state), `lab_samples_awaiting` (soil samples sent to lab but results not received), `losses_unsynced` (plant loss events with `metrc_sync_status = 'pending'`).
+- Added `getPendingActions()` method to `client/src/api.js` under the OCM Compliance section.
+- Updated `client/src/pages/Today.jsx`: added `pendingActions` state, added `api.getPendingActions()` call in `loadData()`, added `PendingActionsSection` component that renders amber-styled action cards with links only when count > 0. Section is hidden entirely when all counts are zero.
+
+### Key Decisions
+- Used a LEFT JOIN to the latest teardown event (MAX teardown_id subquery) to correctly identify teardown containers with no soil sample — handles the case where no teardown event exists yet.
+- Silently swallows the pending-actions fetch error (sets to null) so a failure doesn't block the rest of the Today screen from loading.
+- Lab samples route links to `/containers` since a dedicated `/soil-samples` page doesn't exist yet; teardown and startup link to `/containers?state=teardown` and `/containers?state=startup` respectively.
+- The existing chunk-size warning on the frontend build is pre-existing and unrelated to this change.
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — added `GET /pending-actions` route (43 lines added before closing `};`)
+- `client/src/api.js` — added `getPendingActions` method
+- `client/src/pages/Today.jsx` — added state, data fetch, and `PendingActionsSection` component
+
+### Notes for Next Tasks
+- `GET /containers?state=teardown` and `?state=startup` filter params already supported by the existing containers route and ContainerDashboard — the links work correctly.
+- `/compliance/metrc-reconciliation` is the existing METRC Reconciliation page; losses_unsynced links there correctly.
+- A dedicated soil sample tracker page (Phase 2) would be the better link target for `lab_samples_awaiting`.
+
+---
+
+## Task: Waste trim disposal UI (HIGH-11)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `client/src/pages/harvest/WasteTrimList.jsx` — new page at `/harvest/waste-trim?batch_id=X`
+- Records are loaded via `api.getWasteTrim({ batch_id })` and grouped by `waste_status` (collected → held → disposed → reported)
+- Each `collected` or `held` record shows a "Mark Disposed" button
+- "Mark Disposed" opens a bottom-sheet `DisposeModal` with: disposition enum chips (composted/incinerated/quarantined/tested/other), disposed_at date (defaults to today), optional notes
+- On confirm calls `api.disposeWasteTrim(id, { disposition, disposed_at, notes })` then refreshes the list
+- Registered route `/harvest/waste-trim` in `client/src/App.jsx` (static segment, placed before `:batchId` catch-all)
+- Updated `HarvestDashboard.jsx` Waste Trim section: existing "Record Waste Trim" link remains, added a "View All" link button beside it pointing to `/harvest/waste-trim?batch_id=X`
+
+### Key Decisions
+- Chose separate page over embedding in HarvestDashboard (dashboard was already 450 lines; list with modal adds ~330 lines)
+- Grouped display order: collected first (actionable), then held, then disposed/reported (historical); groups only render if they have records
+- No `held` state transitions implemented — the PATCH endpoint only sets `disposed`; `held` is shown as actionable (can be marked disposed) since there's no dedicated "hold" UI action yet
+
+### Files Modified/Created
+- `client/src/pages/harvest/WasteTrimList.jsx` (new)
+- `client/src/App.jsx` (import + route added)
+- `client/src/pages/harvest/HarvestDashboard.jsx` (Waste Trim section updated with View All link)
+
+### Notes for Next Tasks
+- The `held` state has no "mark held" UI action — records can only enter `held` via direct DB or future UI; current UI only exposes the `collected → disposed` transition
+- METRC sync status (`metrc_sync_status`) is stored on waste trim records but not surfaced in WasteTrimList; a future task could add a "Mark Reported" button for the `reported` state
+- `/harvest/waste-trim` without `batch_id` will show all records across all batches (no batch filter) — useful for admin; could add a batch selector dropdown if needed
+
+---
+
+## Task: METRC batch phase-change export (HIGH-05)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/exports/metrc-phases/:batchId` to `src/api/routes/exports.ts`
+- Route queries `cv_batch_phase_history` joined with `cv_batches` and `cv_strains` to get phase transitions for a batch
+- Also queries `cv_batch_location_history` joined with `cv_locations` to get the location name active at each transition time (linear scan — finds the latest location move at or before each transition's timestamp)
+- Uses `toMetrcPhase()` (imported from `domain-utils.ts`) to convert cultivate status strings to METRC phase labels (Immature / Vegetative / Flowering / Closed)
+- Uses `makeBatchName()` to compute `metrc_batch_name` for each row
+- Returns JSON array with: `phase_history_id`, `metrc_batch_name`, `metrc_plant_batch_uid`, `sub_zone_id`, `from_metrc_phase` (null for initial germ entry), `to_metrc_phase`, `transitioned_at`, `metrc_sync_status`, `location`
+- 404 on unknown `batchId`; 400 on non-numeric batchId
+- Supports `?format=csv` — CSV download with filename `metrc-phases-{batchId}-{date}.csv`
+- Added `api.getMetrcPhasesExport(batchId, params)` and `api.downloadMetrcPhasesCsv(batchId)` to `client/src/api.js`
+- `toMetrcPhase` was already exported from `domain-utils.ts`; added to the import in `exports.ts`
+
+### Key Decisions
+- Location is resolved in JavaScript (linear scan per phase row) rather than a correlated subquery — simpler and the dataset is small (≤20 transitions per batch)
+- `from_metrc_phase` returns `null` when `from_status` is null (the initial germ entry has no prior phase) rather than mapping to a default string
+- Reused `toCsv()` already defined in the file for consistent CSV formatting
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — `toMetrcPhase` added to import + `MetrcPhasesQuerySchema` + route handler (73 lines added)
+- `client/src/api.js` — 2 new API methods added
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; committed 4065f58 and pushed to origin/master
+- No frontend page built for this export yet — operators can call the endpoint directly or use `api.downloadMetrcPhasesCsv(batchId)` via browser tools or a future UI
+- A future task could add a "Export Phase Changes" button to BatchDetail alongside the existing METRC export buttons
+
+---
+
+## Task: METRC tag assignment export (HIGH-06)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created migration `021_tag_assignment_sync.ts`: adds `metrc_sync_status TEXT NOT NULL DEFAULT 'not_required'` and `metrc_synced_at TEXT NULL` to `cv_plant_assignments`. Backfills existing rows with `metrc_plant_tag IS NOT NULL` to `'pending'`. Uses `export const config = { transaction: false }` pattern (same as migrations 019/020).
+- Added `GET /api/exports/metrc-tag-assignments` to `src/api/routes/exports.ts`: queries active tagged assignments joined with cv_batches, cv_strains, cv_containers. Supports optional `?batch_id=` filter and `?format=csv` download. Returns JSON envelope with `total` and `pending_sync` counts plus `assignments` array.
+- Added `api.getMetrcTagAssignmentsExport` and `api.downloadMetrcTagAssignmentsCsv` to `client/src/api.js`.
+
+### Key Decisions
+- Used `transaction: false` on the migration because `ALTER TABLE ... ADD COLUMN` inside a Knex transaction causes SQLite PRAGMA issues (same reason as migration 019).
+- Backfilling tagged rows to `'pending'` rather than `'not_required'` is intentional: these represent tag assignments that were made before the sync tracking column existed and still need to be submitted to METRC.
+- `down()` uses `dropColumn` (valid for simple column additions in SQLite via Knex) rather than the table-swap pattern used in migration 014 — adding columns is reversible.
+
+### Files Modified/Created
+- `src/db/migrations/021_tag_assignment_sync.ts` — new migration
+- `src/api/routes/exports.ts` — added `MetrcTagAssignmentsQuerySchema` + route handler
+- `client/src/api.js` — added two API client methods
+
+### Notes for Next Tasks
+- The `metrc_sync_status` column on `cv_plant_assignments` follows the same `pending | synced | failed | not_required` enum pattern used across other METRC-trackable tables.
+- The export endpoint is wired but the tag-assignment sync flow (marking synced after manual METRC entry) is not yet implemented — that would be a PATCH `/api/tag-assignments/:id/sync-status` endpoint.
+- `metrc_reconciliation` endpoint in exports.ts does not yet include tag assignment sync counts — a follow-up task should add that panel.
+
+---
+
+## Task: METRC harvest export (HIGH-07)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/exports/metrc-harvest/:batchId` route to `src/api/routes/exports.ts`
+- Route queries `cv_harvest_batches` joined with `cv_batches`, `cv_strains`, and `cv_plant_harvest_events`
+- Groups results by `harvest_batch_id` in the response, with a `weights` array per batch showing each `product_type`'s aggregated wet weight and plant count
+- Supports `?format=csv` (one row per harvest_batch × product_type)
+- Added `getMetrcHarvestExport(batchId, params)` and `downloadMetrcHarvestCsv(batchId)` to `client/src/api.js`
+
+### Key Decisions
+- `cv_harvest_batches` has no `metrc_sync_status` column — computed it from `cv_plant_harvest_events` via a correlated subquery (failed > pending > synced > not_required precedence)
+- Used stored `hb.metrc_name` when available (set at creation via migration 010); fell back to `makeHarvestBatchName()` for older records where it may be null
+- `makeHarvestBatchName` date param uses `started_at.slice(0, 10)` (harvest date, not sow_date) per MN OCM naming convention
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — added `/metrc-harvest/:batchId` route; added `makeHarvestBatchName` to import
+- `client/src/api.js` — added `getMetrcHarvestExport` and `downloadMetrcHarvestCsv`
+
+### Notes for Next Tasks
+- No frontend page was built for this export (task scope was backend + API client only)
+- Consider adding a MetrcHarvestExport page to BatchDetail or MetrcReconciliation UI in a future task

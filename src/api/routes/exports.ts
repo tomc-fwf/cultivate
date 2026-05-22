@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
-import { makeBatchName, toMetrcPhase } from '../../lib/domain-utils.js';
+import { makeBatchName, makeHarvestBatchName, toMetrcPhase } from '../../lib/domain-utils.js';
 import { z } from 'zod';
 
 const MetrcAdditivesQuerySchema = z.object({
@@ -1255,6 +1255,183 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return reply.send(output);
+    },
+  );
+  const MetrcHarvestQuerySchema = z.object({
+    format: z.enum(['json', 'csv']).default('json'),
+  });
+
+  /**
+   * GET /metrc-harvest/:batchId — METRC harvest weight export.
+   * Total wet weight per harvest batch broken down by product type.
+   * Supports ?format=csv.
+   */
+  app.get<{ Params: { batchId: string } }>(
+    '/metrc-harvest/:batchId',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const batchId = Number(request.params.batchId);
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const parsed = MetrcHarvestQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+      }
+      const { format } = parsed.data;
+
+      const db = getDB();
+
+      const batchRow = db.prepare(`
+        SELECT b.batch_id, b.metrc_plant_batch_uid, b.sub_zone_id, b.sow_date,
+               s.name AS strain_name, s.type AS strain_type
+        FROM cv_batches b
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        WHERE b.batch_id = ?
+      `).get(batchId) as Record<string, unknown> | undefined;
+
+      if (!batchRow) return reply.code(404).send({ error: 'Batch not found' });
+
+      // cv_harvest_batches has no metrc_sync_status column — compute from events.
+      const rows = db.prepare(`
+        SELECT hb.harvest_batch_id, hb.metrc_harvest_batch_uid, hb.batch_type,
+               hb.metrc_name, hb.sequence_number, hb.status,
+               hb.started_at, hb.completed_at,
+               b.metrc_plant_batch_uid, b.sub_zone_id,
+               s.name AS strain_name, s.type AS strain_type,
+               b.sow_date,
+               he.product_type, he.weight_unit,
+               SUM(he.wet_weight) AS total_wet_weight,
+               COUNT(he.harvest_event_id) AS plant_count,
+               (SELECT CASE
+                 WHEN EXISTS (SELECT 1 FROM cv_plant_harvest_events e WHERE e.harvest_batch_id = hb.harvest_batch_id AND e.metrc_sync_status = 'failed') THEN 'failed'
+                 WHEN EXISTS (SELECT 1 FROM cv_plant_harvest_events e WHERE e.harvest_batch_id = hb.harvest_batch_id AND e.metrc_sync_status = 'pending') THEN 'pending'
+                 WHEN EXISTS (SELECT 1 FROM cv_plant_harvest_events e WHERE e.harvest_batch_id = hb.harvest_batch_id AND e.metrc_sync_status = 'synced') THEN 'synced'
+                 ELSE 'not_required'
+               END) AS batch_sync_status
+        FROM cv_harvest_batches hb
+        JOIN cv_batches b ON b.batch_id = hb.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_plant_harvest_events he ON he.harvest_batch_id = hb.harvest_batch_id
+        WHERE hb.batch_id = ?
+        GROUP BY hb.harvest_batch_id, he.product_type, he.weight_unit
+        ORDER BY hb.started_at ASC
+      `).all(batchId) as Array<Record<string, unknown>>;
+
+      type HarvestBatchEntry = {
+        harvest_batch_id: number;
+        metrc_harvest_batch_uid: string | null;
+        batch_type: string;
+        metrc_name: string | null;
+        sequence_number: number;
+        status: string;
+        started_at: string;
+        completed_at: string | null;
+        metrc_plant_batch_uid: string | null;
+        sub_zone_id: string;
+        strain_name: string;
+        batch_sync_status: string;
+        weights: Array<{ product_type: string; weight_unit: string; total_wet_weight: number; plant_count: number }>;
+        total_wet_weight: number;
+      };
+
+      const batchMap = new Map<number, HarvestBatchEntry>();
+
+      for (const row of rows) {
+        const hbId = Number(row['harvest_batch_id']);
+        if (!batchMap.has(hbId)) {
+          const strainName = String(row['strain_name'] ?? '');
+          const strainType = String(row['strain_type'] ?? '');
+          const batchType = (String(row['batch_type'] ?? 'harvest')) as 'harvest' | 'manicure';
+          const startedAt = String(row['started_at'] ?? '');
+          const storedName = row['metrc_name'] ? String(row['metrc_name']) : null;
+          const metrcName = storedName ?? (startedAt
+            ? makeHarvestBatchName(strainName, startedAt.slice(0, 10), batchType, strainType)
+            : null);
+
+          batchMap.set(hbId, {
+            harvest_batch_id: hbId,
+            metrc_harvest_batch_uid: (row['metrc_harvest_batch_uid'] as string | null) ?? null,
+            batch_type: batchType,
+            metrc_name: metrcName,
+            sequence_number: Number(row['sequence_number'] ?? 1),
+            status: String(row['status'] ?? ''),
+            started_at: startedAt,
+            completed_at: (row['completed_at'] as string | null) ?? null,
+            metrc_plant_batch_uid: (row['metrc_plant_batch_uid'] as string | null) ?? null,
+            sub_zone_id: String(row['sub_zone_id'] ?? ''),
+            strain_name: strainName,
+            batch_sync_status: String(row['batch_sync_status'] ?? 'not_required'),
+            weights: [],
+            total_wet_weight: 0,
+          });
+        }
+
+        if (row['product_type'] != null) {
+          const entry = batchMap.get(hbId)!;
+          const weight = Number(row['total_wet_weight'] ?? 0);
+          entry.weights.push({
+            product_type: String(row['product_type']),
+            weight_unit: String(row['weight_unit'] ?? ''),
+            total_wet_weight: weight,
+            plant_count: Number(row['plant_count'] ?? 0),
+          });
+          entry.total_wet_weight = Math.round((entry.total_wet_weight + weight) * 10000) / 10000;
+        }
+      }
+
+      const harvestBatches = Array.from(batchMap.values());
+
+      const metrcBatchName = batchRow['sow_date']
+        ? makeBatchName(
+            String(batchRow['strain_name'] ?? ''),
+            String(batchRow['sow_date']),
+            String(batchRow['strain_type'] ?? ''),
+          )
+        : null;
+
+      if (format === 'csv') {
+        const csvRows: Record<string, unknown>[] = [];
+        for (const hb of harvestBatches) {
+          const base = {
+            harvest_batch_id: hb.harvest_batch_id,
+            metrc_name: hb.metrc_name,
+            batch_type: hb.batch_type,
+            sequence_number: hb.sequence_number,
+            status: hb.status,
+            started_at: hb.started_at,
+            completed_at: hb.completed_at,
+            sub_zone_id: hb.sub_zone_id,
+            strain_name: hb.strain_name,
+            metrc_harvest_batch_uid: hb.metrc_harvest_batch_uid,
+            metrc_plant_batch_uid: hb.metrc_plant_batch_uid,
+            batch_sync_status: hb.batch_sync_status,
+          };
+          if (hb.weights.length === 0) {
+            csvRows.push({ ...base, product_type: null, weight_unit: null, total_wet_weight: null, plant_count: null });
+          } else {
+            for (const w of hb.weights) {
+              csvRows.push({ ...base, product_type: w.product_type, weight_unit: w.weight_unit, total_wet_weight: w.total_wet_weight, plant_count: w.plant_count });
+            }
+          }
+        }
+        const columns = [
+          'harvest_batch_id', 'metrc_name', 'batch_type', 'sequence_number', 'status',
+          'started_at', 'completed_at', 'sub_zone_id', 'strain_name',
+          'metrc_harvest_batch_uid', 'metrc_plant_batch_uid', 'batch_sync_status',
+          'product_type', 'weight_unit', 'total_wet_weight', 'plant_count',
+        ];
+        const dateStr = new Date().toISOString().slice(0, 10);
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="metrc-harvest-${batchId}-${dateStr}.csv"`);
+        return reply.send(toCsv(csvRows, columns));
+      }
+
+      return reply.send({
+        generated_at: new Date().toISOString(),
+        batch_id: batchId,
+        metrc_batch_name: metrcBatchName,
+        harvest_batches: harvestBatches,
+      });
     },
   );
 };

@@ -177,6 +177,8 @@ export const api = {
   downloadMetrcPhasesCsv: (batchId) => { window.open(`/api/exports/metrc-phases/${batchId}?format=csv`); },
   getMetrcTagAssignmentsExport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-tag-assignments${q ? '?' + q : ''}`); },
   downloadMetrcTagAssignmentsCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-tag-assignments?${q}`); },
+  getMetrcHarvestExport: (batchId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-harvest/${batchId}${q ? '?' + q : ''}`); },
+  downloadMetrcHarvestCsv: (batchId) => { window.open(`/api/exports/metrc-harvest/${batchId}?format=csv`); },
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),
