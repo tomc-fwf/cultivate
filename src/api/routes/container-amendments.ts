@@ -2,6 +2,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import { z } from 'zod';
+import { triggerFarmstockDepletion } from '../../lib/farmstock-client.js';
 
 interface IdParams { id: string }
 
@@ -217,8 +218,21 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
         now,
       );
 
+      const amendment_id = Number(result.lastInsertRowid);
+
+      // Fire-and-forget: deplete the consumed lot in farmstock (non-blocking)
+      if (input_lot_id != null) {
+        void triggerFarmstockDepletion({
+          lot_id: Number(input_lot_id),
+          quantity: quantity != null ? Number(quantity) : null,
+          quantity_unit: quantity_unit ?? null,
+          reference_id: String(amendment_id),
+          reference_type: 'container_amendment',
+        }, app.log);
+      }
+
       return reply.code(201).send({
-        amendment_id: Number(result.lastInsertRowid),
+        amendment_id,
         container_id: String(container_id).trim(),
         batch_id: batchIdFromState,
         container_state: containerStateVal,

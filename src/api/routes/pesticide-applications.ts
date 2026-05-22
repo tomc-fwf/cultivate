@@ -3,6 +3,7 @@ import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import { z } from 'zod';
 import { getSkill } from '../../lib/skill-loader.js';
+import { triggerFarmstockDepletion } from '../../lib/farmstock-client.js';
 
 interface IdParams { id: string }
 
@@ -391,6 +392,16 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
       } catch (skillErr) {
         app.log.warn({ err: skillErr }, 'skill instance record failed — application saved successfully');
       }
+
+      // Fire-and-forget: deplete the consumed lot in farmstock (non-blocking)
+      // input_lot_id is required for pesticides (rule 16), so the guard always fires
+      void triggerFarmstockDepletion({
+        lot_id: Number(input_lot_id),
+        quantity: Number(volume_applied),
+        quantity_unit: volume_unit,
+        reference_id: String(pesticide_app_id),
+        reference_type: 'pesticide_application',
+      }, app.log);
 
       return reply.code(201).send({
         pesticide_app_id,
