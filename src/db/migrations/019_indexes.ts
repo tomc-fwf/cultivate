@@ -1,5 +1,7 @@
 import type { Knex } from 'knex';
 
+export const config = { transaction: false };
+
 export async function up(knex: Knex): Promise<void> {
   // ── PRAGMA tuning ──────────────────────────────────────────────────────────
   // These apply to the Knex connection used for migrations and normal DB use.
