@@ -87,7 +87,391 @@ function buildDateBatchWhere(
   return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
 }
 
+const PlantInventoryQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+
+const TagVerificationQuerySchema = z.object({
+  sub_zone_id: z.string().optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+});
+
+function panelStatus(counts: { red: number; amber: number }): 'red' | 'amber' | 'green' {
+  if (counts.red > 0) return 'red';
+  if (counts.amber > 0) return 'amber';
+  return 'green';
+}
+
+function worstStatus(statuses: Array<'red' | 'amber' | 'green'>): 'red' | 'amber' | 'green' {
+  if (statuses.includes('red')) return 'red';
+  if (statuses.includes('amber')) return 'amber';
+  return 'green';
+}
+
+function getCount(db: ReturnType<typeof getDB>, sql: string, ...params: unknown[]): number {
+  const row = db.prepare(sql).get(...params) as Record<string, unknown> | undefined;
+  return Number(row?.['cnt'] ?? 0);
+}
+
+function getSyncCounts(db: ReturnType<typeof getDB>, table: string, dateCol: string) {
+  const rows = db.prepare(`
+    SELECT metrc_sync_status AS status, COUNT(*) AS count, MIN(${dateCol}) AS oldest
+    FROM ${table}
+    GROUP BY metrc_sync_status
+  `).all() as Array<Record<string, unknown>>;
+  const counts: Record<string, number> = { pending: 0, synced: 0, failed: 0, not_required: 0 };
+  let oldest: string | null = null;
+  for (const r of rows) {
+    counts[String(r['status'])] = Number(r['count']);
+    if (r['status'] === 'pending' && r['oldest']) oldest = String(r['oldest']);
+  }
+  return { counts, oldest_pending: oldest };
+}
+
 const exportsRoutes: FastifyPluginAsync = async (app) => {
+
+  /**
+   * GET /compliance-dashboard — real-time compliance posture snapshot.
+   * Returns an aggregated JSON object with 8 RAG-status panels.
+   */
+  app.get('/compliance-dashboard', { preHandler: requireAuth }, async (_request, reply) => {
+    const db = getDB();
+    const now = new Date().toISOString();
+
+    // Panel 1: Active REIs
+    const reiItems = db.prepare(`
+      SELECT ap.pesticide_app_id, ap.batch_id, b.sub_zone_id,
+             ap.row_id, ap.container_id, ap.rei_expires_at, ap.applied_at,
+             ap.input_id, u.name AS applicator_name
+      FROM cv_applications_pesticide ap
+      JOIN cv_batches b ON b.batch_id = ap.batch_id
+      LEFT JOIN cv_users u ON u.id = ap.applicator
+      WHERE ap.rei_expires_at > datetime('now') AND ap.rei_cleared_at IS NULL
+      ORDER BY ap.rei_expires_at ASC LIMIT 20
+    `).all() as Array<Record<string, unknown>>;
+
+    // Panel 2: PHI Watch — non-compliant pesticide apps on batches approaching harvest
+    const phiItems = db.prepare(`
+      SELECT ap.pesticide_app_id, ap.batch_id, ap.applied_at, ap.phi_compliant,
+             ap.expected_harvest_date, ap.input_id, b.status, b.sub_zone_id,
+             s.name AS strain_name
+      FROM cv_applications_pesticide ap
+      JOIN cv_batches b ON b.batch_id = ap.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      WHERE b.status IN ('flush', 'harvest_window', 'harvesting')
+        AND ap.phi_compliant = 0
+      ORDER BY ap.applied_at DESC LIMIT 20
+    `).all() as Array<Record<string, unknown>>;
+
+    // Panel 3 & 4: METRC pending / failed counts
+    const phaseSync    = getSyncCounts(db, 'cv_batch_phase_history', 'transitioned_at');
+    const locSync      = getSyncCounts(db, 'cv_batch_location_history', 'moved_at');
+    const harvestSync  = getSyncCounts(db, 'cv_plant_harvest_events', 'harvested_at');
+    const wasteSync    = getSyncCounts(db, 'cv_plant_waste_trim_events', 'trimmed_at');
+    const lossSync     = getSyncCounts(db, 'cv_plant_loss_events', 'occurred_at');
+
+    const metrcPendingByType = {
+      phase_history:   phaseSync.counts['pending'] ?? 0,
+      location_history: locSync.counts['pending'] ?? 0,
+      harvest_events:  harvestSync.counts['pending'] ?? 0,
+      waste_trim:      wasteSync.counts['pending'] ?? 0,
+      plant_loss:      lossSync.counts['pending'] ?? 0,
+    };
+    const metrcFailedByType = {
+      phase_history:   phaseSync.counts['failed'] ?? 0,
+      location_history: locSync.counts['failed'] ?? 0,
+      harvest_events:  harvestSync.counts['failed'] ?? 0,
+      waste_trim:      wasteSync.counts['failed'] ?? 0,
+      plant_loss:      lossSync.counts['failed'] ?? 0,
+    };
+    const metrcPendingTotal = Object.values(metrcPendingByType).reduce((a, b) => a + b, 0);
+    const metrcFailedTotal  = Object.values(metrcFailedByType).reduce((a, b) => a + b, 0);
+
+    // Panel 5: Untagged plants (placed but not yet METRC-tagged)
+    const untaggedItems = db.prepare(`
+      SELECT pa.assignment_id, pa.container_id, pa.batch_id, b.sub_zone_id
+      FROM cv_plant_assignments pa
+      JOIN cv_batches b ON b.batch_id = pa.batch_id
+      WHERE pa.unassigned_at IS NULL
+        AND (pa.metrc_plant_tag IS NULL OR pa.metrc_plant_tag = '')
+      LIMIT 20
+    `).all() as Array<Record<string, unknown>>;
+
+    // Panel 6: Batches without METRC UID
+    const noUidItems = db.prepare(`
+      SELECT b.batch_id, b.sub_zone_id, b.status, b.sow_date, s.name AS strain_name
+      FROM cv_batches b
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      WHERE b.status NOT IN ('closed')
+        AND (b.metrc_plant_batch_uid IS NULL OR b.metrc_plant_batch_uid = '')
+    `).all() as Array<Record<string, unknown>>;
+
+    // Panel 7: Plant losses unsynced
+    const lossUnsyncedCount = metrcPendingByType.plant_loss;
+
+    // Panel 8: Waste pending disposal
+    const wasteDisposalCount = getCount(
+      db,
+      `SELECT COUNT(*) AS cnt FROM cv_plant_waste_trim_events WHERE waste_status IN ('collected', 'held')`,
+    );
+
+    // Compute per-panel status
+    const reiStatus      = reiItems.length > 0 ? 'red' : 'green';
+    const phiHarvesting  = phiItems.filter(i => i['status'] === 'harvesting').length;
+    const phiStatus      = phiHarvesting > 0 ? 'red' : phiItems.length > 0 ? 'amber' : 'green';
+    const pendingStatus  = metrcPendingTotal > 0 ? 'amber' : 'green';
+    const failedStatus   = metrcFailedTotal > 0 ? 'red' : 'green';
+    const untaggedStatus = untaggedItems.length > 0 ? 'amber' : 'green';
+    const noUidStatus    = noUidItems.length > 0 ? 'amber' : 'green';
+    const lossStatus     = lossUnsyncedCount > 0 ? 'amber' : 'green';
+    const wasteStatus    = wasteDisposalCount > 0 ? 'amber' : 'green';
+
+    const overallStatus = worstStatus([
+      reiStatus as 'red' | 'amber' | 'green',
+      phiStatus as 'red' | 'amber' | 'green',
+      pendingStatus, failedStatus, untaggedStatus, noUidStatus, lossStatus, wasteStatus,
+    ]);
+
+    return reply.send({
+      status: overallStatus,
+      generated_at: now,
+      panels: {
+        active_reis:            { status: reiStatus,      count: reiItems.length,        items: reiItems },
+        phi_watch:              { status: phiStatus,      count: phiItems.length,        items: phiItems },
+        metrc_pending:          { status: pendingStatus,  count: metrcPendingTotal,       by_type: metrcPendingByType },
+        metrc_failed:           { status: failedStatus,   count: metrcFailedTotal,        by_type: metrcFailedByType },
+        untagged_plants:        { status: untaggedStatus, count: untaggedItems.length,    items: untaggedItems },
+        batches_no_metrc_uid:   { status: noUidStatus,    count: noUidItems.length,       items: noUidItems },
+        plant_losses_unsynced:  { status: lossStatus,     count: lossUnsyncedCount },
+        waste_pending_disposal: { status: wasteStatus,    count: wasteDisposalCount },
+      },
+    });
+  });
+
+  /**
+   * GET /plant-inventory — current plant inventory for inspector handoff.
+   * All non-closed batches with counts, stage, REI, and METRC UID status.
+   */
+  app.get('/plant-inventory', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = PlantInventoryQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+
+    const db = getDB();
+
+    const batches = db.prepare(`
+      SELECT b.batch_id, b.metrc_plant_batch_uid, b.status, b.sow_date,
+             b.transplant_date, b.field_move_date, b.plant_count_initial,
+             b.plants_per_container, b.sub_zone_id, b.notes,
+             s.name AS strain_name, s.type AS strain_type,
+             u.name AS supervisor_name,
+             (SELECT COUNT(*) FROM cv_plant_assignments pa
+              WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL) AS plant_count_current,
+             (SELECT COUNT(*) FROM cv_plant_assignments pa
+              WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL
+                AND pa.metrc_plant_tag IS NOT NULL AND pa.metrc_plant_tag != '') AS tagged_count,
+             (SELECT MAX(t) FROM (
+               SELECT applied_at AS t FROM cv_applications_fertigation WHERE batch_id = b.batch_id
+               UNION ALL SELECT applied_at FROM cv_applications_foliar WHERE batch_id = b.batch_id
+               UNION ALL SELECT applied_at FROM cv_applications_pesticide WHERE batch_id = b.batch_id
+               UNION ALL SELECT applied_at FROM cv_container_amendments WHERE batch_id = b.batch_id
+             )) AS last_application_at,
+             (SELECT COUNT(*) FROM cv_applications_pesticide ap
+              WHERE ap.batch_id = b.batch_id
+                AND ap.rei_expires_at > datetime('now')
+                AND ap.rei_cleared_at IS NULL) AS active_rei_count,
+             (SELECT transitioned_at FROM cv_batch_phase_history
+              WHERE batch_id = b.batch_id ORDER BY transitioned_at DESC LIMIT 1) AS stage_since,
+             (SELECT fr.name FROM cv_batch_stage_recipes bsr
+              JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
+              WHERE bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
+              ORDER BY bsr.effective_from DESC LIMIT 1) AS current_recipe
+      FROM cv_batches b
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_users u ON u.id = b.supervisor
+      WHERE b.status NOT IN ('closed')
+      ORDER BY b.created_at DESC
+    `).all() as Array<Record<string, unknown>>;
+
+    const nowMs = Date.now();
+    const result: Array<Record<string, unknown>> = batches.map(b => {
+      const stageSince = b['stage_since'] as string | null;
+      return {
+        ...b,
+        metrc_name: b['sow_date'] ? makeBatchName(String(b['strain_name'] ?? ''), String(b['sow_date']), String(b['strain_type'] ?? '')) : null,
+        days_in_stage: stageSince ? Math.floor((nowMs - new Date(stageSince).getTime()) / 86400000) : null,
+        has_active_rei: Number(b['active_rei_count']) > 0,
+        metrc_uid_status: (b['metrc_plant_batch_uid'] as string | null) ? 'set' : 'missing',
+      };
+    });
+
+    const totalPlants = result.reduce((sum, b) => sum + Number(b['plant_count_current'] ?? 0), 0);
+    const totalTagged = result.reduce((sum, b) => sum + Number(b['tagged_count'] ?? 0), 0);
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      total_active_batches: result.length,
+      total_active_plants: totalPlants,
+      total_tagged_plants: totalTagged,
+      batches: result,
+    });
+  });
+
+  /**
+   * GET /tag-verification — active plant-to-container tag mapping for walkthrough.
+   * Optional ?sub_zone_id filter. Supports ?format=csv for printable verification sheet.
+   */
+  app.get('/tag-verification', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = TagVerificationQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { sub_zone_id, format } = parsed.data;
+
+    const db = getDB();
+
+    const whereClause = sub_zone_id
+      ? 'WHERE pa.unassigned_at IS NULL AND r.sub_zone_id = ?'
+      : 'WHERE pa.unassigned_at IS NULL';
+    const params = sub_zone_id ? [sub_zone_id] : [];
+
+    const rows = db.prepare(`
+      SELECT pa.assignment_id, pa.container_id, pa.batch_id,
+             pa.metrc_plant_tag, pa.placed_at, pa.tagged_at,
+             c.row_id, r.sub_zone_id, c.position,
+             b.metrc_plant_batch_uid,
+             s.name AS strain_name
+      FROM cv_plant_assignments pa
+      JOIN cv_containers c ON c.container_id = pa.container_id
+      JOIN cv_rows r ON r.row_id = c.row_id
+      JOIN cv_batches b ON b.batch_id = pa.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      ${whereClause}
+      ORDER BY r.sub_zone_id, c.row_id, c.position
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    const output = rows.map(r => ({
+      container_id:      r['container_id'],
+      sub_zone_id:       r['sub_zone_id'],
+      row_id:            r['row_id'],
+      position:          r['position'],
+      metrc_plant_tag:   r['metrc_plant_tag'] ?? null,
+      last_4:            r['metrc_plant_tag'] ? String(r['metrc_plant_tag']).slice(-4) : null,
+      tagged:            !!r['metrc_plant_tag'] && r['metrc_plant_tag'] !== '',
+      batch_id:          r['batch_id'],
+      strain_name:       r['strain_name'],
+      placed_at:         r['placed_at'],
+      tagged_at:         r['tagged_at'] ?? null,
+    }));
+
+    if (format === 'csv') {
+      const columns = [
+        'container_id', 'sub_zone_id', 'row_id', 'position',
+        'metrc_plant_tag', 'last_4', 'tagged', 'strain_name',
+        'placed_at', 'tagged_at',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="tag-verification-${dateStr}.csv"`);
+      return reply.send(toCsv(output, columns));
+    }
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      filter_sub_zone: sub_zone_id ?? null,
+      total_assigned: output.length,
+      total_tagged: output.filter(r => r.tagged).length,
+      total_untagged: output.filter(r => !r.tagged).length,
+      assignments: output,
+    });
+  });
+
+  /**
+   * GET /metrc-reconciliation — METRC sync status across all trackable event types.
+   * Shows pending/failed/synced counts with oldest pending date.
+   */
+  app.get('/metrc-reconciliation', { preHandler: requireAuth }, async (_request, reply) => {
+    const db = getDB();
+
+    const phase    = getSyncCounts(db, 'cv_batch_phase_history', 'transitioned_at');
+    const location = getSyncCounts(db, 'cv_batch_location_history', 'moved_at');
+    const harvest  = getSyncCounts(db, 'cv_plant_harvest_events', 'harvested_at');
+    const waste    = getSyncCounts(db, 'cv_plant_waste_trim_events', 'trimmed_at');
+    const loss     = getSyncCounts(db, 'cv_plant_loss_events', 'occurred_at');
+
+    const batchesNoUid = getCount(
+      db,
+      `SELECT COUNT(*) AS cnt FROM cv_batches WHERE status NOT IN ('closed') AND (metrc_plant_batch_uid IS NULL OR metrc_plant_batch_uid = '')`,
+    );
+
+    const totalPending = (phase.counts['pending'] ?? 0) + (location.counts['pending'] ?? 0)
+      + (harvest.counts['pending'] ?? 0) + (waste.counts['pending'] ?? 0) + (loss.counts['pending'] ?? 0);
+    const totalFailed  = (phase.counts['failed'] ?? 0) + (location.counts['failed'] ?? 0)
+      + (harvest.counts['failed'] ?? 0) + (waste.counts['failed'] ?? 0) + (loss.counts['failed'] ?? 0);
+
+    const oldestCandidates = [
+      phase.oldest_pending, location.oldest_pending, harvest.oldest_pending,
+      waste.oldest_pending, loss.oldest_pending,
+    ].filter((d): d is string => d != null);
+    const oldestPending = oldestCandidates.length ? oldestCandidates.sort()[0] : null;
+
+    // Pending items detail for each type
+    const phasePending    = db.prepare(`SELECT phase_history_id AS id, batch_id, to_status, transitioned_at FROM cv_batch_phase_history WHERE metrc_sync_status = 'pending' ORDER BY transitioned_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const phaseFailedRows = db.prepare(`SELECT phase_history_id AS id, batch_id, to_status, transitioned_at FROM cv_batch_phase_history WHERE metrc_sync_status = 'failed' ORDER BY transitioned_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const locPending      = db.prepare(`SELECT move_id AS id, batch_id, to_location_id, moved_at FROM cv_batch_location_history WHERE metrc_sync_status = 'pending' ORDER BY moved_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const locFailed       = db.prepare(`SELECT move_id AS id, batch_id, to_location_id, moved_at FROM cv_batch_location_history WHERE metrc_sync_status = 'failed' ORDER BY moved_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const harvestPending  = db.prepare(`SELECT harvest_event_id AS id, batch_id, event_type, harvested_at, wet_weight, weight_unit FROM cv_plant_harvest_events WHERE metrc_sync_status = 'pending' ORDER BY harvested_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const harvestFailed   = db.prepare(`SELECT harvest_event_id AS id, batch_id, event_type, harvested_at FROM cv_plant_harvest_events WHERE metrc_sync_status = 'failed' ORDER BY harvested_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const wastePending    = db.prepare(`SELECT waste_trim_id AS id, batch_id, trim_reason, trimmed_at, wet_weight, waste_status FROM cv_plant_waste_trim_events WHERE metrc_sync_status = 'pending' ORDER BY trimmed_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const wasteFailed     = db.prepare(`SELECT waste_trim_id AS id, batch_id, trim_reason, trimmed_at FROM cv_plant_waste_trim_events WHERE metrc_sync_status = 'failed' ORDER BY trimmed_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const lossPending     = db.prepare(`SELECT loss_id AS id, batch_id, loss_type, occurred_at, plant_count FROM cv_plant_loss_events WHERE metrc_sync_status = 'pending' ORDER BY occurred_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+    const lossFailed      = db.prepare(`SELECT loss_id AS id, batch_id, loss_type, occurred_at FROM cv_plant_loss_events WHERE metrc_sync_status = 'failed' ORDER BY occurred_at ASC LIMIT 50`).all() as Array<Record<string, unknown>>;
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      summary: {
+        total_pending:            totalPending,
+        total_failed:             totalFailed,
+        oldest_pending_record:    oldestPending,
+        batches_missing_metrc_uid: batchesNoUid,
+      },
+      by_type: {
+        plant_batches: {
+          missing_uid: batchesNoUid,
+          note: 'METRC batch UID must be entered manually (Phase 4 will automate)',
+        },
+        phase_history: {
+          counts:  phase.counts,
+          pending: phasePending,
+          failed:  phaseFailedRows,
+        },
+        location_history: {
+          counts:  location.counts,
+          pending: locPending,
+          failed:  locFailed,
+        },
+        harvest_events: {
+          counts:  harvest.counts,
+          pending: harvestPending,
+          failed:  harvestFailed,
+        },
+        waste_trim: {
+          counts:  waste.counts,
+          pending: wastePending,
+          failed:  wasteFailed,
+        },
+        plant_loss: {
+          counts:  loss.counts,
+          pending: lossPending,
+          failed:  lossFailed,
+        },
+        additive_applications: {
+          note: 'Per-record metrc_sync_status not yet tracked for additive tables (planned for migration 016). All additive applications require manual METRC entry.',
+        },
+      },
+    });
+  });
 
   /**
    * GET /metrc-additives — METRC Record Additives unified export.

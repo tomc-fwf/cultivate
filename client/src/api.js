@@ -142,12 +142,29 @@ export const api = {
   getPlantLoss: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/plant-loss${q ? '?' + q : ''}`); },
   recordReplacement: (data) => req('POST', '/plant-loss/replacements', data),
 
+  // OCM Compliance
+  getComplianceDashboard: () => req('GET', '/exports/compliance-dashboard'),
+  getPlantInventory: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/plant-inventory${q ? '?' + q : ''}`); },
+  getTagVerification: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/tag-verification${q ? '?' + q : ''}`); },
+  getMetrcReconciliation: () => req('GET', '/exports/metrc-reconciliation'),
+  downloadTagVerificationCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/tag-verification?${q}`); },
+
   // Exports
   getMetrcAdditivesExport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-additives${q ? '?' + q : ''}`); },
   getMdaPesticideReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/mda-pesticide${q ? '?' + q : ''}`); },
   getCultivationRecord: (batchId) => req('GET', `/exports/cultivation-record/${batchId}`),
   downloadMetrcCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-additives?${q}`); },
   downloadMdaCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/mda-pesticide?${q}`); },
+
+  // Sensors
+  getSensors: () => req('GET', '/sensors'),
+  syncSensors: () => req('POST', '/sensors/sync'),
+  getSensorAssignments: () => req('GET', '/sensors/assignments'),
+  assignSensor: (data) => req('POST', '/sensors/assignments', data),
+  unassignSensor: (assignmentId) => req('DELETE', `/sensors/assignments/${assignmentId}`),
+  getCurrentConditions: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/sensors/current${q ? '?' + q : ''}`); },
+  getSensorReadings: (sensorId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/sensors/${sensorId}/readings${q ? '?' + q : ''}`); },
+  pollSensors: () => req('POST', '/sensors/poll'),
 
   // Batches
   getBatches: (params = {}) => {

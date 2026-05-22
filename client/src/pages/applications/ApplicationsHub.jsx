@@ -148,9 +148,57 @@ export default function ApplicationsHub() {
         </button>
       </div>
 
-      {/* ── Exports & Reports ──────────────────────────────────────────── */}
-      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Exports & Reports</h2>
+      {/* ── Compliance & Reports ───────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Compliance & Reports</h2>
       <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+        <button
+          onClick={() => navigate('/compliance')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🛡️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Compliance Dashboard</div>
+            <div className="text-xs text-gray-500">OCM inspection readiness · RAG status overview</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/compliance/plant-inventory')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🌿</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Plant Inventory</div>
+            <div className="text-xs text-gray-500">Current active batches · inspector handoff</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/compliance/tag-verification')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🏷️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Tag Verification</div>
+            <div className="text-xs text-gray-500">Container-to-METRC-tag walkthrough sheet</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/compliance/metrc-reconciliation')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🔄</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Reconciliation</div>
+            <div className="text-xs text-gray-500">Sync status across all event types</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
         <button
           onClick={() => navigate('/exports/metrc')}
           className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"

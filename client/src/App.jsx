@@ -45,6 +45,10 @@ import StartupReadyForm from './pages/containers/StartupReadyForm';
 import MetrcExport from './pages/exports/MetrcExport';
 import MdaReport from './pages/exports/MdaReport';
 import CultivationRecord from './pages/exports/CultivationRecord';
+import ComplianceDashboard from './pages/compliance/ComplianceDashboard';
+import PlantInventory from './pages/compliance/PlantInventory';
+import TagVerification from './pages/compliance/TagVerification';
+import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
 import ContainerScanner from './pages/containers/ContainerScanner';
 import ContainerLabels from './pages/admin/ContainerLabels';
 
@@ -137,6 +141,10 @@ export default function App() {
               <Route path="/exports/metrc" element={<Protected><MetrcExport /></Protected>} />
               <Route path="/exports/mda-pesticide" element={<Protected><MdaReport /></Protected>} />
               <Route path="/exports/cultivation-record" element={<Protected><CultivationRecord /></Protected>} />
+              <Route path="/compliance" element={<Protected><ComplianceDashboard /></Protected>} />
+              <Route path="/compliance/plant-inventory" element={<Protected><PlantInventory /></Protected>} />
+              <Route path="/compliance/tag-verification" element={<Protected><TagVerification /></Protected>} />
+              <Route path="/compliance/metrc-reconciliation" element={<Protected><MetrcReconciliation /></Protected>} />
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
