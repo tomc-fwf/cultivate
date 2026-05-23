@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
@@ -115,6 +115,139 @@ const SUB_ZONES = [
   { id: 'Z4A', potSize: '30 gal' }, { id: 'Z4B', potSize: '10 gal' },
 ];
 
+// ─── Stage Guide ─────────────────────────────────────────────────────────────
+// Shown for germ / seedling / cult-hoop. Provides day-level context, METRC
+// reminders, and surfaces the transition action when the plant group is ready.
+
+const STAGE_GUIDE_CFG = {
+  germ: {
+    label: 'Germination',
+    stageDays: 7,
+    recipe: 'BASE',
+    appNote: 'Tray-level',
+    transitionAt: 7,
+    metrcDay0: 'Day 0: Create this Plant Batch in METRC, then enter the 24-character UID in the field above.',
+    metrcMove: 'METRC: Record "Move Plants" → Seedlings room when physically moving trays.',
+    colors: { bg: 'bg-gray-50', border: 'border-gray-200', bar: 'bg-gray-200', fill: 'bg-gray-500', title: 'text-gray-800', row: 'border-gray-200' },
+  },
+  seedling: {
+    label: 'Seedlings',
+    stageDays: 14,
+    recipe: 'SEEDLING',
+    appNote: 'Sub-location drip',
+    transitionAt: 10,
+    metrcDay0: null,
+    metrcMove: 'METRC: Record "Move Plants" → Cult-Hoop room when physically moving.',
+    colors: { bg: 'bg-lime-50', border: 'border-lime-200', bar: 'bg-lime-200', fill: 'bg-lime-600', title: 'text-lime-900', row: 'border-lime-200' },
+  },
+  'cult-hoop': {
+    label: 'Cult-Hoop Hardening',
+    stageDays: 8,
+    recipe: 'SEEDLING',
+    appNote: 'Sub-location drip',
+    transitionAt: 8,
+    metrcDay0: null,
+    metrcMove: 'METRC: Record "Move Plants" → Field room when transplanting.',
+    colors: { bg: 'bg-green-50', border: 'border-green-200', bar: 'bg-green-200', fill: 'bg-green-600', title: 'text-green-900', row: 'border-green-200' },
+  },
+};
+
+function StageGuide({ batch, onOpenFertiPanel, onOpenTransitionModal, isSupervisor }) {
+  const cfg = STAGE_GUIDE_CFG[batch.status];
+  if (!cfg) return null;
+
+  const day = batch.days_in_stage ?? 0;
+  const isTransitionReady = day >= cfg.transitionAt;
+  const pct = Math.min(100, Math.round((day / cfg.stageDays) * 100));
+  const c = cfg.colors;
+  const nextStatus = NEXT_STATUS[batch.status];
+
+  return (
+    <div className={`${c.bg} ${c.border} border rounded-2xl p-5 mb-4`}>
+      {/* Header + day count */}
+      <div className="flex items-center justify-between mb-1">
+        <h2 className={`font-semibold ${c.title} text-sm uppercase tracking-wide`}>{cfg.label}</h2>
+        {isTransitionReady && (
+          <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-green-100 text-green-800">Move Ready</span>
+        )}
+      </div>
+      <div className="text-xs text-gray-500 mb-3">
+        Day {day} of ~{cfg.stageDays}
+        {isTransitionReady
+          ? ' — plants ready for next location'
+          : ` — ${Math.max(0, cfg.stageDays - day)} days until typical transition`
+        }
+      </div>
+
+      {/* Progress bar */}
+      <div className={`w-full ${c.bar} rounded-full h-1.5 mb-4`}>
+        <div className={`${c.fill} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
+      </div>
+
+      {/* METRC UID reminder — germ Day 0 only */}
+      {batch.status === 'germ' && cfg.metrcDay0 && (
+        <div className={`flex items-start gap-2 text-xs mb-4 px-3 py-2.5 rounded-xl ${
+          batch.metrc_plant_batch_uid
+            ? 'bg-green-50 border border-green-200 text-green-800'
+            : 'bg-amber-50 border border-amber-200 text-amber-800'
+        }`}>
+          <span className="mt-0.5 flex-shrink-0">{batch.metrc_plant_batch_uid ? '✓' : '⚠'}</span>
+          <span>
+            {batch.metrc_plant_batch_uid
+              ? <><strong>METRC Plant Batch UID recorded.</strong> You're set for this stage.</>
+              : cfg.metrcDay0
+            }
+          </span>
+        </div>
+      )}
+
+      {/* Transition block — shown when day threshold reached */}
+      {isTransitionReady && isSupervisor && nextStatus && (
+        <div className="mb-4">
+          <div className="flex items-start gap-2 text-xs mb-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+            <span className="mt-0.5 flex-shrink-0">📋</span>
+            <span>{cfg.metrcMove}</span>
+          </div>
+          <button
+            onClick={onOpenTransitionModal}
+            className="w-full py-3.5 bg-green-800 text-white font-semibold rounded-xl hover:bg-green-900 transition-colors text-sm"
+            style={{ minHeight: '56px' }}
+          >
+            {TRANSITION_ACTION[nextStatus] ?? `Move to next stage`} →
+          </button>
+        </div>
+      )}
+
+      {/* Today's daily tasks */}
+      <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Today</div>
+      <div className="flex flex-col gap-2">
+        <button
+          onClick={onOpenFertiPanel}
+          className={`flex items-center gap-3 text-sm text-left w-full px-4 py-3 bg-white ${c.row} border rounded-xl font-medium text-gray-800 hover:bg-gray-50 transition-colors`}
+          style={{ minHeight: '48px' }}
+        >
+          <span className="text-base flex-shrink-0">💧</span>
+          <div>
+            <div className="font-semibold">Log {cfg.recipe} recipe</div>
+            <div className="text-xs text-gray-500 font-normal">{cfg.appNote} · opens panel below</div>
+          </div>
+        </button>
+        <Link
+          to={`/observations/new?batch_id=${batch.batch_id}`}
+          className={`flex items-center gap-3 text-sm w-full px-4 py-3 bg-white ${c.row} border rounded-xl font-medium text-gray-800 hover:bg-gray-50 transition-colors`}
+          style={{ minHeight: '48px', textDecoration: 'none' }}
+        >
+          <span className="text-base flex-shrink-0">🔍</span>
+          <div>
+            <div className="font-semibold">Record observations</div>
+            <div className="text-xs text-gray-500 font-normal">Plant condition · germination rate · concerns</div>
+          </div>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, [onDone]);
   const bg = type === 'success' ? 'bg-green-700' : type === 'warning' ? 'bg-amber-600' : 'bg-red-600';
@@ -146,6 +279,7 @@ export default function BatchDetail() {
   const [toast, setToast] = useState(null);
 
   // Inline fertigation quick-log panel
+  const fertiRef = useRef(null);
   const [fertiPanelOpen, setFertiPanelOpen] = useState(false);
   const [fertiVolume, setFertiVolume] = useState(() => localStorage.getItem('cv_last_fertigation_volume') || '');
   const [fertiEC, setFertiEC] = useState('');
@@ -366,6 +500,17 @@ export default function BatchDetail() {
         <MetrcEditInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
       )}
 
+      {/* Stage Guide — germ / seedling / cult-hoop day context + METRC reminders */}
+      <StageGuide
+        batch={batch}
+        onOpenFertiPanel={() => {
+          setFertiPanelOpen(true);
+          setTimeout(() => fertiRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+        }}
+        onOpenTransitionModal={() => setShowTransitionModal(true)}
+        isSupervisor={isSupervisor}
+      />
+
       {/* Current Environmental Conditions — shown when batch is in the field */}
       {batch.sub_zone_id && (
         <div className="mb-4">
@@ -552,7 +697,7 @@ export default function BatchDetail() {
             )}
             {/* Fertigation — inline quick-log panel, hidden during harvesting */}
             {batch.status !== 'harvesting' && (
-              <div className="rounded-2xl overflow-hidden shadow-sm">
+              <div ref={fertiRef} className="rounded-2xl overflow-hidden shadow-sm">
                 <button
                   onClick={() => setFertiPanelOpen(p => !p)}
                   className="flex items-center justify-between w-full bg-green-800 text-white font-semibold px-5 hover:bg-green-900 transition-colors"
