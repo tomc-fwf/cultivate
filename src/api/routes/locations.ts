@@ -1,6 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
-import { requireAuth } from '../middleware/auth.middleware.js';
+import { requireAuth, requireAdmin } from '../middleware/auth.middleware.js';
 
 const PRE_FIELD_TYPES = ['germination', 'seedling', 'veg'];
 
@@ -257,6 +258,263 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       },
     });
   });
+
+  /**
+   * GET /tree — full location tree with batches, container counts, REI, and observations.
+   * Groups locations by category: indoor | hoop_house | outdoor.
+   * Outdoor locations are two-level: Zone (parent) → Sub-zone (child).
+   */
+  app.get('/tree', { preHandler: requireAuth }, async (_request, reply) => {
+    const db = getDB();
+
+    // Step 1 — all active locations
+    let locationRows: Array<Record<string, unknown>> = [];
+    try {
+      locationRows = db.prepare(`
+        SELECT * FROM cv_locations WHERE active = 1 ORDER BY location_id
+      `).all() as Array<Record<string, unknown>>;
+    } catch {
+      locationRows = [];
+    }
+
+    // Step 2 — active batches with most recent location
+    let batchRows: Array<Record<string, unknown>> = [];
+    try {
+      batchRows = db.prepare(`
+        SELECT b.batch_id, b.strain_id, s.name AS strain_name, b.status,
+               b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
+               b.sow_date, b.field_move_date,
+               lh.location_id,
+               loc.name AS current_location_name,
+               loc.location_type AS current_location_type,
+               CAST((julianday('now') - julianday(
+                 CASE WHEN b.status IN ('field-veg','field-flower','flush','harvest_window','harvesting')
+                      THEN b.field_move_date
+                      ELSE b.sow_date END
+               )) AS INTEGER) AS days_in_stage
+        FROM cv_batches b
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_batch_location_history lh ON lh.batch_id = b.batch_id
+          AND lh.location_history_id = (
+            SELECT MAX(location_history_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
+          )
+        LEFT JOIN cv_locations loc ON loc.location_id = lh.location_id
+        WHERE b.status NOT IN ('closed')
+        ORDER BY b.batch_id
+      `).all() as Array<Record<string, unknown>>;
+    } catch {
+      batchRows = [];
+    }
+
+    // Step 3 — container state counts per sub_zone_id
+    let containerRows: Array<Record<string, unknown>> = [];
+    try {
+      containerRows = db.prepare(`
+        SELECT sz.sub_zone_id, sz.pot_size_gal,
+               (sz.row_count * CASE WHEN sz.designation = 'A' THEN 30 ELSE 29 END) AS container_count,
+               SUM(CASE WHEN cs.current_state = 'active'         THEN 1 ELSE 0 END) AS active,
+               SUM(CASE WHEN cs.current_state = 'empty'          THEN 1 ELSE 0 END) AS empty,
+               SUM(CASE WHEN cs.current_state = 'teardown'       THEN 1 ELSE 0 END) AS teardown,
+               SUM(CASE WHEN cs.current_state = 'startup'        THEN 1 ELSE 0 END) AS startup,
+               SUM(CASE WHEN cs.current_state = 'ready'          THEN 1 ELSE 0 END) AS ready,
+               SUM(CASE WHEN cs.current_state = 'out_of_service' THEN 1 ELSE 0 END) AS out_of_service
+        FROM cv_sub_zones sz
+        LEFT JOIN cv_containers c ON c.sub_zone_id = sz.sub_zone_id
+        LEFT JOIN cv_container_state cs ON cs.container_id = c.container_id
+        GROUP BY sz.sub_zone_id
+      `).all() as Array<Record<string, unknown>>;
+    } catch {
+      containerRows = [];
+    }
+
+    // Step 4 — active REIs per sub_zone_id
+    let reiRows: Array<Record<string, unknown>> = [];
+    try {
+      reiRows = db.prepare(`
+        SELECT DISTINCT b.sub_zone_id, MIN(ap.rei_expires_at) AS rei_expires_at
+        FROM cv_applications_pesticide ap
+        JOIN cv_batches b ON b.batch_id = ap.plant_batch_id
+        WHERE ap.rei_expires_at > datetime('now') AND ap.rei_cleared_at IS NULL
+        GROUP BY b.sub_zone_id
+      `).all() as Array<Record<string, unknown>>;
+    } catch {
+      reiRows = [];
+    }
+
+    // Step 5 — open observation count per location (sub_zone or location name)
+    let obsRows: Array<Record<string, unknown>> = [];
+    try {
+      obsRows = db.prepare(`
+        SELECT b.sub_zone_id,
+               lh_loc.name AS location_name,
+               COUNT(*) AS open_count
+        FROM cv_observations o
+        JOIN cv_batches b ON b.batch_id = o.plant_batch_id
+        LEFT JOIN cv_batch_location_history blh ON blh.batch_id = b.batch_id
+          AND blh.location_history_id = (
+            SELECT MAX(lh2.location_history_id) FROM cv_batch_location_history lh2 WHERE lh2.batch_id = b.batch_id
+          )
+        LEFT JOIN cv_locations lh_loc ON lh_loc.location_id = blh.location_id
+        WHERE o.resolved_at IS NULL
+        GROUP BY b.sub_zone_id, lh_loc.name
+      `).all() as Array<Record<string, unknown>>;
+    } catch {
+      // resolved_at may not exist or table missing — return 0 for all
+      obsRows = [];
+    }
+
+    // Step 6 — assemble tree in JS
+
+    type LocationNode = Record<string, unknown> & {
+      sub_locations: LocationNode[];
+      batches: Array<Record<string, unknown>>;
+      container_counts: Record<string, number>;
+      container_count: number;
+      pot_size_gal: number | null;
+      rei_active: boolean;
+      rei_expires_at: string | null;
+      open_observation_count: number;
+    };
+
+    const byId: Record<number, LocationNode> = {};
+    for (const r of locationRows) {
+      byId[r['location_id'] as number] = {
+        ...r,
+        sub_locations: [],
+        batches: [],
+        container_counts: { active: 0, empty: 0, teardown: 0, startup: 0, ready: 0, out_of_service: 0 },
+        container_count: 0,
+        pot_size_gal: null,
+        rei_active: false,
+        rei_expires_at: null,
+        open_observation_count: 0,
+      };
+    }
+
+    // Attach batches to their location node
+    for (const batch of batchRows) {
+      const locId = batch['location_id'] as number | null;
+      if (locId != null && byId[locId]) {
+        byId[locId].batches.push({
+          batch_id: batch['batch_id'],
+          strain_name: batch['strain_name'],
+          status: batch['status'],
+          plant_count_current: batch['plant_count_current'],
+          plant_count_initial: batch['plant_count_initial'],
+          days_in_stage: batch['days_in_stage'],
+          sub_zone_id: batch['sub_zone_id'],
+        });
+      }
+    }
+
+    // Attach container counts and pot size to leaf sub-zone locations
+    for (const sz of containerRows) {
+      const szId = sz['sub_zone_id'] as string;
+      const loc = Object.values(byId).find(l => l['sub_zone_id'] === szId);
+      if (loc) {
+        loc.container_counts = {
+          active:         Number(sz['active']         ?? 0),
+          empty:          Number(sz['empty']          ?? 0),
+          teardown:       Number(sz['teardown']       ?? 0),
+          startup:        Number(sz['startup']        ?? 0),
+          ready:          Number(sz['ready']          ?? 0),
+          out_of_service: Number(sz['out_of_service'] ?? 0),
+        };
+        loc.container_count = Number(sz['container_count'] ?? 0);
+        loc.pot_size_gal = Number(sz['pot_size_gal'] ?? null) || null;
+      }
+    }
+
+    // Attach REI status to sub-zone locations
+    for (const rei of reiRows) {
+      const szId = rei['sub_zone_id'] as string | null;
+      if (!szId) continue;
+      const loc = Object.values(byId).find(l => l['sub_zone_id'] === szId);
+      if (loc) {
+        loc.rei_active = true;
+        loc.rei_expires_at = rei['rei_expires_at'] as string;
+      }
+    }
+
+    // Attach open observation counts
+    for (const obs of obsRows) {
+      const szId = obs['sub_zone_id'] as string | null;
+      const locName = obs['location_name'] as string | null;
+      const loc = Object.values(byId).find(
+        l => (szId && l['sub_zone_id'] === szId) || (locName && l['name'] === locName)
+      );
+      if (loc) loc.open_observation_count = Number(obs['open_count'] ?? 0);
+    }
+
+    // Build parent-child tree
+    const roots: LocationNode[] = [];
+    for (const loc of Object.values(byId)) {
+      const parentId = loc['parent_location_id'] as number | null;
+      if (parentId != null && byId[parentId]) {
+        byId[parentId].sub_locations.push(loc);
+      } else {
+        roots.push(loc);
+      }
+    }
+
+    // Group roots by category
+    const tree: Record<string, LocationNode[]> = { indoor: [], hoop_house: [], outdoor: [] };
+    for (const root of roots) {
+      const cat = (root['location_category'] as string | null) ?? 'outdoor';
+      if (cat in tree) tree[cat].push(root);
+    }
+
+    // Bubble REI up to parent zone cards
+    for (const zone of tree['outdoor']) {
+      if (!zone.rei_active) {
+        zone.rei_active = zone.sub_locations.some(sl => sl.rei_active);
+      }
+    }
+
+    return reply.send({ tree });
+  });
 };
 
 export default locationsRoutes;
+
+// ── Admin routes (registered under /api/admin) ────────────────────────────────
+
+const CreateLocationSchema = z.object({
+  name: z.string().min(1).max(100),
+  location_category: z.enum(['indoor', 'hoop_house', 'outdoor']),
+  parent_location_id: z.number().int().positive().nullable().optional(),
+  metrc_name: z.string().optional(),
+  description: z.string().optional(),
+});
+
+export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * POST /api/admin/locations — create a new location (admin only).
+   */
+  app.post('/locations', { preHandler: requireAdmin }, async (request, reply) => {
+    const result = CreateLocationSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: result.error.issues });
+    }
+    const data = result.data;
+
+    const location_type =
+      data.location_category === 'indoor' ? 'germination' : 'field';
+
+    const db = getDB();
+    const row = db.prepare(`
+      INSERT INTO cv_locations (name, location_type, location_category, metrc_name, parent_location_id, description, active)
+      VALUES (?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      data.name,
+      location_type,
+      data.location_category,
+      data.metrc_name ?? data.name,
+      data.parent_location_id ?? null,
+      data.description ?? null,
+    );
+
+    const created = db.prepare(`SELECT * FROM cv_locations WHERE location_id = ?`).get(row.lastInsertRowid) as Record<string, unknown>;
+    return reply.code(201).send(created);
+  });
+};

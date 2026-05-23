@@ -198,6 +198,8 @@ export const api = {
 
   // Locations
   getLocationsSummary: () => req('GET', '/locations/home-summary'),
+  getLocationsTree: () => req('GET', '/locations/tree'),
+  createLocation: (data) => req('POST', '/admin/locations', data),
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),
