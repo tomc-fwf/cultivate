@@ -3138,3 +3138,54 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - npx tsc --noEmit passes clean; npm run build passes clean
 - Action bar z-index is z-40; QuickActionSheet is z-50 — sheet correctly appears above action bar
 - Walk Row navigates to /inspect/Z{zone}-{desig}-R1 (first row always); could be enhanced to detect which row has the most recent activity
+
+## Task: ContainerDetail back navigation fix
+**Completed:** 2026-05-23
+
+### What Was Done
+- Replaced hardcoded navigate to /containers with navigate(-1) in ContainerDetail.jsx
+- Changed button label from Containers to Back
+
+### Key Decisions
+- Used navigate(-1) so the back button returns to the actual previous route (SubZoneFieldMap, /scan, Today screen, etc.) rather than always dumping the user at /containers
+
+### Files Modified/Created
+- client/src/pages/containers/ContainerDetail.jsx (line 379)
+
+### Notes for Next Tasks
+- No schema or API changes; purely a frontend one-liner fix
+
+## Task: Migration 023: location_category tree + admin endpoints
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created `src/db/migrations/023_location_tree.ts`:
+  - Adds `location_category` (text nullable), `parent_location_id` (int nullable FK self-referential), and `description` (text nullable) to `cv_locations`
+  - Seeds existing locations with categories: Germ-01/Seedlings → indoor, Cult-Hoop → hoop_house, Z1A–Z4B → outdoor
+  - Inserts Zone 1–4 as outdoor parent locations (location_id 12–15)
+  - Sets parent_location_id on Z1A/Z1B→12, Z2A/Z2B→13, Z3A/Z3B→14, Z4A/Z4B→15
+  - down() uses CREATE TABLE … AS SELECT + rename pattern (SQLite constraint)
+- Added `GET /api/locations/tree` to `src/api/routes/locations.ts`:
+  - Fetches all active locations, active batches, container counts, REI status, open observations
+  - Assembles two-level outdoor tree (Zone parent → sub-zone children) plus flat indoor/hoop_house sections
+  - Bubbles REI status up to zone-level cards
+- Added `POST /api/admin/locations` (adminLocationsRoutes export, registered under `/api/admin` in app.ts):
+  - Zod-validated; requires admin role
+  - metrc_name defaults to name; location_type derived from location_category
+- Updated `client/src/api.js`: added `getLocationsTree()` and `createLocation(data)`
+- `npx tsc --noEmit` passes; `npm run build` passes
+
+### Key Decisions
+- Used a separate `adminLocationsRoutes` FastifyPluginAsync export so the admin endpoint sits at `/api/admin/locations` (not `/api/locations/admin/locations`)
+- down() uses raw SQL recreate-and-copy per the spec; loses NOT NULL constraints but is acceptable for dev rollback
+
+### Files Modified/Created
+- `src/db/migrations/023_location_tree.ts` (new)
+- `src/api/routes/locations.ts` (added /tree GET + adminLocationsRoutes export)
+- `src/api/app.ts` (added adminLocationsRoutes import + registration under /api/admin)
+- `client/src/api.js` (getLocationsTree, createLocation)
+
+### Notes for Next Tasks
+- The tree endpoint is now available for the Locations Home screen to consume instead of /home-summary if desired
+- Zone 1–4 records (location_id 12–15) exist in cv_locations after migration 023 runs; the frontend can use them as display groupings
+- /api/admin prefix is now established in app.ts for future admin-only endpoints
