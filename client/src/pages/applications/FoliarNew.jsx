@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 import { useOfflineSubmit } from '../../lib/offlineQueue';
+import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
 
 const DRAFT_KEY = 'cv_draft_foliar';
 
@@ -334,6 +335,12 @@ export default function FoliarNew() {
   const [notes, setNotes] = useState('');
   const [showOptional, setShowOptional] = useState(false);
 
+  // Sensor auto-fill
+  const { conditions: sensorConditions } = useCurrentConditions(null, (lockedBatch ?? selectedBatch)?.sub_zone_id ?? null);
+  const [sensorReadingUsed, setSensorReadingUsed] = useState(null);
+  const [tempEdited, setTempEdited] = useState(false);
+  const [rhEdited, setRhEdited] = useState(false);
+
   // Save state
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
@@ -429,6 +436,19 @@ export default function FoliarNew() {
     autoSaveTimer.current = setTimeout(saveDraft, 3000);
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [saveDraft]);
+
+  // Auto-fill ambient conditions from sensor when fields are empty
+  useEffect(() => {
+    if (!sensorConditions || !sensorConditions.temp_f) return;
+    if (ambientTempF === '' && ambientRh === '') {
+      setAmbientTempF(String(sensorConditions.temp_f.toFixed(1)));
+      setAmbientRh(String(Math.round(sensorConditions.humidity_rh)));
+      setSensorReadingUsed(sensorConditions);
+      setTempEdited(false);
+      setRhEdited(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sensorConditions]);
 
   // Can save?
   const batchId = batchIdParam ? Number(batchIdParam) : activeBatch?.batch_id;
@@ -823,10 +843,11 @@ export default function FoliarNew() {
                     step="0.1"
                     placeholder="—"
                     value={ambientTempF}
-                    onChange={e => setAmbientTempF(e.target.value)}
+                    onChange={e => { setAmbientTempF(e.target.value); setTempEdited(true); }}
                     className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                     style={{ minHeight: '56px' }}
                   />
+                  {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={tempEdited} />}
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1 font-medium">RH (%)</label>
@@ -838,10 +859,11 @@ export default function FoliarNew() {
                     max="100"
                     placeholder="—"
                     value={ambientRh}
-                    onChange={e => setAmbientRh(e.target.value)}
+                    onChange={e => { setAmbientRh(e.target.value); setRhEdited(true); }}
                     className="w-full border border-gray-300 rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
                     style={{ minHeight: '56px' }}
                   />
+                  {sensorReadingUsed && <SensorBadge reading={sensorReadingUsed} manual={rhEdited} />}
                 </div>
               </div>
 
