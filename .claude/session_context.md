@@ -2439,3 +2439,83 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - `npx tsc --noEmit` passes clean; `npm run build` passes; committed and pushed as 0ff016b
 - Results will be empty until at least one batch reaches final_harvest status — expected for a new operation
 - Phase 3 analytics still pending: EC/pH trend charts (recharts), cross-batch strain × sub-zone comparisons
+
+---
+
+## Task: Cross-batch Comparisons (P3-04)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/analytics/compare?batch_ids=1,2,3` to `src/api/routes/analytics.ts`. Accepts comma-separated list of up to 6 batch IDs; computes per-batch: strain_name, sub_zone_id, sow_date, status, days_to_harvest, total_yield_g (normalized to grams), avg_yield_per_plant_g, plant_loss_rate, pesticide_application_count, fertigation_count, avg_ec_deviation. EC deviation uses a second query with GROUP BY to avoid correlated subquery complexity.
+- Created `client/src/pages/analytics/CrossBatchCompare.jsx` at route `/analytics/compare`. Multi-select batch picker (up to 6, chips UI), Compare button, comparison table with rows=metrics/columns=batches, green/red cell highlighting for best/worst values per metric.
+- Added `getCrossBatchCompare(batchIds)` to `client/src/api.js`.
+- Registered `/analytics/compare` route in `client/src/App.jsx`.
+- Added "Cross-Batch Comparison" entry to the Analytics section in `ApplicationsHub.jsx`.
+
+### Key Decisions
+- EC deviation is computed in a separate query (not a correlated subquery) because SQLite does not support aggregates in scalar subqueries referencing outer query joins easily. Results merged in JS.
+- Best/worst highlighting only fires when ≥2 non-null values exist for a metric; direction=null metrics (strain, date, status) are never highlighted.
+- `getBatches({ limit: 50 })` is used for the selector — handles the expected dataset size (typically <20 batches/year).
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` — added `/compare` handler
+- `client/src/api.js` — added `getCrossBatchCompare`
+- `client/src/pages/analytics/CrossBatchCompare.jsx` (new)
+- `client/src/App.jsx` — import + route
+- `client/src/pages/applications/ApplicationsHub.jsx` — Analytics section link
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` succeeds (chunk size warning is pre-existing).
+- The comparison table is horizontal-scrollable on mobile (`overflow-x-auto`).
+- Batch selector shows `batch_name` if present, falling back to `#batch_id` — depends on whether batches API returns `batch_name` field.
+
+---
+
+## Task: Offline Mode Hardening (P2-03)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `client/src/lib/offlineQueue.js` — IndexedDB-backed offline write queue using the `idb` library (already installed). Exports:
+  - `enqueueWrite({ endpoint, payload, entity_type, method })` — adds a record to `pending_writes` store in `cultivate-offline` IndexedDB
+  - `flushQueue()` — reads all pending writes in creation order, POSTs each to the API with the stored auth token, removes on 2xx, marks as `failed` on 4xx (permanent failure), increments retry_count on 5xx/network error; max 3 retries before marking failed
+  - `getQueueDepth()` — returns count of `pending` (not `failed`) items
+  - `useOfflineSubmit({ draftKey, onSuccess, onError })` — hook that wraps any form save; tries the API call, on network error writes to IndexedDB and calls `onSuccess(null, true)` (isOffline=true); clears draftKey on both success paths
+  - `useSyncQueue()` — hook for App.jsx root; calls flushQueue on mount and on window `online` event
+  - `useSyncStatus()` — hook for NavBar; polls queue every 5s and on online/offline events; returns `{ pending, failed }`
+- Wired `useOfflineSubmit` into all 7 application entry forms:
+  1. FertigationNew.jsx
+  2. FoliarNew.jsx
+  3. AmendmentNew.jsx (also gained first-time offline support — previously had no offline handling)
+  4. PesticideNew.jsx
+  5. FinalHarvestForm.jsx
+  6. PartialHarvestForm.jsx
+  7. PlantLossForm.jsx
+- Compliance-critical forms (FinalHarvestForm, PesticideNew) show a prominent amber border banner (`⚠ ... PENDING SYNC. Do NOT re-enter...`) instead of the generic gray indicator
+- `NavBar.jsx`: Added `SyncBadge` component overlaid on the Today nav item — green dot (all synced), amber dot + count (N pending), red `!` dot (any failed)
+- `App.jsx`: Added `useSyncQueue()` call at the root component level
+
+### Key Decisions
+- `useOfflineSubmit` takes `draftKey` at hook init and `submitFn`/`queueEntry` at call time (not at init) — this avoids stale closure issues since payload is built fresh inside `handleSave` on each call
+- Callbacks (`onSuccess`, `onError`) stored in a ref internally so forms don't need `useCallback`; always calls the latest version
+- Offline draft is cleared on both success paths (online save and offline queue) — the data is now in either the server DB or IndexedDB, not in localStorage
+- `pending_writes` store uses auto-generated ID (`${Date.now()}-${random}`) keyed as `keyPath: 'id'` — no auto-increment needed since we only read/delete by ID
+- `flushQueue` runs on mount in `useSyncQueue` — catches any writes made while offline that persisted across page reloads
+
+### Files Modified/Created
+- `client/src/lib/offlineQueue.js` — new file (186 lines)
+- `client/src/components/NavBar.jsx` — SyncBadge component added
+- `client/src/App.jsx` — useSyncQueue import + call
+- `client/src/pages/applications/FertigationNew.jsx` — useOfflineSubmit wired
+- `client/src/pages/applications/FoliarNew.jsx` — useOfflineSubmit wired
+- `client/src/pages/applications/PesticideNew.jsx` — useOfflineSubmit wired, prominent banner
+- `client/src/pages/containers/AmendmentNew.jsx` — useOfflineSubmit wired (new offline support)
+- `client/src/pages/harvest/FinalHarvestForm.jsx` — useOfflineSubmit wired, prominent banner
+- `client/src/pages/harvest/PartialHarvestForm.jsx` — useOfflineSubmit wired
+- `client/src/pages/containers/PlantLossForm.jsx` — useOfflineSubmit wired
+
+### Notes for Next Tasks
+- `npm run build` passes (1062KB chunk, same pre-existing size warning)
+- Committed e3b88a5 and pushed to origin/master
+- `failed` queue items show a red `!` badge in the NavBar but there is no conflict resolution UI yet (roadmap item) — users must navigate to `/applications/*` to manually re-enter failed records
+- Sync flush runs on mount + online event only. There is no 30-second interval (roadmap suggested setInterval fallback) — this keeps it simple; add interval if needed
+- The `idb` library was already installed (`^8.0.3`) — no new dependencies added
