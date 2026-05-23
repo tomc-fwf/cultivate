@@ -12,6 +12,10 @@ const SeedPackageQuerySchema = z.object({
 });
 
 const CreateSeedPackageSchema = z.object({
+  // Inline strain (preferred): provide name + type and the route auto-finds/creates the strain.
+  strain_name: z.string().min(1).nullable().optional(),
+  strain_type: z.enum(['auto', 'photo']).nullable().optional(),
+  // Legacy / explicit: pass a strain_id directly (still accepted).
   strain_id: z.number().int().positive().nullable().optional(),
   location_id: z.number().int().positive().nullable().optional(),
   lot_number: z.string().nullable().optional(),
@@ -48,7 +52,7 @@ type UpdateSeedPackageBody = z.infer<typeof UpdateSeedPackageSchema>;
 const SEED_PACKAGE_SELECT = `
   SELECT sp.*, s.name AS strain_name, s.type AS strain_type
   FROM cv_seed_packages sp
-  JOIN cv_strains s ON s.strain_id = sp.strain_id
+  LEFT JOIN cv_strains s ON s.strain_id = sp.strain_id
 `;
 
 function normalizePkg(row: Record<string, unknown>) {
@@ -111,9 +115,28 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
 
     const db = getDB();
 
-    if (body.strain_id != null) {
-      const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(body.strain_id));
+    // Resolve strain_id: explicit ID > inline name+type find-or-create > null
+    let resolvedStrainId: number | null = body.strain_id != null ? Number(body.strain_id) : null;
+
+    if (resolvedStrainId != null) {
+      const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(resolvedStrainId);
       if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
+    } else if (body.strain_name) {
+      const name = body.strain_name.trim();
+      const type = body.strain_type ?? 'auto';
+      const existing = db.prepare(
+        "SELECT strain_id FROM cv_strains WHERE LOWER(name) = LOWER(?) AND type = ? AND active = 1"
+      ).get(name, type) as { strain_id: number } | undefined;
+
+      if (existing) {
+        resolvedStrainId = existing.strain_id;
+      } else {
+        const now = new Date().toISOString();
+        const ins = db.prepare(
+          "INSERT INTO cv_strains (name, type, active, created_at) VALUES (?, ?, 1, ?)"
+        ).run(name, type, now);
+        resolvedStrainId = Number(ins.lastInsertRowid);
+      }
     }
 
     if (body.location_id != null) {
@@ -132,7 +155,7 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
          notes, active, created_at, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
-      body.strain_id != null ? Number(body.strain_id) : null,
+      resolvedStrainId,
       body.location_id ?? null,
       body.lot_number?.trim() ?? null,
       body.package_name ?? null,

@@ -136,9 +136,10 @@ const FEMINIZED_OPTIONS = [
   { value: true, label: 'Yes' },
 ];
 
-function AddPackageForm({ strains, onSave, onCancel }) {
+function AddPackageForm({ onSave, onCancel }) {
   const [packageName, setPackageName] = useState('');
-  const [strainId, setStrainId] = useState('');
+  const [strainName, setStrainName] = useState('');
+  const [strainType, setStrainType] = useState('auto');
   const [metrcPackageId, setMetrcPackageId] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [supplier, setSupplier] = useState('');
@@ -155,12 +156,14 @@ function AddPackageForm({ strains, onSave, onCancel }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!weightG || Number(weightG) <= 0) { setError('Total weight in grams is required'); return; }
+    if (!strainName.trim()) { setError('Strain name is required'); return; }
 
     setSaving(true);
     setError('');
     try {
       const pkg = await api.createSeedPackage({
-        strain_id: strainId ? Number(strainId) : undefined,
+        strain_name: strainName.trim(),
+        strain_type: strainType,
         lot_number: lotNumber.trim() || null,
         package_name: packageName.trim() || null,
         metrc_package_id: metrcPackageId.trim() || null,
@@ -208,20 +211,47 @@ function AddPackageForm({ strains, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Strain</label>
-            <select
-              value={strainId}
-              onChange={e => setStrainId(e.target.value)}
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Strain <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={strainName}
+              onChange={e => { setStrainName(e.target.value); setError(''); }}
+              placeholder="e.g. Northern Lights Auto"
               className={inputClass}
               style={{ minHeight: '44px' }}
-            >
-              <option value="">Select strain…</option>
-              {strains.map(s => (
-                <option key={s.strain_id} value={s.strain_id}>
-                  {s.name} ({s.type === 'auto' ? 'Auto' : 'Photo'})
-                </option>
-              ))}
-            </select>
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Type</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setStrainType('auto')}
+                className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
+                  strainType === 'auto'
+                    ? 'bg-green-700 text-white border-green-700'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-green-300'
+                }`}
+                style={{ minHeight: '44px' }}
+              >
+                Autoflower
+              </button>
+              <button
+                type="button"
+                onClick={() => setStrainType('photo')}
+                className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
+                  strainType === 'photo'
+                    ? 'bg-purple-700 text-white border-purple-700'
+                    : 'bg-white text-gray-700 border-gray-200 hover:border-purple-300'
+                }`}
+                style={{ minHeight: '44px' }}
+              >
+                Photoperiod
+              </button>
+            </div>
           </div>
 
           <div>
@@ -633,7 +663,6 @@ export default function SeedVault() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [packages, setPackages] = useState([]);
-  const [strains, setStrains] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear());
@@ -644,11 +673,8 @@ export default function SeedVault() {
   const loadData = useCallback(() => {
     setLoading(true);
     setError('');
-    Promise.all([api.getSeedPackages(), api.getStrains()])
-      .then(([pkgs, strs]) => {
-        setPackages(pkgs);
-        setStrains(strs);
-      })
+    api.getSeedPackages()
+      .then(pkgs => setPackages(pkgs))
       .catch(err => setError(err.message || 'Failed to load seed packages'))
       .finally(() => setLoading(false));
   }, []);
@@ -765,7 +791,6 @@ export default function SeedVault() {
       {/* Add form */}
       {showAddForm && !editingPackage && (
         <AddPackageForm
-          strains={strains}
           onSave={handleSaved}
           onCancel={() => setShowAddForm(false)}
         />
