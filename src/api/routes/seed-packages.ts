@@ -1,12 +1,19 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getDB } from '../../db/index.js';
-import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { requireAuth } from '../middleware/auth.middleware.js';
 
 interface IdParams { id: string }
 
+const SeedPackageQuerySchema = z.object({
+  strain_id: z.coerce.number().int().positive().optional(),
+  season_year: z.coerce.number().int().optional(),
+  active: z.string().default('1'),
+});
+
 const CreateSeedPackageSchema = z.object({
   strain_id: z.number().int().positive(),
+  location_id: z.number().int().positive().nullable().optional(),
   lot_number: z.string().min(1),
   package_name: z.string().nullable().optional(),
   metrc_package_id: z.string().nullable().optional(),
@@ -14,12 +21,12 @@ const CreateSeedPackageSchema = z.object({
   season_year: z.number().int().optional(),
   supplier: z.string().nullable().optional(),
   source_detail: z.string().nullable().optional(),
-  received_date: z.string().nullable().optional(),
+  received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   seed_count_initial: z.number().int().positive(),
   weight_g_initial: z.number().positive().nullable().optional(),
   notes: z.string().nullable().optional(),
-  location_id: z.number().int().positive().nullable().optional(),
 });
+type CreateSeedPackageBody = z.infer<typeof CreateSeedPackageSchema>;
 
 const UpdateSeedPackageSchema = z.object({
   package_name: z.string().nullable().optional(),
@@ -29,226 +36,166 @@ const UpdateSeedPackageSchema = z.object({
   season_year: z.number().int().nullable().optional(),
   supplier: z.string().nullable().optional(),
   source_detail: z.string().nullable().optional(),
-  received_date: z.string().nullable().optional(),
+  received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   seed_count_remaining: z.number().int().min(0).optional(),
   weight_g_initial: z.number().positive().nullable().optional(),
   notes: z.string().nullable().optional(),
-  active: z.boolean().optional(),
+  active: z.number().int().min(0).max(1).optional(),
 });
+type UpdateSeedPackageBody = z.infer<typeof UpdateSeedPackageSchema>;
+
+const SEED_PACKAGE_SELECT = `
+  SELECT sp.*, s.name AS strain_name, s.type AS strain_type
+  FROM cv_seed_packages sp
+  JOIN cv_strains s ON s.strain_id = sp.strain_id
+`;
+
+function normalizePkg(row: Record<string, unknown>) {
+  return {
+    ...row,
+    feminized: row.feminized === 1 || row.feminized === true,
+    active: row.active === 1 || row.active === true,
+  };
+}
 
 const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
-  /**
-   * GET / — list all seed packages, joined with strain info.
-   * Optional query: season_year (number) — filter by season year.
-   */
+
   app.get('/', { preHandler: requireAuth }, async (request, reply) => {
-    const query = request.query as Record<string, string>;
+    const parsed = SeedPackageQuerySchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid query parameters' });
+
+    const { strain_id, season_year, active } = parsed.data;
     const db = getDB();
 
-    let sql = `
-      SELECT
-        sp.package_id,
-        sp.package_name,
-        sp.metrc_package_id,
-        sp.lot_number,
-        sp.strain_id,
-        s.name  AS strain_name,
-        s.type  AS strain_type,
-        sp.supplier,
-        sp.source_detail,
-        sp.received_date,
-        sp.season_year,
-        sp.feminized,
-        sp.seed_count_initial,
-        sp.seed_count_remaining,
-        sp.weight_g_initial,
-        sp.notes,
-        sp.active,
-        sp.created_at
-      FROM cv_seed_packages sp
-      JOIN cv_strains s ON s.strain_id = sp.strain_id
-    `;
+    const conditions: string[] = ['sp.active = ?'];
+    const params: unknown[] = [active === '1' ? 1 : 0];
 
-    const params: unknown[] = [];
-
-    if (query.season_year) {
-      const year = Number(query.season_year);
-      if (!isNaN(year)) {
-        sql += ' WHERE sp.season_year = ?';
-        params.push(year);
-      }
+    if (strain_id != null) {
+      conditions.push('sp.strain_id = ?');
+      params.push(strain_id);
     }
 
-    sql += ' ORDER BY sp.created_at DESC';
+    if (season_year != null) {
+      conditions.push('sp.season_year = ?');
+      params.push(season_year);
+    }
 
-    const rows = db.prepare(sql).all(...params) as Record<string, unknown>[];
+    const where = `WHERE ${conditions.join(' AND ')}`;
+    const rows = db
+      .prepare(`${SEED_PACKAGE_SELECT} ${where} ORDER BY sp.received_date DESC, sp.package_id DESC`)
+      .all(...params) as Record<string, unknown>[];
 
-    return reply.send(rows.map(r => ({
-      ...r,
-      feminized: r.feminized === 1 || r.feminized === true,
-      active: r.active === 1 || r.active === true,
-    })));
+    return reply.send(rows.map(normalizePkg));
   });
 
-  /**
-   * GET /:id — get a single seed package.
-   */
   app.get<{ Params: IdParams }>('/:id', { preHandler: requireAuth }, async (request, reply) => {
     const id = Number(request.params.id);
     if (isNaN(id)) return reply.code(400).send({ error: 'Invalid package id' });
 
     const db = getDB();
-    const row = db.prepare(`
-      SELECT
-        sp.package_id,
-        sp.package_name,
-        sp.metrc_package_id,
-        sp.lot_number,
-        sp.strain_id,
-        s.name  AS strain_name,
-        s.type  AS strain_type,
-        sp.supplier,
-        sp.source_detail,
-        sp.received_date,
-        sp.season_year,
-        sp.feminized,
-        sp.seed_count_initial,
-        sp.seed_count_remaining,
-        sp.weight_g_initial,
-        sp.notes,
-        sp.active,
-        sp.created_at
-      FROM cv_seed_packages sp
-      JOIN cv_strains s ON s.strain_id = sp.strain_id
-      WHERE sp.package_id = ?
-    `).get(id) as Record<string, unknown> | undefined;
+    const row = db.prepare(`${SEED_PACKAGE_SELECT} WHERE sp.package_id = ?`)
+      .get(id) as Record<string, unknown> | undefined;
 
     if (!row) return reply.code(404).send({ error: 'Seed package not found' });
-
-    return reply.send({
-      ...row,
-      feminized: row.feminized === 1 || row.feminized === true,
-      active: row.active === 1 || row.active === true,
-    });
+    return reply.send(normalizePkg(row));
   });
 
-  /**
-   * POST / — create a new seed package. Requires supervisor role.
-   */
-  app.post(
-    '/',
-    { preHandler: requireRole('supervisor') },
-    async (request, reply) => {
-      let parsed: z.infer<typeof CreateSeedPackageSchema>;
-      try {
-        parsed = CreateSeedPackageSchema.parse(request.body);
-      } catch (err: unknown) {
-        const issues = err instanceof z.ZodError ? err.issues : undefined;
-        return reply.code(400).send({ error: 'Validation failed', issues });
-      }
+  app.post<{ Body: CreateSeedPackageBody }>('/', { preHandler: requireAuth }, async (request, reply) => {
+    let body: CreateSeedPackageBody;
+    try { body = CreateSeedPackageSchema.parse(request.body); }
+    catch (e: unknown) {
+      if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+      throw e;
+    }
 
-      const db = getDB();
-      const now = new Date().toISOString();
-      const userId = request.user.id;
+    const db = getDB();
 
-      const r = db.prepare(`
-        INSERT INTO cv_seed_packages (
-          strain_id, location_id, lot_number, package_name, metrc_package_id,
-          feminized, season_year, supplier, source_detail, received_date,
-          seed_count_initial, seed_count_remaining, weight_g_initial,
-          notes, active, created_at, created_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
-      `).run(
-        parsed.strain_id,
-        parsed.location_id ?? null,
-        parsed.lot_number.trim(),
-        parsed.package_name ?? null,
-        parsed.metrc_package_id ?? null,
-        parsed.feminized ? 1 : 0,
-        parsed.season_year ?? null,
-        parsed.supplier ?? null,
-        parsed.source_detail ?? null,
-        parsed.received_date ?? null,
-        parsed.seed_count_initial,
-        parsed.seed_count_initial,
-        parsed.weight_g_initial ?? null,
-        parsed.notes ?? null,
-        now,
-        userId,
-      );
+    const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(body.strain_id));
+    if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
 
-      const row = db.prepare(`
-        SELECT sp.*, s.name AS strain_name, s.type AS strain_type
-        FROM cv_seed_packages sp
-        JOIN cv_strains s ON s.strain_id = sp.strain_id
-        WHERE sp.package_id = ?
-      `).get(Number(r.lastInsertRowid)) as Record<string, unknown>;
+    if (body.location_id != null) {
+      const loc = db.prepare('SELECT * FROM cv_locations WHERE location_id = ?').get(Number(body.location_id));
+      if (!loc) return reply.code(400).send({ error: 'location_id does not exist' });
+    }
 
-      return reply.code(201).send({
-        ...row,
-        feminized: row.feminized === 1 || row.feminized === true,
-        active: row.active === 1 || row.active === true,
-      });
-    },
-  );
+    const now = new Date().toISOString();
+    const userId = request.user.id;
 
-  /**
-   * PATCH /:id — update a seed package. Requires supervisor role.
-   */
-  app.patch<{ Params: IdParams }>(
+    const r = db.prepare(`
+      INSERT INTO cv_seed_packages
+        (strain_id, location_id, lot_number, package_name, metrc_package_id,
+         feminized, season_year, supplier, source_detail, received_date,
+         seed_count_initial, seed_count_remaining, weight_g_initial,
+         notes, active, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    `).run(
+      Number(body.strain_id),
+      body.location_id ?? null,
+      body.lot_number.trim(),
+      body.package_name ?? null,
+      body.metrc_package_id ?? null,
+      body.feminized ? 1 : 0,
+      body.season_year ?? null,
+      body.supplier ?? null,
+      body.source_detail ?? null,
+      body.received_date ?? null,
+      Number(body.seed_count_initial),
+      Number(body.seed_count_initial),
+      body.weight_g_initial ?? null,
+      body.notes ?? null,
+      now, userId,
+    );
+
+    const pkg = db.prepare(`${SEED_PACKAGE_SELECT} WHERE sp.package_id = ?`)
+      .get(Number(r.lastInsertRowid)) as Record<string, unknown>;
+
+    return reply.code(201).send(normalizePkg(pkg));
+  });
+
+  app.patch<{ Params: IdParams; Body: UpdateSeedPackageBody }>(
     '/:id',
-    { preHandler: requireRole('supervisor') },
+    { preHandler: requireAuth },
     async (request, reply) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid package id' });
-
-      let parsed: z.infer<typeof UpdateSeedPackageSchema>;
-      try {
-        parsed = UpdateSeedPackageSchema.parse(request.body);
-      } catch (err: unknown) {
-        const issues = err instanceof z.ZodError ? err.issues : undefined;
-        return reply.code(400).send({ error: 'Validation failed', issues });
-      }
 
       const db = getDB();
       const existing = db.prepare('SELECT * FROM cv_seed_packages WHERE package_id = ?').get(id);
       if (!existing) return reply.code(404).send({ error: 'Seed package not found' });
 
-      const fields: string[] = [];
+      let body: UpdateSeedPackageBody;
+      try { body = UpdateSeedPackageSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+
+      const updates: string[] = [];
       const values: unknown[] = [];
 
-      const add = (col: string, val: unknown) => { fields.push(`${col} = ?`); values.push(val); };
+      if ('package_name' in body)        { updates.push('package_name = ?');        values.push(body.package_name ?? null); }
+      if ('metrc_package_id' in body)     { updates.push('metrc_package_id = ?');     values.push(body.metrc_package_id ?? null); }
+      if ('lot_number' in body)           { updates.push('lot_number = ?');           values.push((body.lot_number ?? '').trim()); }
+      if ('feminized' in body)            { updates.push('feminized = ?');            values.push(body.feminized ? 1 : 0); }
+      if ('season_year' in body)          { updates.push('season_year = ?');          values.push(body.season_year ?? null); }
+      if ('supplier' in body)             { updates.push('supplier = ?');             values.push(body.supplier ?? null); }
+      if ('source_detail' in body)        { updates.push('source_detail = ?');        values.push(body.source_detail ?? null); }
+      if ('received_date' in body)        { updates.push('received_date = ?');        values.push(body.received_date ?? null); }
+      if ('seed_count_remaining' in body) { updates.push('seed_count_remaining = ?'); values.push(body.seed_count_remaining); }
+      if ('weight_g_initial' in body)     { updates.push('weight_g_initial = ?');     values.push(body.weight_g_initial ?? null); }
+      if ('notes' in body)                { updates.push('notes = ?');                values.push(body.notes ?? null); }
+      if ('active' in body)               { updates.push('active = ?');               values.push(body.active); }
 
-      if (parsed.package_name !== undefined) add('package_name', parsed.package_name);
-      if (parsed.metrc_package_id !== undefined) add('metrc_package_id', parsed.metrc_package_id);
-      if (parsed.lot_number !== undefined) add('lot_number', parsed.lot_number.trim());
-      if (parsed.feminized !== undefined) add('feminized', parsed.feminized ? 1 : 0);
-      if (parsed.season_year !== undefined) add('season_year', parsed.season_year);
-      if (parsed.supplier !== undefined) add('supplier', parsed.supplier);
-      if (parsed.source_detail !== undefined) add('source_detail', parsed.source_detail);
-      if (parsed.received_date !== undefined) add('received_date', parsed.received_date);
-      if (parsed.seed_count_remaining !== undefined) add('seed_count_remaining', parsed.seed_count_remaining);
-      if (parsed.weight_g_initial !== undefined) add('weight_g_initial', parsed.weight_g_initial);
-      if (parsed.notes !== undefined) add('notes', parsed.notes);
-      if (parsed.active !== undefined) add('active', parsed.active ? 1 : 0);
-
-      if (fields.length === 0) return reply.code(400).send({ error: 'No fields to update' });
+      if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });
 
       values.push(id);
-      db.prepare(`UPDATE cv_seed_packages SET ${fields.join(', ')} WHERE package_id = ?`).run(...values);
 
-      const row = db.prepare(`
-        SELECT sp.*, s.name AS strain_name, s.type AS strain_type
-        FROM cv_seed_packages sp
-        JOIN cv_strains s ON s.strain_id = sp.strain_id
-        WHERE sp.package_id = ?
-      `).get(id) as Record<string, unknown>;
+      db.prepare(`UPDATE cv_seed_packages SET ${updates.join(', ')} WHERE package_id = ?`).run(...values);
 
-      return reply.send({
-        ...row,
-        feminized: row.feminized === 1 || row.feminized === true,
-        active: row.active === 1 || row.active === true,
-      });
+      const pkg = db.prepare(`${SEED_PACKAGE_SELECT} WHERE sp.package_id = ?`)
+        .get(id) as Record<string, unknown>;
+
+      return reply.send(normalizePkg(pkg));
     },
   );
 };

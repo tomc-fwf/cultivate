@@ -1,10 +1,12 @@
 const BASE = '/api';
 const getToken = () => localStorage.getItem('cv_token');
 
-async function req(method, path, body) {
+async function req(method, path, body, params) {
   const headers = { Authorization: `Bearer ${getToken()}` };
   if (body != null) headers['Content-Type'] = 'application/json';
-  const res = await fetch(`${BASE}${path}`, {
+  const qs = params ? new URLSearchParams(params).toString() : '';
+  const url = `${BASE}${path}${qs ? '?' + qs : ''}`;
+  const res = await fetch(url, {
     method,
     headers,
     body: body != null ? JSON.stringify(body) : undefined
@@ -238,6 +240,11 @@ export const api = {
   commitPlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/commit`, body),
   supersedePlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/supersede`, body),
   cancelPlantingPlan: (planId) => req('PATCH', `/planting-plans/${planId}/cancel`),
+
+  // Seed packages
+  getSeedPackages: (params) => req('GET', '/seed-packages', null, params),
+  createSeedPackage: (data) => req('POST', '/seed-packages', data),
+  updateSeedPackage: (id, data) => req('PATCH', `/seed-packages/${id}`, data),
 
   // Batches
   getBatches: (params = {}) => {
