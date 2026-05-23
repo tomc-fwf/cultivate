@@ -111,7 +111,8 @@ function isSeedVaultLocation(name) {
 }
 
 function IndoorCard({ location, navigate, onOpenMenu }) {
-  const { location_id, name, batches, open_observation_count } = location;
+  const { location_id, name, type, batches, open_observation_count } = location;
+  const canStartBatch = type === 'germination';
   const timerRef = useRef(null);
   const didLongPress = useRef(false);
   const pressPos = useRef({ x: 0, y: 0 });
@@ -176,14 +177,16 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
       ) : !batches || batches.length === 0 ? (
         <div>
           <p className="text-sm text-gray-400 italic mb-2">Empty</p>
-          <button
-            onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
-            onPointerDown={e => e.stopPropagation()}
-            className="w-full py-2 text-xs font-semibold rounded-xl bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
-            style={{ minHeight: '36px' }}
-          >
-            🌱 Start New Batch
-          </button>
+          {canStartBatch && (
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
+              onPointerDown={e => e.stopPropagation()}
+              className="w-full py-2 text-xs font-semibold rounded-xl bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+              style={{ minHeight: '36px' }}
+            >
+              🌱 New Plant Batch
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2.5">
@@ -233,14 +236,16 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
               </div>
             </div>
           ))}
-          <button
-            onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
-            onPointerDown={e => e.stopPropagation()}
-            className="w-full py-1.5 text-xs font-medium rounded-xl border border-dashed border-gray-300 text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
-            style={{ minHeight: '32px' }}
-          >
-            + Add Another Batch
-          </button>
+          {canStartBatch && (
+            <button
+              onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
+              onPointerDown={e => e.stopPropagation()}
+              className="w-full py-1.5 text-xs font-medium rounded-xl border border-dashed border-gray-300 text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
+              style={{ minHeight: '32px' }}
+            >
+              + New Plant Batch
+            </button>
+          )}
         </div>
       )}
     </div>
