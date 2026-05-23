@@ -196,6 +196,9 @@ export const api = {
   getPhiComplianceReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/phi-compliance${q ? '?' + q : ''}`); },
   getAnnualSummary: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/annual-summary${q ? '?' + q : ''}`); },
 
+  // Locations
+  getLocationsSummary: () => req('GET', '/locations/home-summary'),
+
   // Sensors
   getSensors: () => req('GET', '/sensors'),
   syncSensors: () => req('POST', '/sensors/sync'),
