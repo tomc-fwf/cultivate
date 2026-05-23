@@ -51,6 +51,15 @@ const ALL_STATES = ['active', 'empty', 'ready', 'startup', 'teardown', 'out_of_s
 const SECTION_LABELS = { indoor: 'Indoor', hoop_house: 'Hoop-House', outdoor: 'Outdoors' };
 const SECTION_ORDER = ['indoor', 'hoop_house', 'outdoor'];
 
+// 60px = NavBar height; extra 12px breathing room; safe-area for iOS home bar
+const SHEET_FOOTER_PB = 'max(72px, calc(60px + env(safe-area-inset-bottom)))';
+
+const CATEGORY_BADGE = {
+  indoor:     { label: 'Indoor',     className: 'bg-blue-50 text-blue-700' },
+  hoop_house: { label: 'Hoop-House', className: 'bg-amber-50 text-amber-700' },
+  outdoor:    { label: 'Outdoor',    className: 'bg-green-50 text-green-700' },
+};
+
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
 function StateBar({ counts, total }) {
@@ -135,7 +144,14 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
       onPointerCancel={cancelPress}
     >
       <ObsBadge count={open_observation_count} />
-      <h3 className="font-semibold text-gray-800 mb-2">{name}</h3>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <span className="font-semibold text-gray-800 text-sm leading-snug">{name}</span>
+        {location.location_category && CATEGORY_BADGE[location.location_category] && (
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${CATEGORY_BADGE[location.location_category].className}`}>
+            {CATEGORY_BADGE[location.location_category].label}
+          </span>
+        )}
+      </div>
       {!batches || batches.length === 0 ? (
         <p className="text-sm text-gray-400 italic">Empty</p>
       ) : (
@@ -285,20 +301,26 @@ function ZoneCard({ location, navigate, onOpenMenu }) {
     >
       {/* Zone header — long-press / right-click target */}
       <div
-        className="flex items-center justify-between mb-2 cursor-pointer select-none"
+        className="flex items-center justify-between gap-2 mb-2 cursor-pointer select-none"
         onPointerDown={startPress}
         onPointerUp={endPress}
         onPointerLeave={cancelPress}
         onPointerCancel={cancelPress}
         onContextMenu={e => { e.preventDefault(); onOpenMenu(location, 'location', { x: e.clientX, y: e.clientY }); }}
       >
-        <h3 className="font-bold text-gray-800">{name}</h3>
-        {rei_active && (
-          <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 flex items-center gap-1">
-            <AlertTriangle size={11} />
-            REI
-          </span>
-        )}
+        <span className="font-bold text-gray-800 text-sm">{name}</span>
+        <div className="flex items-center gap-1.5">
+          {rei_active && (
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+              ⚠ REI
+            </span>
+          )}
+          {location.location_category && CATEGORY_BADGE[location.location_category] && (
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${CATEGORY_BADGE[location.location_category].className}`}>
+              {CATEGORY_BADGE[location.location_category].label}
+            </span>
+          )}
+        </div>
       </div>
       <div className="divide-y divide-gray-100">
         {(sub_locations ?? []).map(sl => (
@@ -348,7 +370,14 @@ function NoSubZonesCard({ location, onOpenMenu }) {
       onPointerLeave={cancelPress}
       onPointerCancel={cancelPress}
     >
-      <h3 className="font-bold text-gray-800 mb-1">{location.name}</h3>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <span className="font-bold text-gray-800 text-sm leading-snug">{location.name}</span>
+        {location.location_category && CATEGORY_BADGE[location.location_category] && (
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${CATEGORY_BADGE[location.location_category].className}`}>
+            {CATEGORY_BADGE[location.location_category].label}
+          </span>
+        )}
+      </div>
       <p className="text-xs text-gray-400 italic">No sub-locations yet</p>
     </div>
   );
@@ -705,8 +734,8 @@ export default function LocationView() {
 
             {/* Sticky footer — always above keyboard/NavBar */}
             <div
-              className="px-4 pt-3 pb-6 border-t border-gray-100 flex gap-3 shrink-0"
-              style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              className="px-4 pt-3 border-t border-gray-100 flex gap-3 shrink-0"
+              style={{ paddingBottom: SHEET_FOOTER_PB }}
             >
               <button
                 onClick={closeAddModal}
@@ -868,8 +897,8 @@ export default function LocationView() {
 
             {/* Sticky footer */}
             <div
-              className="px-4 pt-3 pb-6 border-t border-gray-100 flex gap-3 shrink-0"
-              style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+              className="px-4 pt-3 border-t border-gray-100 flex gap-3 shrink-0"
+              style={{ paddingBottom: SHEET_FOOTER_PB }}
             >
               <button
                 onClick={() => setEditLocationModal(null)}

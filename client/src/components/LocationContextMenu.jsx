@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Sprout, MapPin, Droplets, ClipboardList, X, Pencil } from 'lucide-react';
 import { api } from '../api';
 
+// 60px = NavBar height; extra 12px breathing room; safe-area for iOS home bar
+const SHEET_FOOTER_PB = 'max(72px, calc(60px + env(safe-area-inset-bottom)))';
+
 // ─── Add Sub-location Modal ──────────────────────────────────────────────────
 
 export function AddSubLocationModal({ location, onClose, onRefresh }) {
@@ -137,8 +140,8 @@ export function AddSubLocationModal({ location, onClose, onRefresh }) {
 
         {/* Sticky footer */}
         <div
-          className="px-5 pt-3 pb-6 border-t border-gray-100 shrink-0"
-          style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+          className="px-5 pt-3 border-t border-gray-100 shrink-0"
+          style={{ paddingBottom: SHEET_FOOTER_PB }}
         >
           <button
             onClick={handleSave}
@@ -220,7 +223,7 @@ export default function LocationContextMenu({ location, level, onClose, anchorPo
               <X size={20} />
             </button>
           </div>
-          <div className="py-2 pb-8">
+          <div className="py-2" style={{ paddingBottom: SHEET_FOOTER_PB }}>
             {actions.map(action => (
               <button
                 key={action.label}
