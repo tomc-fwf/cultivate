@@ -3275,3 +3275,140 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - `AddSubLocationModal` is a named export from `LocationContextMenu.jsx` — reusable if needed elsewhere.
 - The "Add Plant Group" action navigates to `/batches/new?location_id=X` — `BatchNew` form may or may not use this param to pre-select location.
+
+---
+
+## Task: Location display_order + col_span + modal fix + outdoor layout
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created `src/db/migrations/024_location_display_order.ts`: adds `display_order` (integer, default 999) and `col_span` (integer, default 1) to `cv_locations`; seeds Germ-01/Seedlings/Cult-Hoop at 10/20/10, Zone 1–4 at 20–50; conditionally sets Zone 5 to display_order=10, col_span=2 if it exists
+- Updated `GET /api/locations/tree` query to `ORDER BY display_order ASC, location_id ASC` so the API drives display order
+- Updated `POST /api/admin/locations` (`CreateLocationSchema` + INSERT) to accept optional `display_order` and `col_span` fields (default 999/1 on insert)
+- Outdoor grid in `LocationView.jsx` changed from `grid-cols-2 md:grid-cols-4` to always `grid-cols-2`; outdoor cards wrapped in a div that applies `col-span-2` when `location.col_span === 2` — gives Zone 5 full-width row, Zones 1+2 and 3+4 side-by-side below
+- Add Location modal (`LocationView.jsx`) rebuilt as `flex flex-col` sheet with `maxHeight: 85vh`, scrollable middle section, and a sticky footer with Cancel/Save buttons that are always visible above the NavBar — Save is never obscured
+- Added Display Order field to the Add Location modal (optional numeric input, passed to API as `display_order`)
+- `AddSubLocationModal` (mobile branch in `LocationContextMenu.jsx`) updated to the same scrollable + sticky-footer pattern
+
+### Key Decisions
+- Desktop `AddSubLocationModal` (the centered modal for `isMouse` devices) retained its existing `formContent` variable pattern since accessibility is not an issue there; only the mobile bottom-sheet needed the scrollable overhaul
+- outdoor grid stays 2-column at all viewport sizes (not responsive 2→4) so col-span works correctly — a 4-col grid would need col-span-4 for full-width, but 2-col with col-span-2 is simpler and matches the spatial intent
+
+### Files Modified/Created
+- `src/db/migrations/024_location_display_order.ts` — new migration
+- `src/api/routes/locations.ts` — tree sort order + admin schema + INSERT
+- `client/src/pages/locations/LocationView.jsx` — modal rebuild + displayOrder state + outdoor grid
+- `client/src/components/LocationContextMenu.jsx` — mobile AddSubLocationModal sheet rebuild
+
+### Notes for Next Tasks
+- Zone 5 will get col_span=2 automatically via migration 024 if it already exists; if it doesn't exist yet, whoever creates it via the Add Location modal can set Display Order=10, and col_span defaults to 1 (full-width requires a manual DB update or a future UI control for col_span)
+- The `down()` for migration 024 uses the recreate-and-copy pattern (SQLite can't DROP COLUMN); the backup table is named `cv_locations_backup_024` to avoid colliding with migration 023's backup
+
+## Task: Edit location via context menu right-click
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `PATCH /api/admin/locations/:id` route to `src/api/routes/locations.ts` inside `adminLocationsRoutes`; validates with `UpdateLocationSchema` (name, metrc_name, description, display_order, col_span, active); requires admin role
+- Added `updateLocation(id, data)` to `client/src/api.js`
+- Added 'Edit Location' as first action in `LocationContextMenu` (Pencil icon, fires `onEdit` prop); added `onEdit` to component props
+- Added edit modal to `LocationView.jsx`: state variables, `useEffect` to pre-fill on open, `handleEditSave` async handler, bottom-sheet modal JSX (matches Add Location style); passes `onEdit={(loc) => setEditLocationModal(loc)}` to `LocationContextMenu`
+
+### Key Decisions
+- Edit modal uses same bottom-sheet pattern as Add Location modal for consistency
+- `metrc_name` defaults to name if left blank on save
+- `description` and `display_order` sent as `undefined` if empty (omitted from PATCH body, leaving existing values unchanged)
+
+### Files Modified/Created
+- `src/api/routes/locations.ts` — added `UpdateLocationSchema` + PATCH route
+- `client/src/api.js` — added `updateLocation`
+- `client/src/components/LocationContextMenu.jsx` — added Pencil import, `onEdit` prop, 'Edit Location' action
+- `client/src/pages/locations/LocationView.jsx` — added edit modal state/effect/handler/JSX, wired `onEdit` to context menu
+
+### Notes for Next Tasks
+- The PATCH route supports `active` boolean to deactivate locations (not exposed in the modal yet — easy to add)
+- `col_span` in the Zod schema accepts 1–4 but the modal only offers 1 and 2 (current operational range)
+
+---
+
+## Task: Fix bottom sheet NavBar overlap + location category badge on cards
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `SHEET_FOOTER_PB = 'max(72px, calc(60px + env(safe-area-inset-bottom)))'` constant to both `LocationContextMenu.jsx` and `LocationView.jsx` (module-level). This constant accounts for the 60px fixed NavBar, 12px breathing room, and iOS safe-area-inset.
+- **LocationContextMenu.jsx**: Updated `AddSubLocationModal` sticky footer `style={{ paddingBottom }}` from `max(1.5rem, ...)` to `SHEET_FOOTER_PB`. Updated the context menu action list div from `py-2 pb-8` to `py-2` with `style={{ paddingBottom: SHEET_FOOTER_PB }}`.
+- **LocationView.jsx**: Updated Add Location modal sticky footer `style={{ paddingBottom }}` from `max(1.5rem, ...)` to `SHEET_FOOTER_PB`. Updated Edit Location modal sticky footer same way. Removed the explicit `pb-6` class from both footer divs (padding now controlled entirely by inline style).
+- Added `CATEGORY_BADGE` constant to `LocationView.jsx` with label + Tailwind classes for `indoor` (blue), `hoop_house` (amber), and `outdoor` (green).
+- Added category badge to **IndoorCard**: replaced `<h3>` with a flex row wrapping the name span and a conditional badge pill.
+- Added category badge to **ZoneCard**: replaced `<h3>` + REI badge span with a `<span>` name + `<div class="flex items-center gap-1.5">` grouping a restyled ⚠ REI badge (text-[10px], no AlertTriangle icon) and the category badge.
+- Added category badge to **NoSubZonesCard**: same pattern as IndoorCard.
+- `AlertTriangle` import retained — still used in the global alerts banner.
+
+### Key Decisions
+- `SHEET_FOOTER_PB` uses `max()` so it correctly handles both iOS notch devices (safe-area > 60px) and standard screens where NavBar height dominates.
+- ZoneCard REI badge changed from `text-xs ... border ... flex items-center gap-1 <AlertTriangle>` to `text-[10px] ... bg-amber-100 ⚠ REI` for size parity with the new category badge.
+- Both badge types use `text-[10px]` (10px) to stay unobtrusive in the card header.
+
+### Files Modified/Created
+- `client/src/components/LocationContextMenu.jsx`
+- `client/src/pages/locations/LocationView.jsx`
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes clean; committed b37961c and pushed to master
+- The `SHEET_FOOTER_PB` pattern should be applied to any future bottom sheets in this app (e.g., context menus in other views)
+- If a 5th location category is ever added, add a corresponding entry to `CATEGORY_BADGE` in LocationView.jsx
+
+---
+
+## Task: Migration 025: seed_packages table + batch source fields
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created `src/db/migrations/025_seed_packages_and_batch_source.ts`
+- `cv_seed_packages` table: tracks physical seed lots (strain, location, lot_number, supplier, received/count/weight, created_by)
+- Added 5 columns to `cv_batches`: `source_type`, `seed_package_id` (FK → cv_seed_packages), `seed_count_used`, `seed_weight_g`, `initial_phase`
+- `down()` uses recreate-copy pattern for cv_batches (SQLite has no DROP COLUMN); drops cv_seed_packages after
+- Fixed `real()` → `float()` (Knex TS types don't expose `real()` on CreateTableBuilder)
+
+### Key Decisions
+- Used `float()` instead of `real()` per the project convention in all other migrations
+- `down()` backup table named `cv_batches_backup_025` to avoid collisions with other migration backups
+- The backup SELECT enumerates all 19 pre-025 columns of cv_batches explicitly (safe against schema drift)
+
+### Files Modified/Created
+- `src/db/migrations/025_seed_packages_and_batch_source.ts` (new)
+
+### Notes for Next Tasks
+- `cv_seed_packages.seed_count_remaining` needs to be decremented when a batch is created referencing it — no route does this yet
+- `cv_batches.initial_phase` values ('immature' | 'veg' | 'flower') are for METRC classification at batch creation; no UI for this yet
+
+## Task: Migration 026: enrich cv_seed_packages + SeedVault page
+**Completed:** 2026-05-23
+
+### What Was Done
+- Migration 026: added 5 columns to cv_seed_packages (package_name, metrc_package_id, feminized, season_year, source_detail); backfills season_year=2026 for all existing rows
+- Created `src/api/routes/seed-packages.ts`: GET /, GET /:id, POST /, PATCH /:id with full field support; feminized normalized to boolean in responses
+- Registered route at /api/seed-packages in app.ts
+- Added api.js methods: getSeedPackages, getSeedPackage, createSeedPackage, updateSeedPackage
+- Created `client/src/pages/seed-vault/SeedVault.jsx`: year-filter chip row (defaults to current year), package grid with seed-count progress bars, feminized/strain-type badges, METRC ID display, inline add form with all fields, toast feedback
+- App.jsx: /seed-vault route registered
+- LocationView.jsx: IndoorCard now checks isSeedVaultLocation(name) — navigates to /seed-vault instead of /batches for "Seed Vault" location; shows green border + "🌱 Seed Vault" badge and "View seed inventory →" text
+- BatchNew.jsx: reads ?seed_package_id from search params; loads package on mount and pre-selects strain
+
+### Key Decisions
+- SeedVault loads all packages on mount then filters client-side by year (avoids multiple API calls on chip switch)
+- isSeedVaultLocation() checks for "seed vault" or "seed-vault" (case-insensitive) — covers any naming variation the operator uses
+- SELECT sp.* in route returns all columns including migration 026 additions automatically
+
+### Files Modified/Created
+- `src/db/migrations/026_seed_packages_enrich.ts` (new)
+- `src/api/routes/seed-packages.ts` (new)
+- `src/api/app.ts` (register seedPackagesRoutes)
+- `client/src/api.js` (seed package methods)
+- `client/src/pages/seed-vault/SeedVault.jsx` (new)
+- `client/src/App.jsx` (route + import)
+- `client/src/pages/locations/LocationView.jsx` (IndoorCard seed vault branching)
+- `client/src/pages/batches/BatchNew.jsx` (presetSeedPackageId pre-fill)
+
+### Notes for Next Tasks
+- seed_count_remaining is not decremented when a batch is created referencing a seed package — still needs wiring in batches.ts POST handler
+- "Use in New Batch →" button navigates to /batches/new?seed_package_id=X; BatchNew pre-selects the strain but doesn't pre-fill seed_count_used or other batch fields from the package yet
