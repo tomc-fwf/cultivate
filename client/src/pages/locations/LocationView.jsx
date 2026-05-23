@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapPin, ScanLine, FlaskConical, Users, RefreshCw, AlertTriangle, Plus } from 'lucide-react';
 import { api } from '../../api';
+import LocationContextMenu from '../../components/LocationContextMenu';
 
 // ─── Static config ─────────────────────────────────────────────────────────
 
@@ -95,14 +96,43 @@ function ObsBadge({ count }) {
   );
 }
 
-function IndoorCard({ location, navigate }) {
+function IndoorCard({ location, navigate, onOpenMenu }) {
   const { location_id, name, batches, open_observation_count } = location;
+  const timerRef = useRef(null);
+  const didLongPress = useRef(false);
+  const pressPos = useRef({ x: 0, y: 0 });
+
+  function startPress(e) {
+    didLongPress.current = false;
+    pressPos.current = { x: e.clientX, y: e.clientY };
+    timerRef.current = setTimeout(() => {
+      didLongPress.current = true;
+      onOpenMenu(location, 'location', pressPos.current);
+    }, 300);
+  }
+
+  function endPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }
+
+  function cancelPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    didLongPress.current = false;
+  }
+
   return (
     <div
-      className="relative bg-white rounded-2xl border border-gray-200 px-4 py-4 hover:border-green-300 transition-colors cursor-pointer"
+      className="relative bg-white rounded-2xl border border-gray-200 px-4 py-4 hover:border-green-300 transition-colors cursor-pointer select-none"
       style={{ minHeight: '100px' }}
-      onClick={() => navigate(`/batches?location_id=${location_id}&location_name=${encodeURIComponent(name)}`)}
-      onContextMenu={e => e.preventDefault()}
+      onClick={() => {
+        if (didLongPress.current) { didLongPress.current = false; return; }
+        navigate(`/batches?location_id=${location_id}&location_name=${encodeURIComponent(name)}`);
+      }}
+      onContextMenu={e => { e.preventDefault(); onOpenMenu(location, 'location', { x: e.clientX, y: e.clientY }); }}
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
     >
       <ObsBadge count={open_observation_count} />
       <h3 className="font-semibold text-gray-800 mb-2">{name}</h3>
@@ -115,6 +145,7 @@ function IndoorCard({ location, navigate }) {
               key={b.batch_id}
               className="flex items-center gap-2 min-w-0"
               onClick={e => { e.stopPropagation(); navigate(`/batches/${b.batch_id}`); }}
+              onPointerDown={e => e.stopPropagation()}
             >
               <span className="text-sm font-medium text-gray-900 truncate flex-1 min-w-0">
                 {b.strain_name}
@@ -133,7 +164,7 @@ function IndoorCard({ location, navigate }) {
   );
 }
 
-function SubZoneRow({ subLoc, navigate }) {
+function SubZoneRow({ subLoc, navigate, onOpenMenu }) {
   const {
     location_id,
     name,
@@ -147,15 +178,41 @@ function SubZoneRow({ subLoc, navigate }) {
     open_observation_count,
   } = subLoc;
   const batch = batches && batches.length > 0 ? batches[0] : null;
+  const timerRef = useRef(null);
+  const didLongPress = useRef(false);
+  const pressPos = useRef({ x: 0, y: 0 });
+
+  function startPress(e) {
+    didLongPress.current = false;
+    pressPos.current = { x: e.clientX, y: e.clientY };
+    timerRef.current = setTimeout(() => {
+      didLongPress.current = true;
+      onOpenMenu(subLoc, 'sub_location', pressPos.current);
+    }, 300);
+  }
+
+  function endPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!didLongPress.current) {
+      sub_zone_id
+        ? navigate(`/containers/map/${sub_zone_id}`)
+        : navigate(`/locations/${location_id}`);
+    }
+  }
+
+  function cancelPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    didLongPress.current = false;
+  }
 
   return (
     <div
-      className="relative py-2 px-0 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors -mx-1 px-1"
-      onClick={() => sub_zone_id
-        ? navigate(`/containers/map/${sub_zone_id}`)
-        : navigate(`/locations/${location_id}`)
-      }
-      onContextMenu={e => e.preventDefault()}
+      className="relative py-2 px-0 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors -mx-1 px-1 select-none"
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+      onContextMenu={e => { e.preventDefault(); onOpenMenu(subLoc, 'sub_location', { x: e.clientX, y: e.clientY }); }}
     >
       {/* Sub-zone header */}
       <div className="flex items-center gap-1.5 mb-1">
@@ -196,15 +253,45 @@ function SubZoneRow({ subLoc, navigate }) {
   );
 }
 
-function ZoneCard({ location, navigate }) {
+function ZoneCard({ location, navigate, onOpenMenu }) {
   const { name, sub_locations, rei_active } = location;
+  const timerRef = useRef(null);
+  const didLongPress = useRef(false);
+  const pressPos = useRef({ x: 0, y: 0 });
+
+  function startPress(e) {
+    didLongPress.current = false;
+    pressPos.current = { x: e.clientX, y: e.clientY };
+    timerRef.current = setTimeout(() => {
+      didLongPress.current = true;
+      onOpenMenu(location, 'location', pressPos.current);
+    }, 300);
+  }
+
+  function endPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }
+
+  function cancelPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    didLongPress.current = false;
+  }
+
   return (
     <div
       className={`bg-white rounded-2xl border px-4 py-4 transition-colors ${
         rei_active ? 'border-amber-300' : 'border-gray-200 hover:border-green-300'
       }`}
     >
-      <div className="flex items-center justify-between mb-2">
+      {/* Zone header — long-press / right-click target */}
+      <div
+        className="flex items-center justify-between mb-2 cursor-pointer select-none"
+        onPointerDown={startPress}
+        onPointerUp={endPress}
+        onPointerLeave={cancelPress}
+        onPointerCancel={cancelPress}
+        onContextMenu={e => { e.preventDefault(); onOpenMenu(location, 'location', { x: e.clientX, y: e.clientY }); }}
+      >
         <h3 className="font-bold text-gray-800">{name}</h3>
         {rei_active && (
           <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 flex items-center gap-1">
@@ -215,16 +302,52 @@ function ZoneCard({ location, navigate }) {
       </div>
       <div className="divide-y divide-gray-100">
         {(sub_locations ?? []).map(sl => (
-          <SubZoneRow key={sl.location_id} subLoc={sl} navigate={navigate} />
+          <SubZoneRow
+            key={sl.location_id}
+            subLoc={sl}
+            navigate={navigate}
+            onOpenMenu={onOpenMenu}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function NoSubZonesCard({ location }) {
+function NoSubZonesCard({ location, onOpenMenu }) {
+  const timerRef = useRef(null);
+  const didLongPress = useRef(false);
+  const pressPos = useRef({ x: 0, y: 0 });
+
+  function startPress(e) {
+    didLongPress.current = false;
+    pressPos.current = { x: e.clientX, y: e.clientY };
+    timerRef.current = setTimeout(() => {
+      didLongPress.current = true;
+      onOpenMenu(location, 'location', pressPos.current);
+    }, 300);
+  }
+
+  function endPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }
+
+  function cancelPress() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    didLongPress.current = false;
+  }
+
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4" style={{ minHeight: '80px' }}>
+    <div
+      className="bg-white rounded-2xl border border-gray-200 px-4 py-4 cursor-pointer hover:border-green-300 transition-colors select-none"
+      style={{ minHeight: '80px' }}
+      onClick={() => { if (didLongPress.current) { didLongPress.current = false; } }}
+      onContextMenu={e => { e.preventDefault(); onOpenMenu(location, 'location', { x: e.clientX, y: e.clientY }); }}
+      onPointerDown={startPress}
+      onPointerUp={endPress}
+      onPointerLeave={cancelPress}
+      onPointerCancel={cancelPress}
+    >
       <h3 className="font-bold text-gray-800 mb-1">{location.name}</h3>
       <p className="text-xs text-gray-400 italic">No sub-locations yet</p>
     </div>
@@ -261,6 +384,7 @@ export default function LocationView() {
   const [globalAlerts, setGlobalAlerts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [contextMenu, setContextMenu] = useState(null);
   const [addLocationModal, setAddLocationModal] = useState(null); // null | { category }
   const [addName, setAddName] = useState('');
   const [addMetrcName, setAddMetrcName] = useState('');
@@ -282,6 +406,10 @@ export default function LocationView() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  function openMenu(location, level, anchorPosition) {
+    setContextMenu({ location, level, anchorPosition });
+  }
 
   const closeAddModal = () => {
     setAddLocationModal(null);
@@ -407,11 +535,25 @@ export default function LocationView() {
                 {locations.map(loc => {
                   if (isOutdoor) {
                     if (loc.sub_locations && loc.sub_locations.length > 0) {
-                      return <ZoneCard key={loc.location_id} location={loc} navigate={navigate} />;
+                      return (
+                        <ZoneCard
+                          key={loc.location_id}
+                          location={loc}
+                          navigate={navigate}
+                          onOpenMenu={openMenu}
+                        />
+                      );
                     }
-                    return <NoSubZonesCard key={loc.location_id} location={loc} />;
+                    return <NoSubZonesCard key={loc.location_id} location={loc} onOpenMenu={openMenu} />;
                   }
-                  return <IndoorCard key={loc.location_id} location={loc} navigate={navigate} />;
+                  return (
+                    <IndoorCard
+                      key={loc.location_id}
+                      location={loc}
+                      navigate={navigate}
+                      onOpenMenu={openMenu}
+                    />
+                  );
                 })}
               </div>
             )}
@@ -532,6 +674,17 @@ export default function LocationView() {
           </button>
         </div>
       </div>
+
+      {/* Context menu */}
+      {contextMenu && (
+        <LocationContextMenu
+          location={contextMenu.location}
+          level={contextMenu.level}
+          anchorPosition={contextMenu.anchorPosition}
+          onClose={() => setContextMenu(null)}
+          onRefresh={loadData}
+        />
+      )}
     </div>
   );
 }
