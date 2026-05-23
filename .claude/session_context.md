@@ -2519,3 +2519,65 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - `failed` queue items show a red `!` badge in the NavBar but there is no conflict resolution UI yet (roadmap item) — users must navigate to `/applications/*` to manually re-enter failed records
 - Sync flush runs on mount + online event only. There is no 30-second interval (roadmap suggested setInterval fallback) — this keeps it simple; add interval if needed
 - The `idb` library was already installed (`^8.0.3`) — no new dependencies added
+
+---
+
+## Task: Zod validation + requireRole cleanup (DEBT-02/03/04/05)
+**Completed:** 2026-05-22
+
+### What Was Done
+- **DEBT-02**: Added Zod schemas to `fertigation-recipes.ts` (`RecipeCreateSchema`, `RecipeVersionSchema`, `IngredientSchema`) and `foliar-recipes.ts` (`FoliarRecipeCreateSchema`, `FoliarRecipeVersionSchema`, `FoliarIngredientSchema`). POST / and POST /:id/version now call `.parse()` and return structured `{ error, issues }` on failure. Removed all manual `if (!name)` / `if (!ingredients)` guards — Zod handles them.
+- **DEBT-03**: Added `StrainSchema` to `strains.ts` (name min 1 max 200, type enum auto|photo, genetics/notes nullable optional). POST and PUT handlers both use `.parse()` now.
+- **DEBT-04**: Added `ContainerStateSchema`, `BulkSetStateSchema` (with `.refine()` requiring scope_id when scope ≠ all), and `ContainerNotesSchema` to `containers.ts`. Three handlers (PATCH /:id/state, POST /admin/bulk-set-state, PATCH /:id/notes) now use `.parse()`.
+- **DEBT-05**: Changed POST route `preHandler` from `requireAuth` to `requireRole('grower')` in all four compliance write routes: fertigation-applications, foliar-applications, pesticide-applications, container-amendments.
+
+### Key Decisions
+- Kept `notes ?? null` pattern in containers.ts even after Zod (notes is optional so can be undefined at runtime).
+- `BulkSetStateSchema` uses Zod `.refine()` for the cross-field scope/scope_id dependency — cleaner than manual if-check.
+- Used `err instanceof z.ZodError ? err.issues : undefined` guard pattern consistently across all new parse blocks.
+
+### Files Modified
+- `src/api/routes/fertigation-recipes.ts`
+- `src/api/routes/foliar-recipes.ts`
+- `src/api/routes/strains.ts`
+- `src/api/routes/containers.ts`
+- `src/api/routes/fertigation-applications.ts`
+- `src/api/routes/foliar-applications.ts`
+- `src/api/routes/pesticide-applications.ts`
+- `src/api/routes/container-amendments.ts`
+
+### Notes for Next Tasks
+- All 321 tests pass; tsc clean.
+- No remaining unvalidated POST/PUT/PATCH bodies on the critical compliance routes.
+- Next debt items to consider: `updated_at` missing from 6 application tables (schema migration), PDF cultivation record, waste trim PATCH endpoints.
+
+---
+
+## Task: API contract cleanup (DEBT-06/07/12/13/14/15/16)
+**Completed:** 2026-05-22
+
+### What Was Done
+- DEBT-06: Added `limit` (default 500, max 1000) and `offset` params to `GET /harvest/waste-trim`; query now has `LIMIT ? OFFSET ?`
+- DEBT-07: Replaced JS aggregation of 1,180 container rows in `GET /containers/summary` with a SQL `GROUP BY` (≤48 rows); same response shape
+- DEBT-12: Removed `api.bulkResetContainersToReady` from `client/src/api.js` (called deprecated backend alias, unused in any page)
+- DEBT-13: Changed `{ error: 'Invalid request', details: ... }` → `{ error: 'Invalid request', issues: ... }` in `POST /auth/login` to match all other Zod error responses
+- DEBT-14: Both recipe DELETE handlers (`fertigation-recipes.ts` and `foliar-recipes.ts`) now return `204 No Content` instead of `200 { success: true }`
+- DEBT-15: Added whitelist validation for `?waste_status` in `GET /harvest/waste-trim` and `?metrc_sync_status` in `GET /plant-loss`; unknown values return 400
+- DEBT-16: Removed dead `api.getItems` from `client/src/api.js` (called `/api/items` which does not exist; correct route is `/api/catalog/items` via `getCatalogItems`)
+
+### Key Decisions
+- `GET /containers/summary` still does minimal JS pivot (from ≤48 GROUP BY rows) to build the `counts` object; result shape is unchanged for the frontend
+- `limit` cap set at 1000 (not unbounded) to prevent accidental large fetches even with explicit param
+
+### Files Modified/Created
+- `src/api/routes/harvest.ts`
+- `src/api/routes/containers.ts`
+- `src/api/routes/auth.ts`
+- `src/api/routes/fertigation-recipes.ts`
+- `src/api/routes/foliar-recipes.ts`
+- `src/api/routes/plant-loss.ts`
+- `client/src/api.js`
+
+### Notes for Next Tasks
+- `GET /plant-loss` and `GET /harvest/waste-trim` are still unbounded from a row-count perspective (no LIMIT on plant-loss yet); similar LIMIT treatment could be applied if needed
+- The deprecated `POST /containers/admin/bulk-reset-ready` backend route still exists in `containers.ts` — it could be removed in a future cleanup pass if no external callers exist
