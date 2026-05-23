@@ -300,7 +300,7 @@ const foliarRecipesRoutes: FastifyPluginAsync = async (app) => {
       db.prepare('DELETE FROM cv_foliar_recipe_ingredients WHERE foliar_recipe_id=?').run(id);
       db.prepare('DELETE FROM cv_foliar_recipes WHERE foliar_recipe_id=?').run(id);
 
-      return reply.send({ success: true });
+      return reply.code(204).send();
     },
   );
 };

@@ -515,17 +515,27 @@ const harvestRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * GET /waste-trim — list waste trim events with optional filters.
-   * Query params: batch_id, container_id, waste_status
+   * Query params: batch_id, container_id, waste_status, limit (default 500), offset (default 0)
    */
   app.get(
     '/waste-trim',
     { preHandler: requireAuth },
     async (request, reply) => {
-      const { batch_id, container_id, waste_status } = request.query as {
+      const { batch_id, container_id, waste_status, limit, offset } = request.query as {
         batch_id?: string;
         container_id?: string;
         waste_status?: string;
+        limit?: string;
+        offset?: string;
       };
+
+      const VALID_WASTE_STATUSES = new Set(['collected', 'held', 'disposed', 'reported']);
+      if (waste_status && !VALID_WASTE_STATUSES.has(waste_status)) {
+        return reply.code(400).send({ error: `Invalid waste_status. Must be one of: ${[...VALID_WASTE_STATUSES].join(', ')}` });
+      }
+
+      const limitVal = Math.min(Math.max(1, Number(limit) || 500), 1000);
+      const offsetVal = Math.max(0, Number(offset) || 0);
 
       const db = getDB();
       const conditions: string[] = [];
@@ -546,8 +556,8 @@ const harvestRoutes: FastifyPluginAsync = async (app) => {
 
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
       const rows = db.prepare(
-        `SELECT * FROM cv_plant_waste_trim_events ${where} ORDER BY trimmed_at DESC`
-      ).all(...values) as Array<Record<string, unknown>>;
+        `SELECT * FROM cv_plant_waste_trim_events ${where} ORDER BY trimmed_at DESC LIMIT ? OFFSET ?`
+      ).all(...values, limitVal, offsetVal) as Array<Record<string, unknown>>;
 
       return reply.send(rows);
     },

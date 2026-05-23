@@ -62,23 +62,19 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
   app.get('/summary', { preHandler: requireAuth }, async (_request, reply) => {
     const db = getDB();
 
+    // Returns at most 8 sub-zones × 6 states = 48 rows instead of loading all 1,180 containers
     const rows = db.prepare(`
-      SELECT
-        cs.container_id,
-        c.row_id,
-        r.sub_zone_id,
-        sz.zone_id,
-        sz.designation,
-        sz.pot_size_gal,
-        sz.container_count,
-        cs.current_state
+      SELECT sz.sub_zone_id, sz.zone_id, sz.designation, sz.pot_size_gal, sz.container_count,
+             cs.current_state, COUNT(*) AS count
       FROM cv_container_state cs
       JOIN cv_containers c ON c.container_id = cs.container_id
       JOIN cv_rows r ON r.row_id = c.row_id
       JOIN cv_sub_zones sz ON sz.sub_zone_id = r.sub_zone_id
+      GROUP BY sz.sub_zone_id, sz.zone_id, sz.designation, sz.pot_size_gal, sz.container_count, cs.current_state
+      ORDER BY sz.zone_id, sz.designation
     `).all() as Array<Record<string, unknown>>;
 
-    // Aggregate by sub_zone_id
+    // Pivot state counts per sub-zone (from ≤48 rows)
     const subZoneMap = new Map<string, {
       sub_zone_id: string;
       zone_id: number;
@@ -103,17 +99,11 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
       const entry = subZoneMap.get(szId)!;
       const state = row['current_state'] as ContainerState;
       if (state in entry.counts) {
-        entry.counts[state]++;
+        entry.counts[state] = row['count'] as number;
       }
     }
 
-    // Sort by zone_id then designation (A before B)
-    const result = Array.from(subZoneMap.values()).sort((a, b) => {
-      if (a.zone_id !== b.zone_id) return a.zone_id - b.zone_id;
-      return a.designation.localeCompare(b.designation);
-    });
-
-    return reply.send(result);
+    return reply.send(Array.from(subZoneMap.values()));
   });
 
   /**

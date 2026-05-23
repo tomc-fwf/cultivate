@@ -55,7 +55,7 @@ const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/login', async (request, reply) => {
     const parseResult = LoginBodySchema.safeParse(request.body);
     if (!parseResult.success) {
-      return reply.code(400).send({ error: 'Invalid request', details: parseResult.error.issues });
+      return reply.code(400).send({ error: 'Invalid request', issues: parseResult.error.issues });
     }
     const { user_id, pin } = parseResult.data;
 

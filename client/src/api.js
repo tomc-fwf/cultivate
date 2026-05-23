@@ -22,12 +22,6 @@ export const api = {
   refreshToken: () => req('POST', '/auth/refresh'),
   logout: () => req('POST', '/auth/logout'),
 
-  // Items (reads from farmstock's items table via cultivate's API proxy — routes added in Phase 1)
-  getItems: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return req('GET', `/items${q ? '?' + q : ''}`);
-  },
-
   // Catalog (farmstock items proxy — ingredient picker source)
   getCatalogItems: () => req('GET', '/catalog/items'),
 
@@ -70,7 +64,6 @@ export const api = {
   getContainer: (id) => req('GET', `/containers/${encodeURIComponent(id)}`),
   updateContainerState: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/state`, data),
   updateContainerNotes: (id, data) => req('PATCH', `/containers/${encodeURIComponent(id)}/notes`, data),
-  bulkResetContainersToReady: () => req('POST', '/containers/admin/bulk-reset-ready'),
   bulkSetContainerState: (data) => req('POST', '/containers/admin/bulk-set-state', data),
 
   // Container lifecycle

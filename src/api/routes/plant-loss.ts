@@ -158,6 +158,11 @@ const plantLossRoutes: FastifyPluginAsync = async (app) => {
     const q = request.query as { batch_id?: string; container_id?: string; metrc_sync_status?: string };
     const db = getDB();
 
+    const VALID_METRC_SYNC_STATUSES = new Set(['pending', 'synced', 'failed', 'not_required']);
+    if (q.metrc_sync_status && !VALID_METRC_SYNC_STATUSES.has(q.metrc_sync_status)) {
+      return reply.code(400).send({ error: `Invalid metrc_sync_status. Must be one of: ${[...VALID_METRC_SYNC_STATUSES].join(', ')}` });
+    }
+
     let sql = `
       SELECT ple.*,
              b.status AS batch_status,

@@ -375,7 +375,7 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
       db.prepare('DELETE FROM cv_fertigation_recipe_ingredients WHERE recipe_id=?').run(id);
       db.prepare('DELETE FROM cv_fertigation_recipes WHERE recipe_id=?').run(id);
 
-      return reply.send({ success: true });
+      return reply.code(204).send();
     },
   );
 };
