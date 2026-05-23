@@ -394,6 +394,15 @@ export default function LocationView() {
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
 
+  const [editLocationModal, setEditLocationModal] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editMetrcName, setEditMetrcName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editDisplayOrder, setEditDisplayOrder] = useState('');
+  const [editColSpan, setEditColSpan] = useState(1);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState('');
+
   const loadData = useCallback(() => {
     setLoading(true);
     setError('');
@@ -446,6 +455,38 @@ export default function LocationView() {
       setAddSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (editLocationModal) {
+      setEditName(editLocationModal.name || '');
+      setEditMetrcName(editLocationModal.metrc_name || '');
+      setEditDescription(editLocationModal.description || '');
+      setEditDisplayOrder(editLocationModal.display_order != null ? String(editLocationModal.display_order) : '');
+      setEditColSpan(editLocationModal.col_span || 1);
+      setEditError('');
+    }
+  }, [editLocationModal]);
+
+  async function handleEditSave() {
+    if (!editName.trim()) { setEditError('Name is required'); return; }
+    setEditSaving(true);
+    setEditError('');
+    try {
+      await api.updateLocation(editLocationModal.location_id, {
+        name: editName.trim(),
+        metrc_name: editMetrcName.trim() || editName.trim(),
+        description: editDescription.trim() || undefined,
+        display_order: editDisplayOrder ? Number(editDisplayOrder) : undefined,
+        col_span: editColSpan,
+      });
+      setEditLocationModal(null);
+      await loadData();
+    } catch (e) {
+      setEditError(e.message || 'Failed to save');
+    } finally {
+      setEditSaving(false);
+    }
+  }
 
   const alerts = globalAlerts;
   const alertParts = [];
@@ -725,8 +766,129 @@ export default function LocationView() {
           level={contextMenu.level}
           anchorPosition={contextMenu.anchorPosition}
           onClose={() => setContextMenu(null)}
+          onEdit={(loc) => setEditLocationModal(loc)}
           onRefresh={loadData}
         />
+      )}
+
+      {/* ── Edit Location modal ──────────────────────────────────────────── */}
+      {editLocationModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setEditLocationModal(null)} />
+          <div
+            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 flex flex-col"
+            style={{ maxHeight: '85vh', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
+
+            {/* Header */}
+            <div className="px-4 pb-2 shrink-0">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Location</h3>
+              <p className="text-sm text-gray-500">{editLocationModal.name}</p>
+            </div>
+
+            {/* Scrollable form */}
+            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-4">
+              {editError && (
+                <div className="bg-red-50 text-red-700 rounded-xl px-3 py-2 text-sm">{editError}</div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={e => setEditName(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">METRC Name</label>
+                <input
+                  type="text"
+                  value={editMetrcName}
+                  onChange={e => setEditMetrcName(e.target.value)}
+                  placeholder="Same as name if blank"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+                <input
+                  type="number"
+                  value={editDisplayOrder}
+                  onChange={e => setEditDisplayOrder(e.target.value)}
+                  placeholder="Lower numbers appear first"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                  inputMode="numeric"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Column Span</label>
+                <div className="flex gap-2">
+                  {[1, 2].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => setEditColSpan(n)}
+                      className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
+                        editColSpan === n
+                          ? 'bg-green-700 text-white border-green-700'
+                          : 'bg-white text-gray-700 border-gray-200 hover:border-green-300'
+                      }`}
+                      style={{ minHeight: '44px' }}
+                    >
+                      {n === 1 ? 'Normal (1 col)' : 'Wide (2 cols)'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Sticky footer */}
+            <div
+              className="px-4 pt-3 pb-6 border-t border-gray-100 flex gap-3 shrink-0"
+              style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+            >
+              <button
+                onClick={() => setEditLocationModal(null)}
+                className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-700 font-semibold"
+                style={{ minHeight: '48px' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleEditSave}
+                disabled={editSaving}
+                className="flex-1 py-3 rounded-2xl bg-green-700 hover:bg-green-800 disabled:opacity-50 text-white font-semibold"
+                style={{ minHeight: '48px' }}
+              >
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

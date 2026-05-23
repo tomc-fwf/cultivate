@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sprout, MapPin, Droplets, ClipboardList, X } from 'lucide-react';
+import { Sprout, MapPin, Droplets, ClipboardList, X, Pencil } from 'lucide-react';
 import { api } from '../api';
 
 // ─── Add Sub-location Modal ──────────────────────────────────────────────────
@@ -156,7 +156,7 @@ export function AddSubLocationModal({ location, onClose, onRefresh }) {
 
 // ─── Context Menu ────────────────────────────────────────────────────────────
 
-export default function LocationContextMenu({ location, level, onClose, anchorPosition, onRefresh }) {
+export default function LocationContextMenu({ location, level, onClose, anchorPosition, onEdit, onRefresh }) {
   const navigate = useNavigate();
   const [showAddSub, setShowAddSub] = useState(false);
   const [isMouse] = useState(() => window.matchMedia('(pointer: fine)').matches);
@@ -164,6 +164,11 @@ export default function LocationContextMenu({ location, level, onClose, anchorPo
   const firstBatch = location.batches?.[0] ?? location.batch ?? null;
 
   const actions = [
+    {
+      label: 'Edit Location',
+      icon: Pencil,
+      onClick: () => { onEdit(location); onClose(); },
+    },
     {
       label: 'Add Plant Group',
       icon: Sprout,

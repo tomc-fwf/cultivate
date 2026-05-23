@@ -559,6 +559,15 @@ const CreateLocationSchema = z.object({
   col_span: z.number().int().min(1).max(2).optional(),
 });
 
+const UpdateLocationSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  metrc_name: z.string().optional(),
+  description: z.string().optional(),
+  display_order: z.number().int().optional(),
+  col_span: z.number().int().min(1).max(4).optional(),
+  active: z.boolean().optional(),
+});
+
 export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
   /**
    * POST /api/admin/locations — create a new location (admin only).
@@ -590,5 +599,40 @@ export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
 
     const created = db.prepare(`SELECT * FROM cv_locations WHERE location_id = ?`).get(row.lastInsertRowid) as Record<string, unknown>;
     return reply.code(201).send(created);
+  });
+
+  /**
+   * PATCH /api/admin/locations/:id — update a location (admin only).
+   */
+  app.patch('/locations/:id', { preHandler: requireAdmin }, async (request, reply) => {
+    const result = UpdateLocationSchema.safeParse(request.body);
+    if (!result.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: result.error.issues });
+    }
+    const body = result.data;
+    const { id } = request.params as { id: string };
+    const locationId = parseInt(id, 10);
+
+    const db = getDB();
+    const existing = db.prepare('SELECT * FROM cv_locations WHERE location_id = ?').get(locationId);
+    if (!existing) return reply.code(404).send({ error: 'Location not found' });
+
+    const updates: Record<string, unknown> = {};
+    if (body.name !== undefined) updates['name'] = body.name;
+    if (body.metrc_name !== undefined) updates['metrc_name'] = body.metrc_name;
+    if (body.description !== undefined) updates['description'] = body.description;
+    if (body.display_order !== undefined) updates['display_order'] = body.display_order;
+    if (body.col_span !== undefined) updates['col_span'] = body.col_span;
+    if (body.active !== undefined) updates['active'] = body.active ? 1 : 0;
+
+    if (Object.keys(updates).length === 0) return reply.send(existing);
+
+    updates['updated_at'] = new Date().toISOString();
+    const setClause = Object.keys(updates).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(updates), locationId];
+    db.prepare(`UPDATE cv_locations SET ${setClause} WHERE location_id = ?`).run(...values);
+
+    const updated = db.prepare('SELECT * FROM cv_locations WHERE location_id = ?').get(locationId) as Record<string, unknown>;
+    return reply.send(updated);
   });
 };

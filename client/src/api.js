@@ -200,6 +200,7 @@ export const api = {
   getLocationsSummary: () => req('GET', '/locations/home-summary'),
   getLocationsTree: () => req('GET', '/locations/tree'),
   createLocation: (data) => req('POST', '/admin/locations', data),
+  updateLocation: (id, data) => req('PATCH', `/admin/locations/${id}`, data),
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),
