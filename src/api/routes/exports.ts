@@ -1434,6 +1434,500 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       });
     },
   );
+  // ─── Report 4: Rule 4770 Unified Crop Input Log ────────────────────────────
+
+  const CropInputsQuerySchema = z.object({
+    batch_id:    z.string().optional(),
+    date_from:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to:     z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    input_class: z.enum(['fertigation', 'foliar', 'pesticide', 'amendment']).optional(),
+    format:      z.enum(['json', 'csv']).default('json'),
+  });
+
+  app.get('/crop-inputs', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = CropInputsQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { batch_id, date_from, date_to, input_class, format: fmt } = parsed.data;
+    const db = getDB();
+
+    function makeQtyDisplay(
+      rateValue: unknown, rateUnit: unknown,
+      volApplied: unknown, volUnit: unknown,
+    ): string | null {
+      const rv = rateValue != null ? `${rateValue} ${rateUnit ?? ''}`.trim() : null;
+      const vv = volApplied != null ? `${volApplied} ${volUnit ?? ''}`.trim() : null;
+      if (rv && vv) return `${rv} @ ${vv}`;
+      return rv ?? vv ?? null;
+    }
+
+    const rows: Record<string, unknown>[] = [];
+    const pendingFarmstockIds: Map<number, number> = new Map(); // inputId → row index
+
+    // ── Fertigation ─────────────────────────────────────────────────────────
+    if (!input_class || input_class === 'fertigation') {
+      const fw = buildDateBatchWhere('af.applied_at', 'af.batch_id', date_from, date_to, batch_id);
+      const fertigRows = db.prepare(`
+        SELECT af.application_id, af.applied_at, af.batch_id, af.recipe_id,
+               af.volume_gallons, af.ec_measured, af.ph_measured,
+               b.sub_zone_id, b.sow_date, b.metrc_plant_batch_uid,
+               s.name AS strain_name, s.type AS strain_type,
+               fr.name AS recipe_name, fr.version AS recipe_version,
+               u.name AS applicator_name
+        FROM cv_applications_fertigation af
+        JOIN cv_batches b ON b.batch_id = af.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        JOIN cv_fertigation_recipes fr ON fr.recipe_id = af.recipe_id
+        LEFT JOIN cv_users u ON u.id = af.applicator
+        ${fw.sql}
+        ORDER BY af.applied_at DESC
+      `).all(...fw.params) as Array<Record<string, unknown>>;
+
+      const recipeIds = Array.from(new Set(fertigRows.map(r => r['recipe_id'] as number).filter(Boolean)));
+      type FertIng = { recipe_id: number; input_id: number; rate_value: number; rate_unit: string; order_index: number };
+      const fertIngRows: FertIng[] = recipeIds.length > 0
+        ? (db.prepare(`
+            SELECT recipe_id, input_id, rate_value, rate_unit, order_index
+            FROM cv_fertigation_recipe_ingredients
+            WHERE recipe_id IN (${recipeIds.map(() => '?').join(',')})
+            ORDER BY recipe_id, order_index
+          `).all(...recipeIds) as FertIng[])
+        : [];
+      const fertIngByRecipe = new Map<number, FertIng[]>();
+      for (const ing of fertIngRows) {
+        const arr = fertIngByRecipe.get(ing.recipe_id) ?? [];
+        arr.push(ing);
+        fertIngByRecipe.set(ing.recipe_id, arr);
+      }
+
+      for (const r of fertigRows) {
+        const recipeId = r['recipe_id'] as number | undefined;
+        const ings = recipeId ? (fertIngByRecipe.get(recipeId) ?? []) : [];
+        const volGal = Number(r['volume_gallons'] ?? 0);
+        const noteBase = `EC: ${r['ec_measured']} | pH: ${r['ph_measured']} | Recipe: ${r['recipe_name']} v${r['recipe_version']}`;
+
+        if (ings.length === 0) {
+          rows.push({
+            input_class: 'fertigation', applied_at: r['applied_at'],
+            batch_id: r['batch_id'], batch_name: batchDisplayName(r),
+            location: r['sub_zone_id'] ?? null,
+            _input_id: null, product_name: `${r['recipe_name']} v${r['recipe_version']} (recipe)`,
+            epa_reg_no: null, quantity_display: `${volGal} gal`,
+            rate_value: null, rate_unit: null, volume_applied: volGal, volume_unit: 'gal',
+            lot_number: null, applicator_name: r['applicator_name'] ?? null, notes: noteBase,
+          });
+        } else {
+          for (const ing of ings) {
+            const computedQty = Math.round(ing.rate_value * volGal * 10000) / 10000;
+            const qtyUnit = ing.rate_unit.replace(/_per_gal$/, '');
+            const rowIdx = rows.length;
+            rows.push({
+              input_class: 'fertigation', applied_at: r['applied_at'],
+              batch_id: r['batch_id'], batch_name: batchDisplayName(r),
+              location: r['sub_zone_id'] ?? null,
+              _input_id: ing.input_id, product_name: null,
+              epa_reg_no: null,
+              quantity_display: `${computedQty} ${qtyUnit}`.trim(),
+              rate_value: ing.rate_value, rate_unit: ing.rate_unit,
+              volume_applied: volGal, volume_unit: 'gal',
+              lot_number: null, applicator_name: r['applicator_name'] ?? null, notes: noteBase,
+            });
+            pendingFarmstockIds.set(ing.input_id, rowIdx);
+          }
+        }
+      }
+    }
+
+    // ── Foliar ───────────────────────────────────────────────────────────────
+    if (!input_class || input_class === 'foliar') {
+      const flw = buildDateBatchWhere('af.applied_at', 'af.batch_id', date_from, date_to, batch_id);
+      const foliarRows = db.prepare(`
+        SELECT af.foliar_id, af.applied_at, af.batch_id,
+               af.row_id, af.container_id, af.input_id,
+               af.rate_value, af.rate_unit, af.volume_applied, af.volume_unit,
+               af.purpose, af.product_name_snapshot,
+               b.sub_zone_id, b.sow_date, b.metrc_plant_batch_uid,
+               s.name AS strain_name, s.type AS strain_type,
+               u.name AS applicator_name
+        FROM cv_applications_foliar af
+        JOIN cv_batches b ON b.batch_id = af.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_users u ON u.id = af.applicator
+        ${flw.sql}
+        ORDER BY af.applied_at DESC
+      `).all(...flw.params) as Array<Record<string, unknown>>;
+
+      for (const r of foliarRows) {
+        const hasSnapshot = !!(r['product_name_snapshot'] as string | null);
+        const inputId = r['input_id'] as number | null;
+        const rowIdx = rows.length;
+        rows.push({
+          input_class: 'foliar', applied_at: r['applied_at'],
+          batch_id: r['batch_id'], batch_name: batchDisplayName(r),
+          location: r['container_id'] ?? r['row_id'] ?? r['sub_zone_id'] ?? null,
+          _input_id: hasSnapshot ? null : inputId,
+          product_name: (r['product_name_snapshot'] as string | null) ?? null,
+          epa_reg_no: null,
+          quantity_display: makeQtyDisplay(r['rate_value'], r['rate_unit'], r['volume_applied'], r['volume_unit']),
+          rate_value: r['rate_value'] ?? null, rate_unit: r['rate_unit'] ?? null,
+          volume_applied: r['volume_applied'] ?? null, volume_unit: r['volume_unit'] ?? null,
+          lot_number: null, applicator_name: r['applicator_name'] ?? null, notes: r['purpose'] ?? null,
+        });
+        if (!hasSnapshot && inputId != null) pendingFarmstockIds.set(inputId, rowIdx);
+      }
+    }
+
+    // ── Pesticide ────────────────────────────────────────────────────────────
+    if (!input_class || input_class === 'pesticide') {
+      const pw = buildDateBatchWhere('ap.applied_at', 'ap.batch_id', date_from, date_to, batch_id);
+      const pesticideRows = db.prepare(`
+        SELECT ap.pesticide_app_id, ap.applied_at, ap.batch_id,
+               ap.row_id, ap.container_id, ap.input_id, ap.input_lot_id,
+               ap.rate_value, ap.rate_unit, ap.volume_applied, ap.volume_unit,
+               ap.application_method, ap.target_pest,
+               ap.product_name_snapshot, ap.epa_reg_no_snapshot,
+               b.sub_zone_id, b.sow_date, b.metrc_plant_batch_uid,
+               s.name AS strain_name, s.type AS strain_type,
+               u.name AS applicator_name,
+               il.lot_number
+        FROM cv_applications_pesticide ap
+        JOIN cv_batches b ON b.batch_id = ap.batch_id
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_users u ON u.id = ap.applicator
+        LEFT JOIN cv_input_lots il ON il.lot_id = ap.input_lot_id
+        ${pw.sql}
+        ORDER BY ap.applied_at DESC
+      `).all(...pw.params) as Array<Record<string, unknown>>;
+
+      for (const r of pesticideRows) {
+        const hasSnapshot = !!(r['product_name_snapshot'] as string | null);
+        const inputId = r['input_id'] as number | null;
+        const rowIdx = rows.length;
+        rows.push({
+          input_class: 'pesticide', applied_at: r['applied_at'],
+          batch_id: r['batch_id'], batch_name: batchDisplayName(r),
+          location: r['container_id'] ?? r['row_id'] ?? r['sub_zone_id'] ?? null,
+          _input_id: hasSnapshot ? null : inputId,
+          product_name: (r['product_name_snapshot'] as string | null) ?? null,
+          epa_reg_no: (r['epa_reg_no_snapshot'] as string | null) ?? null,
+          quantity_display: makeQtyDisplay(r['rate_value'], r['rate_unit'], r['volume_applied'], r['volume_unit']),
+          rate_value: r['rate_value'] ?? null, rate_unit: r['rate_unit'] ?? null,
+          volume_applied: r['volume_applied'] ?? null, volume_unit: r['volume_unit'] ?? null,
+          lot_number: (r['lot_number'] as string | null) ?? null,
+          applicator_name: r['applicator_name'] ?? null,
+          notes: `Target: ${r['target_pest'] ?? '—'} | Method: ${r['application_method'] ?? '—'}`,
+        });
+        if (!hasSnapshot && inputId != null) pendingFarmstockIds.set(inputId, rowIdx);
+      }
+    }
+
+    // ── Amendments ───────────────────────────────────────────────────────────
+    if (!input_class || input_class === 'amendment') {
+      const aw = buildDateBatchWhere('ca.applied_at', 'ca.batch_id', date_from, date_to, batch_id);
+      const amendmentRows = db.prepare(`
+        SELECT ca.amendment_id, ca.applied_at, ca.batch_id, ca.container_id,
+               ca.input_id, ca.input_lot_id, ca.quantity, ca.quantity_unit,
+               ca.amendment_type, ca.application_method, ca.purpose,
+               ca.product_name_snapshot,
+               b.sub_zone_id, b.sow_date, b.metrc_plant_batch_uid,
+               s.name AS strain_name, s.type AS strain_type,
+               u.name AS applicator_name
+        FROM cv_container_amendments ca
+        LEFT JOIN cv_batches b ON b.batch_id = ca.batch_id
+        LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_users u ON u.id = ca.applicator
+        ${aw.sql}
+        ORDER BY ca.applied_at DESC
+      `).all(...aw.params) as Array<Record<string, unknown>>;
+
+      for (const r of amendmentRows) {
+        const hasSnapshot = !!(r['product_name_snapshot'] as string | null);
+        const inputId = r['input_id'] as number | null;
+        const qty = r['quantity'] as number | null;
+        const qtyUnit = r['quantity_unit'] as string | null;
+        const rowIdx = rows.length;
+        rows.push({
+          input_class: 'amendment', applied_at: r['applied_at'],
+          batch_id: r['batch_id'] ?? null,
+          batch_name: r['batch_id'] ? batchDisplayName(r) : 'Container only',
+          location: r['container_id'] ?? r['sub_zone_id'] ?? null,
+          _input_id: hasSnapshot ? null : inputId,
+          product_name: (r['product_name_snapshot'] as string | null)
+            ?? (inputId == null ? String(r['amendment_type'] ?? 'amendment') : null),
+          epa_reg_no: null,
+          quantity_display: qty != null ? `${qty}${qtyUnit ? ' ' + qtyUnit : ''}`.trim() : null,
+          rate_value: qty, rate_unit: qtyUnit,
+          volume_applied: null, volume_unit: null,
+          lot_number: null, applicator_name: r['applicator_name'] ?? null, notes: r['purpose'] ?? null,
+        });
+        if (!hasSnapshot && inputId != null) pendingFarmstockIds.set(inputId, rowIdx);
+      }
+    }
+
+    // ── Resolve farmstock names for rows without snapshot ────────────────────
+    const unresolvedIds = Array.from(new Set(
+      rows.filter(r => r['product_name'] == null && r['_input_id'] != null).map(r => r['_input_id'] as number),
+    ));
+    if (unresolvedIds.length > 0) {
+      const itemMap = await fetchFarmstockItems(unresolvedIds);
+      for (const row of rows) {
+        if (row['product_name'] == null && row['_input_id'] != null) {
+          const item = itemMap.get(row['_input_id'] as number);
+          row['product_name'] = itemName(item ?? null, row['_input_id'] as number);
+          if (item && !row['epa_reg_no']) row['epa_reg_no'] = item['epa_reg_no'] ?? null;
+        }
+      }
+    }
+
+    // Strip internal field and sort
+    for (const row of rows) delete row['_input_id'];
+    rows.sort((a, b) => String(b['applied_at']).localeCompare(String(a['applied_at'])));
+
+    if (fmt === 'csv') {
+      const columns = [
+        'applied_at', 'input_class', 'batch_name', 'location', 'product_name',
+        'epa_reg_no', 'quantity_display', 'lot_number', 'applicator_name', 'notes',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="crop-inputs-${dateStr}.csv"`);
+      return reply.send(toCsv(rows, columns));
+    }
+
+    return reply.send({ generated_at: new Date().toISOString(), total_rows: rows.length, rows });
+  });
+
+  // ─── Report 6: Plant Loss and Destruction Log ───────────────────────────────
+
+  const PlantLossesQuerySchema = z.object({
+    batch_id:          z.string().optional(),
+    date_from:         z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to:           z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    metrc_sync_status: z.enum(['pending', 'synced', 'failed', 'not_required']).optional(),
+    format:            z.enum(['json', 'csv']).default('json'),
+  });
+
+  app.get('/plant-losses', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = PlantLossesQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { batch_id, date_from, date_to, metrc_sync_status, format: fmt } = parsed.data;
+
+    const db = getDB();
+
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (date_from) { clauses.push(`date(ple.occurred_at) >= date(?)`); params.push(date_from); }
+    if (date_to)   { clauses.push(`date(ple.occurred_at) <= date(?)`); params.push(date_to); }
+    if (batch_id)  { clauses.push(`ple.batch_id = ?`); params.push(Number(batch_id)); }
+    if (metrc_sync_status) { clauses.push(`ple.metrc_sync_status = ?`); params.push(metrc_sync_status); }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const records = db.prepare(`
+      SELECT ple.loss_id, ple.batch_id, ple.container_id,
+             ple.metrc_plant_tag, ple.occurred_at, ple.discovered_at,
+             ple.loss_type, ple.loss_cause, ple.plant_count,
+             ple.plant_disposition, ple.metrc_sync_status, ple.metrc_synced_at,
+             ple.notes,
+             b.metrc_plant_batch_uid, b.sow_date,
+             s.name AS strain_name, s.type AS strain_type,
+             u.name AS reported_by_name
+      FROM cv_plant_loss_events ple
+      JOIN cv_batches b ON b.batch_id = ple.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_users u ON u.id = ple.reported_by
+      ${whereClause}
+      ORDER BY ple.occurred_at DESC
+      LIMIT 1000
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    const output = records.map(r => ({
+      loss_id:             r['loss_id'],
+      occurred_at:         r['occurred_at'],
+      discovered_at:       r['discovered_at'],
+      batch_id:            r['batch_id'],
+      batch_name:          batchDisplayName(r),
+      metrc_plant_batch_uid: r['metrc_plant_batch_uid'] ?? null,
+      container_id:        r['container_id'],
+      metrc_plant_tag:     r['metrc_plant_tag'],
+      loss_type:           r['loss_type'],
+      loss_cause:          r['loss_cause'] ?? null,
+      plant_count:         r['plant_count'],
+      plant_disposition:   r['plant_disposition'],
+      reported_by_name:    r['reported_by_name'] ?? null,
+      metrc_sync_status:   r['metrc_sync_status'],
+      metrc_synced_at:     r['metrc_synced_at'] ?? null,
+      notes:               r['notes'] ?? null,
+      pending_metrc:       r['metrc_sync_status'] === 'pending',
+    }));
+
+    if (fmt === 'csv') {
+      const columns = [
+        'occurred_at', 'discovered_at', 'batch_name', 'container_id', 'metrc_plant_tag',
+        'loss_type', 'loss_cause', 'plant_count', 'plant_disposition',
+        'reported_by_name', 'metrc_sync_status', 'metrc_synced_at',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="plant-losses-${dateStr}.csv"`);
+      return reply.send(toCsv(output, columns));
+    }
+
+    const pendingCount = output.filter(r => r.pending_metrc).length;
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      total_records: output.length,
+      pending_metrc_count: pendingCount,
+      records: output,
+    });
+  });
+
+  // ─── Report 7: Harvest Records Report ──────────────────────────────────────
+
+  const HarvestRecordsQuerySchema = z.object({
+    batch_id:   z.string().optional(),
+    date_from:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    event_type: z.enum(['partial_harvest', 'final_harvest']).optional(),
+    format:     z.enum(['json', 'csv']).default('json'),
+  });
+
+  app.get('/harvest-records', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = HarvestRecordsQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { batch_id, date_from, date_to, event_type, format: fmt } = parsed.data;
+
+    const db = getDB();
+
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (date_from)  { clauses.push(`date(he.harvested_at) >= date(?)`); params.push(date_from); }
+    if (date_to)    { clauses.push(`date(he.harvested_at) <= date(?)`); params.push(date_to); }
+    if (batch_id)   { clauses.push(`he.plant_batch_id = ?`); params.push(Number(batch_id)); }
+    if (event_type) { clauses.push(`he.event_type = ?`); params.push(event_type); }
+    const whereClause = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+
+    const events = db.prepare(`
+      SELECT he.harvest_event_id, he.harvest_batch_id, he.plant_batch_id,
+             he.plant_assignment_id, he.container_id,
+             he.event_type, he.harvested_at, he.product_type,
+             he.wet_weight, he.weight_unit, he.notes,
+             he.metrc_sync_status, he.metrc_synced_at,
+             hb.metrc_harvest_batch_uid, hb.ambient_temp_f, hb.ambient_rh,
+             hb.wind_speed_mph, hb.batch_type, hb.sequence_number,
+             hb.started_at AS hb_started_at, hb.status AS hb_status,
+             b.metrc_plant_batch_uid, b.sow_date,
+             s.name AS strain_name, s.type AS strain_type,
+             pa.metrc_plant_tag,
+             u.name AS applicator_name
+      FROM cv_plant_harvest_events he
+      JOIN cv_harvest_batches hb ON hb.harvest_batch_id = he.harvest_batch_id
+      JOIN cv_batches b ON b.batch_id = he.plant_batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_plant_assignments pa ON pa.assignment_id = he.plant_assignment_id
+      LEFT JOIN cv_users u ON u.id = he.applicator
+      ${whereClause}
+      ORDER BY he.harvested_at ASC
+      LIMIT 2000
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    const output = events.map(r => ({
+      harvest_event_id:       r['harvest_event_id'],
+      harvest_batch_id:       r['harvest_batch_id'],
+      metrc_harvest_batch_uid: r['metrc_harvest_batch_uid'] ?? null,
+      missing_uid:            !r['metrc_harvest_batch_uid'],
+      ambient_temp_f:         r['ambient_temp_f'] ?? null,
+      ambient_rh:             r['ambient_rh'] ?? null,
+      wind_speed_mph:         r['wind_speed_mph'] ?? null,
+      batch_type:             r['batch_type'],
+      sequence_number:        r['sequence_number'],
+      hb_started_at:          r['hb_started_at'],
+      hb_status:              r['hb_status'],
+      plant_batch_id:         r['plant_batch_id'],
+      batch_name:             batchDisplayName(r),
+      metrc_plant_batch_uid:  r['metrc_plant_batch_uid'] ?? null,
+      strain_name:            r['strain_name'],
+      container_id:           r['container_id'],
+      metrc_plant_tag:        r['metrc_plant_tag'] ?? null,
+      event_type:             r['event_type'],
+      harvested_at:           r['harvested_at'],
+      product_type:           r['product_type'],
+      wet_weight:             r['wet_weight'],
+      weight_unit:            r['weight_unit'],
+      applicator_name:        r['applicator_name'] ?? null,
+      metrc_sync_status:      r['metrc_sync_status'],
+      metrc_synced_at:        r['metrc_synced_at'] ?? null,
+      notes:                  r['notes'] ?? null,
+    }));
+
+    // Per-harvest-batch totals
+    type BatchTotal = {
+      harvest_batch_id: number;
+      metrc_harvest_batch_uid: string | null;
+      missing_uid: boolean;
+      strain_name: string;
+      hb_started_at: string;
+      hb_status: string;
+      sequence_number: number;
+      totals: Array<{ product_type: string; weight_unit: string; total_wet_weight: number; event_count: number }>;
+    };
+    const batchTotalMap = new Map<number, BatchTotal>();
+    for (const e of output) {
+      const hbId = e.harvest_batch_id as number;
+      if (!batchTotalMap.has(hbId)) {
+        batchTotalMap.set(hbId, {
+          harvest_batch_id:       hbId,
+          metrc_harvest_batch_uid: e.metrc_harvest_batch_uid as string | null,
+          missing_uid:             e.missing_uid as boolean,
+          strain_name:             e.strain_name as string,
+          hb_started_at:           e.hb_started_at as string,
+          hb_status:               e.hb_status as string,
+          sequence_number:         Number(e.sequence_number),
+          totals: [],
+        });
+      }
+      const entry = batchTotalMap.get(hbId)!;
+      const productType = String(e.product_type ?? '');
+      const weightUnit = String(e.weight_unit ?? '');
+      const existing = entry.totals.find(t => t.product_type === productType && t.weight_unit === weightUnit);
+      if (existing) {
+        existing.total_wet_weight = Math.round((existing.total_wet_weight + Number(e.wet_weight ?? 0)) * 10000) / 10000;
+        existing.event_count++;
+      } else {
+        entry.totals.push({
+          product_type: productType,
+          weight_unit: weightUnit,
+          total_wet_weight: Number(e.wet_weight ?? 0),
+          event_count: 1,
+        });
+      }
+    }
+
+    if (fmt === 'csv') {
+      const columns = [
+        'harvested_at', 'event_type', 'harvest_batch_id', 'metrc_harvest_batch_uid',
+        'missing_uid', 'strain_name', 'batch_name', 'container_id', 'metrc_plant_tag',
+        'product_type', 'wet_weight', 'weight_unit', 'ambient_temp_f',
+        'applicator_name', 'metrc_sync_status',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="harvest-records-${dateStr}.csv"`);
+      return reply.send(toCsv(output, columns));
+    }
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      total_events: output.length,
+      harvest_batch_totals: Array.from(batchTotalMap.values()),
+      events: output,
+    });
+  });
+
 };
 
 export default exportsRoutes;

@@ -182,6 +182,12 @@ export const api = {
   downloadMetrcTagAssignmentsCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/metrc-tag-assignments?${q}`); },
   getMetrcHarvestExport: (batchId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/metrc-harvest/${batchId}${q ? '?' + q : ''}`); },
   downloadMetrcHarvestCsv: (batchId) => { window.open(`/api/exports/metrc-harvest/${batchId}?format=csv`); },
+  getCropInputsReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/crop-inputs${q ? '?' + q : ''}`); },
+  downloadCropInputsCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/crop-inputs?${q}`); },
+  getPlantLossesReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/plant-losses${q ? '?' + q : ''}`); },
+  downloadPlantLossesCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/plant-losses?${q}`); },
+  getHarvestRecordsReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/harvest-records${q ? '?' + q : ''}`); },
+  downloadHarvestRecordsCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/harvest-records?${q}`); },
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),

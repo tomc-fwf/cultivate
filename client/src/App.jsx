@@ -49,6 +49,9 @@ import StartupReadyForm from './pages/containers/StartupReadyForm';
 import MetrcExport from './pages/exports/MetrcExport';
 import MdaReport from './pages/exports/MdaReport';
 import CultivationRecord from './pages/exports/CultivationRecord';
+import CropInputsReport from './pages/exports/CropInputsReport';
+import PlantLossReport from './pages/exports/PlantLossReport';
+import HarvestReport from './pages/exports/HarvestReport';
 import ComplianceDashboard from './pages/compliance/ComplianceDashboard';
 import PlantInventory from './pages/compliance/PlantInventory';
 import TagVerification from './pages/compliance/TagVerification';
@@ -183,6 +186,9 @@ export default function App() {
               <Route path="/exports/metrc" element={<Protected><MetrcExport /></Protected>} />
               <Route path="/exports/mda-pesticide" element={<Protected><MdaReport /></Protected>} />
               <Route path="/exports/cultivation-record" element={<Protected><CultivationRecord /></Protected>} />
+              <Route path="/exports/crop-inputs" element={<Protected><CropInputsReport /></Protected>} />
+              <Route path="/exports/plant-losses" element={<Protected><PlantLossReport /></Protected>} />
+              <Route path="/exports/harvest-records" element={<Protected><HarvestReport /></Protected>} />
               <Route path="/compliance" element={<Protected><ComplianceDashboard /></Protected>} />
               <Route path="/compliance/plant-inventory" element={<Protected><PlantInventory /></Protected>} />
               <Route path="/compliance/tag-verification" element={<Protected><TagVerification /></Protected>} />
