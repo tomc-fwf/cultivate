@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { api } from './api';
+import { useSyncQueue } from './lib/offlineQueue';
 import NavBar from './components/NavBar';
 import Login from './pages/Login';
 import Today from './pages/Today';
@@ -87,6 +88,7 @@ function Protected({ children, minRole }) {
 
 export default function App() {
   const [user, setUser] = useState(null);
+  useSyncQueue();
 
   useEffect(() => {
     const stored = (() => { try { return JSON.parse(localStorage.getItem('cv_user')); } catch { return null; } })();

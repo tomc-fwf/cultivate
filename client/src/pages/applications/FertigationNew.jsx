@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY = 'cv_draft_fertigation';
 
@@ -126,11 +127,25 @@ export default function FertigationNew() {
   }, [sensorConditions]);
 
   // Save state
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false); // green button flash
   const [toast, setToast] = useState(null); // { message, type }
-  const [pendingSync, setPendingSync] = useState(false);
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey: DRAFT_KEY,
+    onSuccess: (_, isOffline) => {
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 600);
+      setToast({ message: isOffline ? 'Saved locally · Pending sync' : 'Saved · Synced', type: isOffline ? 'warning' : 'success' });
+      if (!isOffline) {
+        setTimeout(() => {
+          if (batchIdParam) navigate(`/batches/${batchIdParam}`);
+          else navigate('/applications/fertigation');
+        }, 1200);
+      }
+    },
+    onError: (e) => setSaveError(e.message || 'Failed to save. Please try again.'),
+  });
 
   const autoSaveTimer = useRef(null);
 
@@ -274,12 +289,10 @@ export default function FertigationNew() {
   // --- Save ---
   async function handleSave() {
     setSaveError('');
-    setSaving(true);
 
     const recipeId = displayBatch?.active_recipe_id;
     if (!recipeId) {
       setSaveError('No recipe assigned to this batch. Assign a recipe first.');
-      setSaving(false);
       return;
     }
 
@@ -296,35 +309,10 @@ export default function FertigationNew() {
       notes: notes || null,
     };
 
-    try {
-      await api.createFertigationApplication(payload);
-      // Clear draft on success
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-
-      // Green flash + toast
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 600);
-      setToast({ message: 'Saved · Synced', type: 'success' });
-      setPendingSync(false);
-
-      // Navigate back after brief delay so toast is visible
-      setTimeout(() => {
-        if (batchIdParam) {
-          navigate(`/batches/${batchIdParam}`);
-        } else {
-          navigate('/applications/fertigation');
-        }
-      }, 1200);
-    } catch (e) {
-      setSaving(false);
-      // Offline / error handling
-      if (e.message === 'Failed to fetch' || e.message.includes('NetworkError')) {
-        setPendingSync(true);
-        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
-      } else {
-        setSaveError(e.message || 'Failed to save. Please try again.');
-      }
-    }
+    await submit(
+      () => api.createFertigationApplication(payload),
+      { endpoint: '/api/applications/fertigation', payload, entity_type: 'fertigation' }
+    );
   }
 
   // --- Render ---

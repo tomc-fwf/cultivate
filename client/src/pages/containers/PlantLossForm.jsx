@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY = 'cv_draft_plant_loss';
 
@@ -55,11 +56,23 @@ export default function PlantLossForm() {
   const [notes, setNotes] = useState('');
 
   // Save state
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [toast, setToast] = useState(null);
 
   const autoSaveTimer = useRef(null);
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey: DRAFT_KEY + '_' + containerId,
+    onSuccess: (_, isOffline) => {
+      if (isOffline) {
+        setToast('Network lost — plant loss saved locally. Will sync when online.');
+      } else {
+        setToast('Plant loss recorded. METRC sync pending.');
+        setTimeout(() => navigate(`/containers/${encodeURIComponent(containerId)}`), 1800);
+      }
+    },
+    onError: (e) => setSaveError(e.message || 'Failed to record loss. Please try again.'),
+  });
 
   // Load context
   useEffect(() => {
@@ -106,30 +119,20 @@ export default function PlantLossForm() {
 
   async function handleSave() {
     if (!canSave) return;
-    setSaving(true);
     setSaveError('');
-    try {
-      await api.recordPlantLoss({
-        batch_id: effectiveBatchId,
-        container_id: containerId,
-        plant_assignment_id: selectedAssignmentId,
-        loss_type: lossType,
-        loss_cause: lossCause.trim() || null,
-        plant_disposition: disposition,
-        notes: notes.trim() || null,
-      });
-      clearDraft();
-      setToast('Plant loss recorded. METRC sync pending.');
-      setTimeout(() => navigate(`/containers/${encodeURIComponent(containerId)}`), 1800);
-    } catch (e) {
-      if (e.message === 'Failed to fetch' || e.message?.includes('NetworkError')) {
-        setToast('Network lost — draft preserved. Retry when online.');
-        // Don't clear saving state — the draft persists, record was NOT saved
-      } else {
-        setSaveError(e.message || 'Failed to record loss. Please try again.');
-      }
-    }
-    setSaving(false);
+    const payload = {
+      batch_id: effectiveBatchId,
+      container_id: containerId,
+      plant_assignment_id: selectedAssignmentId,
+      loss_type: lossType,
+      loss_cause: lossCause.trim() || null,
+      plant_disposition: disposition,
+      notes: notes.trim() || null,
+    };
+    await submit(
+      () => api.recordPlantLoss(payload),
+      { endpoint: '/api/plant-loss', payload, entity_type: 'plant_loss' }
+    );
   }
 
   if (loadingCtx) {
@@ -289,6 +292,12 @@ export default function PlantLossForm() {
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300"
         />
       </div>
+
+      {pendingSync && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700 font-medium mb-3">
+          ⏱ Saved locally — will sync when connection is restored
+        </div>
+      )}
 
       {/* Error */}
       {saveError && (

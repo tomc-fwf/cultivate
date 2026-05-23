@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY = 'cv_draft_foliar';
 
@@ -334,11 +335,34 @@ export default function FoliarNew() {
   const [showOptional, setShowOptional] = useState(false);
 
   // Save state
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
-  const [pendingSync, setPendingSync] = useState(false);
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey: DRAFT_KEY,
+    onSuccess: (result, isOffline) => {
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 600);
+      if (isOffline) {
+        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
+      } else if (result?.warning) {
+        setToast({ message: result.warning, type: 'warning' });
+      } else {
+        setToast({ message: 'Saved · Synced', type: 'success' });
+      }
+      if (!isOffline) {
+        setTimeout(() => navigate(batchIdParam ? `/batches/${batchIdParam}` : '/applications/foliar'), 1400);
+      }
+    },
+    onError: (e) => {
+      if (e.message?.includes('EPA') || e.message?.includes('Pesticide')) {
+        setSaveError(e.message + ' Use the Pesticide Application form instead.');
+      } else {
+        setSaveError(e.message || 'Failed to save. Please try again.');
+      }
+    },
+  });
 
   const autoSaveTimer = useRef(null);
 
@@ -419,7 +443,6 @@ export default function FoliarNew() {
   // Save handler
   async function handleSave() {
     setSaveError('');
-    setSaving(true);
 
     const payload = {
       batch_id: batchId,
@@ -438,36 +461,10 @@ export default function FoliarNew() {
       notes: notes || null,
     };
 
-    try {
-      const result = await api.createFoliarApplication(payload);
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 600);
-
-      // Surface PHI warning if backend flagged it
-      if (result.warning) {
-        setToast({ message: result.warning, type: 'warning' });
-      } else {
-        setToast({ message: 'Saved · Synced', type: 'success' });
-      }
-
-      setTimeout(() => {
-        navigate(batchIdParam ? `/batches/${batchIdParam}` : '/applications/foliar');
-      }, 1400);
-    } catch (e) {
-      setSaving(false);
-      if (e.message === 'Failed to fetch' || e.message?.includes('NetworkError')) {
-        setPendingSync(true);
-        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
-      } else {
-        setSaveError(e.message || 'Failed to save. Please try again.');
-        // If backend redirects to pesticide form
-        if (e.message?.includes('EPA') || e.message?.includes('Pesticide')) {
-          setSaveError(e.message + ' Use the Pesticide Application form instead.');
-        }
-      }
-    }
+    await submit(
+      () => api.createFoliarApplication(payload),
+      { endpoint: '/api/applications/foliar', payload, entity_type: 'foliar' }
+    );
   }
 
   return (

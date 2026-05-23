@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY = 'cv_draft_amendment';
 
@@ -241,10 +242,31 @@ export default function AmendmentNew() {
   const [showProductPicker, setShowProductPicker] = useState(false);
 
   // Save state
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey: DRAFT_KEY,
+    onSuccess: (_, isOffline) => {
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 600);
+      setToast({ message: isOffline ? 'Saved locally · Pending sync' : 'Saved · Synced', type: isOffline ? 'warning' : 'success' });
+      if (!isOffline) {
+        setTimeout(() => {
+          if (containerIdParam) navigate(`/containers/${encodeURIComponent(containerIdParam)}`);
+          else navigate('/applications/amendments');
+        }, 1400);
+      }
+    },
+    onError: (e) => {
+      if (e.message?.includes('EPA') || e.message?.includes('Pesticide')) {
+        setSaveError(e.message + ' Use the Pesticide Application form instead.');
+      } else {
+        setSaveError(e.message || 'Failed to save. Please try again.');
+      }
+    },
+  });
 
   const autoSaveTimer = useRef(null);
 
@@ -307,7 +329,6 @@ export default function AmendmentNew() {
 
   async function handleSave() {
     setSaveError('');
-    setSaving(true);
 
     const payload = {
       container_id: effectiveContainerId,
@@ -321,29 +342,10 @@ export default function AmendmentNew() {
       notes: notes || null,
     };
 
-    try {
-      await api.createContainerAmendment(payload);
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 600);
-      setToast({ message: 'Saved · Synced', type: 'success' });
-
-      setTimeout(() => {
-        if (containerIdParam) {
-          navigate(`/containers/${encodeURIComponent(containerIdParam)}`);
-        } else {
-          navigate('/applications/amendments');
-        }
-      }, 1400);
-    } catch (e) {
-      setSaving(false);
-      if (e.message?.includes('EPA') || e.message?.includes('Pesticide')) {
-        setSaveError(e.message + ' Use the Pesticide Application form instead.');
-      } else {
-        setSaveError(e.message || 'Failed to save. Please try again.');
-      }
-    }
+    await submit(
+      () => api.createContainerAmendment(payload),
+      { endpoint: '/api/applications/amendments', payload, entity_type: 'amendment' }
+    );
   }
 
   const containerState = containerInfo?.current_state?.current_state;
@@ -602,6 +604,12 @@ export default function AmendmentNew() {
         {user && (
           <div className="text-xs text-gray-400">
             Applicator: <span className="font-medium text-gray-600">{user.name}</span>
+          </div>
+        )}
+
+        {pendingSync && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700 font-medium">
+            ⏱ Saved locally — will sync when connection is restored
           </div>
         )}
 

@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 import { useCurrentConditions, SensorBadge } from '../../hooks/useCurrentConditions.jsx';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY = 'cv_draft_pesticide';
 
@@ -376,13 +377,41 @@ export default function PesticideNew() {
   const [reiPreview, setReiPreview] = useState(null); // ISO string of projected REI expiry
 
   // Save / post-save
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
-  const [pendingSync, setPendingSync] = useState(false);
   const [reiModal, setReiModal] = useState(null); // { rei_expires_at, target_area }
   const [stageBlock, setStageBlock] = useState(null); // { reason } when stage blocked
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey: DRAFT_KEY,
+    onSuccess: (result, isOffline) => {
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 600);
+      if (isOffline) {
+        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
+        // Don't navigate — show prominent persistent banner (pendingSync stays true)
+      } else if (result?.rei_expires_at) {
+        // REI active — show modal, then navigate
+        setReiModal({ rei_expires_at: result.rei_expires_at, target_area: result.target_area });
+      } else {
+        setToast({ message: 'Saved · Synced', type: 'success' });
+        setTimeout(() => navigate(batchIdParam ? `/batches/${batchIdParam}` : '/applications/pesticide'), 1400);
+      }
+    },
+    onError: (e) => {
+      if (e.message?.includes('stage_blocked') || e.message?.includes('not permitted during')) {
+        setStageBlock({ reason: e.message });
+      } else if (e.message?.includes('PHI violation')) {
+        setPhiStatus('violation');
+        setSaveError(e.message);
+      } else if (e.message?.includes('restricted-use')) {
+        setSaveError(e.message);
+      } else {
+        setSaveError(e.message || 'Failed to save. Please try again.');
+      }
+    },
+  });
 
   const autoSaveTimer = useRef(null);
   const activeBatch = lockedBatch ?? selectedBatch;
@@ -524,7 +553,6 @@ export default function PesticideNew() {
   // ── Save handler ─────────────────────────────────────────────────────────
   async function handleSave() {
     setSaveError('');
-    setSaving(true);
 
     const payload = {
       batch_id: batchId,
@@ -550,42 +578,10 @@ export default function PesticideNew() {
       notes: notes || null,
     };
 
-    try {
-      const result = await api.createPesticideApplication(payload);
-      try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 600);
-
-      // Show REI modal if REI is active; otherwise navigate
-      if (result.rei_expires_at) {
-        setSaving(false);
-        setReiModal({
-          rei_expires_at: result.rei_expires_at,
-          target_area: result.target_area,
-        });
-      } else {
-        setToast({ message: 'Saved · Synced', type: 'success' });
-        setTimeout(() => {
-          navigate(batchIdParam ? `/batches/${batchIdParam}` : '/applications/pesticide');
-        }, 1400);
-      }
-    } catch (e) {
-      setSaving(false);
-      if (e.message === 'Failed to fetch' || (e.message && e.message.includes('NetworkError'))) {
-        setPendingSync(true);
-        setToast({ message: 'Saved locally · Pending sync', type: 'warning' });
-      } else if (e.message?.includes('stage_blocked') || e.message?.includes('not permitted during')) {
-        setStageBlock({ reason: e.message });
-      } else if (e.message?.includes('PHI violation')) {
-        setPhiStatus('violation');
-        setSaveError(e.message);
-      } else if (e.message?.includes('restricted-use')) {
-        setSaveError(e.message);
-      } else {
-        setSaveError(e.message || 'Failed to save. Please try again.');
-      }
-    }
+    await submit(
+      () => api.createPesticideApplication(payload),
+      { endpoint: '/api/applications/pesticide', payload, entity_type: 'pesticide' }
+    );
   }
 
   // ── REI modal dismiss — then navigate ────────────────────────────────────
@@ -1053,8 +1049,8 @@ export default function PesticideNew() {
         )}
 
         {pendingSync && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2 text-xs text-amber-700 font-medium">
-            ⏱ Saved locally — will sync when connection is restored
+          <div className="bg-amber-100 border-2 border-amber-400 rounded-xl px-4 py-3 text-sm text-amber-900 font-semibold">
+            ⚠ Pesticide application saved locally — PENDING SYNC. Do not re-enter. This record will sync automatically when connection is restored. Verify it appears in the Pesticide Log before re-submitting.
           </div>
         )}
       </div>

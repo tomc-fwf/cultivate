@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { useOfflineSubmit } from '../../lib/offlineQueue';
 
 const DRAFT_KEY_PREFIX = 'cv_draft_final_harvest';
 
@@ -51,14 +52,28 @@ export default function FinalHarvestForm() {
   const [notes, setNotes] = useState('');
 
   // Save state
-  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
   const [toast, setToast] = useState(null);
-  const [pendingSync, setPendingSync] = useState(false);
   const autoSaveTimer = useRef(null);
 
   const draftKey = `${DRAFT_KEY_PREFIX}_${batchId}_${assignmentId}`;
+
+  const { submit, saving, pendingSync } = useOfflineSubmit({
+    draftKey,
+    onSuccess: (_, isOffline) => {
+      setSaveFlash(true);
+      setTimeout(() => setSaveFlash(false), 600);
+      if (isOffline) {
+        setToast({ message: 'Network lost — record saved locally. Do NOT retry until you verify online.', type: 'warning' });
+        // pendingSync stays true — prominent banner shown below
+      } else {
+        setToast({ message: 'Plant harvested. Container is now in teardown.', type: 'success' });
+        setTimeout(() => navigate(`/harvest/${batchId}`), 2000);
+      }
+    },
+    onError: (e) => setSaveError(e.message || 'Failed to record final harvest.'),
+  });
 
   // Restore draft (only product/weight fields — tag verification is intentionally not persisted)
   useEffect(() => {
@@ -118,31 +133,18 @@ export default function FinalHarvestForm() {
 
   async function handleSave() {
     setSaveError('');
-    setSaving(true);
-    try {
-      await api.recordHarvestEvent(Number(harvestBatchId), {
-        plant_assignment_id: Number(assignmentId),
-        event_type: 'final_harvest',
-        product_type: productType,
-        wet_weight: parseFloat(wetWeight),
-        weight_unit: weightUnit,
-        notes: notes.trim() || null,
-      });
-
-      try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
-      setSaveFlash(true);
-      setTimeout(() => setSaveFlash(false), 600);
-      setToast({ message: 'Plant harvested. Container is now in teardown.', type: 'success' });
-      setTimeout(() => navigate(`/harvest/${batchId}`), 2000);
-    } catch (e) {
-      setSaving(false);
-      if (e.message === 'Failed to fetch' || e.message?.includes('NetworkError')) {
-        setPendingSync(true);
-        setToast({ message: 'Network lost — draft preserved. Do NOT retry until you verify the record was not saved.', type: 'warning' });
-      } else {
-        setSaveError(e.message || 'Failed to record final harvest.');
-      }
-    }
+    const payload = {
+      plant_assignment_id: Number(assignmentId),
+      event_type: 'final_harvest',
+      product_type: productType,
+      wet_weight: parseFloat(wetWeight),
+      weight_unit: weightUnit,
+      notes: notes.trim() || null,
+    };
+    await submit(
+      () => api.recordHarvestEvent(Number(harvestBatchId), payload),
+      { endpoint: `/api/harvest/batches/${harvestBatchId}/events`, payload, entity_type: 'final_harvest' }
+    );
   }
 
   return (
@@ -330,6 +332,12 @@ export default function FinalHarvestForm() {
 
             {user && (
               <div className="text-xs text-gray-400">Applicator: <span className="font-medium text-gray-600">{user.name}</span></div>
+            )}
+
+            {pendingSync && (
+              <div className="bg-amber-100 border-2 border-amber-400 rounded-xl px-4 py-3 text-sm text-amber-900 font-semibold">
+                ⚠ Final harvest saved locally — PENDING SYNC. Do NOT re-enter this harvest. Verify it appears in the harvest log once you are back online.
+              </div>
             )}
 
             {saveError && (
