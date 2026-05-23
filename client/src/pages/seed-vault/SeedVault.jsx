@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Plus, Vault } from 'lucide-react';
+import { RefreshCw, Plus, Vault, Pencil } from 'lucide-react';
 import { api } from '../../api';
 
 function SkeletonCard() {
@@ -18,7 +18,7 @@ function SkeletonCard() {
   );
 }
 
-function PackageCard({ pkg, navigate }) {
+function PackageCard({ pkg, navigate, onEdit }) {
   const remaining = pkg.seed_count_remaining ?? 0;
   const initial = pkg.seed_count_initial ?? 1;
   const pct = Math.min(100, Math.round((remaining / Math.max(1, initial)) * 100));
@@ -34,11 +34,21 @@ function PackageCard({ pkg, navigate }) {
           <p className="text-xs text-gray-500">{pkg.strain_name}</p>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-            pkg.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-          }`}>
-            {pkg.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => onEdit(pkg)}
+              className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+              aria-label="Edit package"
+              style={{ minWidth: '28px', minHeight: '28px' }}
+            >
+              <Pencil size={13} />
+            </button>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              pkg.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
+            }`}>
+              {pkg.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
+            </span>
+          </div>
           {pkg.feminized && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
               ♀ FEM
@@ -367,6 +377,237 @@ function AddPackageForm({ strains, onSave, onCancel }) {
   );
 }
 
+function EditPackageForm({ pkg, onSave, onCancel }) {
+  const [packageName, setPackageName] = useState(pkg.package_name || '');
+  const [metrcPackageId, setMetrcPackageId] = useState(pkg.metrc_package_id || '');
+  const [lotNumber, setLotNumber] = useState(pkg.lot_number || '');
+  const [supplier, setSupplier] = useState(pkg.supplier || '');
+  const [sourceDetail, setSourceDetail] = useState(pkg.source_detail || '');
+  const [receivedDate, setReceivedDate] = useState(pkg.received_date || '');
+  const [seasonYear, setSeasonYear] = useState(pkg.season_year ? String(pkg.season_year) : '');
+  const [weightG, setWeightG] = useState(pkg.weight_g_initial ? String(pkg.weight_g_initial) : '');
+  const [seedCountRemaining, setSeedCountRemaining] = useState(String(pkg.seed_count_remaining ?? ''));
+  const [feminized, setFeminized] = useState(Boolean(pkg.feminized));
+  const [notes, setNotes] = useState(pkg.notes || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!lotNumber.trim()) { setError('Lot number is required'); return; }
+
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await api.updateSeedPackage(pkg.package_id, {
+        package_name: packageName.trim() || null,
+        metrc_package_id: metrcPackageId.trim() || null,
+        lot_number: lotNumber.trim(),
+        supplier: supplier.trim() || null,
+        source_detail: sourceDetail.trim() || null,
+        received_date: receivedDate || null,
+        season_year: seasonYear ? Number(seasonYear) : null,
+        weight_g_initial: weightG ? Number(weightG) : null,
+        seed_count_remaining: seedCountRemaining !== '' ? Number(seedCountRemaining) : undefined,
+        feminized,
+        notes: notes.trim() || null,
+      });
+      onSave(updated);
+    } catch (err) {
+      setError(err.message || 'Failed to update seed package');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass = 'w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500';
+
+  return (
+    <div className="bg-white rounded-2xl border border-green-300 p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-gray-900">Edit Seed Package</h3>
+        <span className="text-xs text-gray-400">{pkg.strain_name}</span>
+      </div>
+
+      {error && (
+        <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-sm text-red-800">
+          {error}
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Package Name</label>
+            <input
+              type="text"
+              value={packageName}
+              onChange={e => setPackageName(e.target.value)}
+              placeholder="e.g. NL Auto 2026 Batch A"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">METRC Package ID</label>
+            <input
+              type="text"
+              value={metrcPackageId}
+              onChange={e => setMetrcPackageId(e.target.value)}
+              placeholder="24-char METRC UID"
+              className={`${inputClass} font-mono`}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Lot Number <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={lotNumber}
+              onChange={e => setLotNumber(e.target.value)}
+              placeholder="Lot number from packaging"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Supplier / Source</label>
+            <input
+              type="text"
+              value={supplier}
+              onChange={e => setSupplier(e.target.value)}
+              placeholder="Breeder or supplier name"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Source Detail</label>
+            <input
+              type="text"
+              value={sourceDetail}
+              onChange={e => setSourceDetail(e.target.value)}
+              placeholder="URL, invoice #, or notes"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Date Received</label>
+            <input
+              type="date"
+              value={receivedDate}
+              onChange={e => setReceivedDate(e.target.value)}
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Season Year</label>
+            <input
+              type="number"
+              value={seasonYear}
+              onChange={e => setSeasonYear(e.target.value)}
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              inputMode="numeric"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Total Weight (g)</label>
+            <input
+              type="number"
+              value={weightG}
+              onChange={e => setWeightG(e.target.value)}
+              placeholder="Total weight in grams"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              inputMode="decimal"
+              step="0.01"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Seeds Remaining</label>
+            <input
+              type="number"
+              value={seedCountRemaining}
+              onChange={e => setSeedCountRemaining(e.target.value)}
+              placeholder="Current inventory count"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              inputMode="numeric"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Manual correction — use only to fix inventory discrepancies</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-2">Feminized</label>
+            <div className="flex gap-2">
+              {FEMINIZED_OPTIONS.map(opt => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => setFeminized(opt.value)}
+                  className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
+                    feminized === opt.value
+                      ? 'bg-green-700 text-white border-green-700'
+                      : 'bg-white text-gray-700 border-gray-200 hover:border-green-300'
+                  }`}
+                  style={{ minHeight: '44px' }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder="Optional notes"
+              className={`${inputClass} resize-none`}
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3 mt-4">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-700 font-semibold text-sm"
+            style={{ minHeight: '48px' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 py-3 rounded-2xl bg-green-700 hover:bg-green-800 disabled:opacity-50 text-white font-semibold text-sm transition-colors"
+            style={{ minHeight: '48px' }}
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function SeedVault() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -376,6 +617,7 @@ export default function SeedVault() {
   const [error, setError] = useState('');
   const [yearFilter, setYearFilter] = useState(new Date().getFullYear());
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingPackage, setEditingPackage] = useState(null);
   const [toast, setToast] = useState('');
 
   const loadData = useCallback(() => {
@@ -410,6 +652,19 @@ export default function SeedVault() {
     setPackages(prev => [pkg, ...prev]);
     setShowAddForm(false);
     setToast('Seed package added');
+    setTimeout(() => setToast(''), 3000);
+  }
+
+  function handleEdit(pkg) {
+    setEditingPackage(pkg);
+    setShowAddForm(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function handleEditSaved(updated) {
+    setPackages(prev => prev.map(p => p.package_id === updated.package_id ? updated : p));
+    setEditingPackage(null);
+    setToast('Package updated');
     setTimeout(() => setToast(''), 3000);
   }
 
@@ -477,8 +732,17 @@ export default function SeedVault() {
         </div>
       )}
 
+      {/* Edit form */}
+      {editingPackage && (
+        <EditPackageForm
+          pkg={editingPackage}
+          onSave={handleEditSaved}
+          onCancel={() => setEditingPackage(null)}
+        />
+      )}
+
       {/* Add form */}
-      {showAddForm && (
+      {showAddForm && !editingPackage && (
         <AddPackageForm
           strains={strains}
           onSave={handleSaved}
@@ -508,7 +772,7 @@ export default function SeedVault() {
       {!loading && filteredPackages.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredPackages.map(pkg => (
-            <PackageCard key={pkg.package_id} pkg={pkg} navigate={navigate} />
+            <PackageCard key={pkg.package_id} pkg={pkg} navigate={navigate} onEdit={handleEdit} />
           ))}
         </div>
       )}
