@@ -2861,3 +2861,66 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - npx tsc --noEmit passes clean; npm run build passes (chunk size warning is pre-existing)
 - The six newly linked pages (/containers, /locations, /soil-samples, /planting-plans, /strains, /admin/environmental-history) already exist — this task only added entry points in the hub nav
+
+---
+
+## Task: METRC sub-export frontend pages (harvest, waste, tag, phase-change)
+**Completed:** 2026-05-23
+
+### What Was Done
+- **New backend endpoint** `GET /api/exports/metrc-phase-changes`: Cross-batch endpoint combining `cv_batch_phase_history` (type=phase) and `cv_batch_location_history` (type=location) into a unified sorted list. Supports optional `?batch_id`, `?date_from`, `?date_to`, `?format=csv` query params. Uses existing `buildDateBatchWhere()` helper.
+- **Three new `api.js` methods**: `getMetrcTagAssignments`, `getMetrcPhaseChanges`, `downloadMetrcPhaseChangesCsv` (the other methods — getMetrcWasteExport, downloadMetrcWasteCsv, downloadMetrcTagAssignmentsCsv — already existed).
+- **Four new export pages** created:
+  - `MetrcHarvestExport.jsx` — cross-batch harvest events grouped by harvest batch with product-type subtotals; uses existing `/harvest-records` endpoint (avoids duplicate endpoint since `/metrc-harvest/:batchId` was batch-specific only)
+  - `MetrcWasteExport.jsx` — unified waste trim + plant loss events; summary count cards; red row highlight on pending/failed sync
+  - `MetrcTagAssignmentExport.jsx` — tag assignments grouped by batch; unsynced count badge; filter by batch ID only
+  - `MetrcPhaseChangeExport.jsx` — phase transitions + location moves in one table; type chips (blue=phase, purple=location); amber UID missing warning
+- **`App.jsx`**: Added 4 imports and 4 routes (`/exports/metrc-harvest`, `/exports/metrc-waste`, `/exports/metrc-tag-assignments`, `/exports/metrc-phase-changes`)
+- **`ApplicationsHub.jsx`**: Added 4 button entries in Compliance & Reports section after METRC Record Additives
+
+### Key Decisions
+- `MetrcHarvestExport` uses `getHarvestRecordsReport` / `downloadHarvestRecordsCsv` instead of `getMetrcHarvestExport` because the existing `/metrc-harvest/:batchId` endpoint requires a batch ID in the URL (not optional), whereas the task wanted a cross-batch optional filter. The `/harvest-records` endpoint already provides all required data.
+- `TableRowGroup` helper component pattern used in MetrcHarvestExport to allow `key` prop on React fragments inside `<tbody>` map (renders `<>{children}</>`)
+- `/metrc-phase-changes` endpoint sorts merged phase+location rows by `changed_at` DESC after combining two separate queries; LIMIT 2000 per sub-query to bound results
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — new `/metrc-phase-changes` route appended before closing brace
+- `client/src/api.js` — 3 new API methods
+- `client/src/App.jsx` — 4 new imports + 4 new routes
+- `client/src/pages/applications/ApplicationsHub.jsx` — 4 new entries in Compliance & Reports section
+- `client/src/pages/exports/MetrcHarvestExport.jsx` (new)
+- `client/src/pages/exports/MetrcWasteExport.jsx` (new)
+- `client/src/pages/exports/MetrcTagAssignmentExport.jsx` (new)
+- `client/src/pages/exports/MetrcPhaseChangeExport.jsx` (new)
+
+### Notes for Next Tasks
+- Commit: 71d1801 — `feat(exports): METRC harvest, waste, tag-assignment, phase-change frontend pages`
+- npx tsc --noEmit passes clean; npm run build passes (chunk size warning is pre-existing)
+- `/metrc-phase-changes` joins `cv_batch_location_history` on `from_location_id` and `to_location_id` via `cv_locations` table; if batches have location history rows with no matching location names, from_value/to_value will be null (expected)
+- All 4 pages back-navigate to `/applications` (ApplicationsHub) via the ← button
+
+## Task: FinalHarvestForm multi-plant container selection
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added plant selection step to FinalHarvestForm for containers with plants_per_container > 1
+- Made `assignment_id` URL param optional; added `container_id` URL param support
+- After loading harvestStatus, all active assignments for the container are gathered
+- Step 1: if count === 1, proceeds as today (no UI change)
+- Step 2: if count > 1 and no assignment_id pre-selected, shows plant selection UI before tag verification
+- Step 3: if assignment_id in URL AND matches an active assignment, skips selection and goes straight to tag verification
+- Fixed handleSave to use `assignment.assignment_id` (resolved assignment) instead of raw URL param
+- `containerDisplay` derived from resolved assignment or first active assignment so context card shows container during selection step
+
+### Key Decisions
+- Selection step gated on `assignment === null && activeAssignments.length > 1` — clean state machine, no extra boolean flags
+- `draftKey` uses `assignment?.assignment_id ?? assignmentIdParam` so draft restores correctly after selection
+- `setTagConfirmed(false)` on selection continue ensures fresh tag verification for the chosen plant
+- Did NOT update ContainerDetail — HarvestDashboard already shows per-plant links with assignment_id; ContainerDetail can be updated separately
+
+### Files Modified
+- `client/src/pages/harvest/FinalHarvestForm.jsx` — only file changed
+
+### Notes for Next Tasks
+- ContainerDetail uses `.find()` to get a single assignment for its "Final Harvest" button; for multi-plant containers it will always pass the first active assignment_id (which triggers step 3 skip). If explicit selection from ContainerDetail is desired, ContainerDetail should navigate without assignment_id for multi-plant containers (pass container_id instead)
+- The `placed_at` field on plant_assignments (renamed from assigned_at in migration 014) is used in the selection card date display

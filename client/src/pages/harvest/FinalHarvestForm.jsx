@@ -34,11 +34,16 @@ export default function FinalHarvestForm() {
   const { user } = useAuth();
 
   const harvestBatchId = searchParams.get('harvest_batch_id');
-  const assignmentId = searchParams.get('assignment_id');
+  const assignmentIdParam = searchParams.get('assignment_id');
+  const containerIdParam = searchParams.get('container_id');
 
   // Context loading
   const [batch, setBatch] = useState(null);
+  // assignment: resolved once — either from single-plant, URL pre-selection, or user selection
   const [assignment, setAssignment] = useState(null);
+  // activeAssignments: all active assignments for the container (populated after load)
+  const [activeAssignments, setActiveAssignments] = useState([]);
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [contextLoading, setContextLoading] = useState(true);
   const [contextError, setContextError] = useState('');
 
@@ -57,7 +62,8 @@ export default function FinalHarvestForm() {
   const [toast, setToast] = useState(null);
   const autoSaveTimer = useRef(null);
 
-  const draftKey = `${DRAFT_KEY_PREFIX}_${batchId}_${assignmentId}`;
+  // Draft key uses the resolved assignment ID; falls back to URL param while in selection step
+  const draftKey = `${DRAFT_KEY_PREFIX}_${batchId}_${assignment?.assignment_id ?? assignmentIdParam}`;
 
   const { submit, saving, pendingSync } = useOfflineSubmit({
     draftKey,
@@ -101,7 +107,7 @@ export default function FinalHarvestForm() {
 
   // Load context
   useEffect(() => {
-    if (!batchId || !harvestBatchId || !assignmentId) {
+    if (!batchId || !harvestBatchId || (!assignmentIdParam && !containerIdParam)) {
       setContextError('Missing required parameters.');
       setContextLoading(false);
       return;
@@ -110,18 +116,67 @@ export default function FinalHarvestForm() {
     Promise.all([api.getBatch(batchId), api.getHarvestStatus(batchId)])
       .then(([batchData, harvestStatus]) => {
         setBatch(batchData);
-        const found = harvestStatus.plant_assignments?.find(
-          a => String(a.assignment_id) === assignmentId && a.unassigned_at === null
-        );
-        if (!found) {
-          setContextError('Plant assignment not found or already unassigned.');
+
+        // Determine the container_id we're operating on
+        let containerId;
+        if (assignmentIdParam) {
+          const found = harvestStatus.plant_assignments?.find(
+            a => String(a.assignment_id) === assignmentIdParam && a.unassigned_at === null
+          );
+          if (!found) {
+            setContextError('Plant assignment not found or already unassigned.');
+            setContextLoading(false);
+            return;
+          }
+          containerId = found.container_id;
         } else {
-          setAssignment(found);
+          containerId = containerIdParam;
         }
+
+        // All active assignments for this container
+        const allActive = (harvestStatus.plant_assignments ?? []).filter(
+          a => a.container_id === containerId && a.unassigned_at === null
+        );
+
+        if (allActive.length === 0) {
+          setContextError('No active plant assignments found for this container.');
+          setContextLoading(false);
+          return;
+        }
+
+        setActiveAssignments(allActive);
+
+        if (allActive.length === 1) {
+          // Step 1: single plant — proceed as today, no UI change
+          setAssignment(allActive[0]);
+        } else if (assignmentIdParam) {
+          // Step 3: assignment_id in URL AND matches an active assignment — pre-select and skip selection step
+          const matched = allActive.find(a => String(a.assignment_id) === assignmentIdParam);
+          if (matched) {
+            setAssignment(matched);
+          }
+          // else: assignment_id doesn't match any active → assignment stays null, show selection step
+        }
+        // else: no assignment_id, multiple active plants → assignment stays null, show selection step
+
         setContextLoading(false);
       })
       .catch(e => { setContextError(e.message); setContextLoading(false); });
-  }, [batchId, harvestBatchId, assignmentId]);
+  }, [batchId, harvestBatchId, assignmentIdParam, containerIdParam]);
+
+  // Selection step: shown when loaded, no error, assignment not resolved, multiple active plants
+  const showSelectionStep = !contextLoading && !contextError && assignment === null && activeAssignments.length > 1;
+
+  function handleSelectionContinue() {
+    const selected = activeAssignments.find(a => a.assignment_id === selectedAssignmentId);
+    if (selected) {
+      setTagConfirmed(false); // fresh verification for the chosen plant
+      setAssignment(selected);
+    }
+  }
+
+  // Container for display — available even during selection step
+  const containerDisplay = assignment?.container_id ?? activeAssignments[0]?.container_id ?? containerIdParam;
 
   const tagLast4 = assignment?.metrc_plant_tag ? assignment.metrc_plant_tag.slice(-4) : null;
   const hasTag = Boolean(assignment?.metrc_plant_tag);
@@ -133,8 +188,9 @@ export default function FinalHarvestForm() {
 
   async function handleSave() {
     setSaveError('');
+    if (!assignment) return;
     const payload = {
-      plant_assignment_id: Number(assignmentId),
+      plant_assignment_id: assignment.assignment_id,
       event_type: 'final_harvest',
       product_type: productType,
       wet_weight: parseFloat(wetWeight),
@@ -182,14 +238,77 @@ export default function FinalHarvestForm() {
               </div>
               <div>
                 <div className="text-xs text-gray-500">Container</div>
-                <div className="font-mono font-bold text-gray-800">{assignment?.container_id}</div>
+                <div className="font-mono font-bold text-gray-800">{containerDisplay}</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* ── TAG VERIFICATION STEP — must complete before form appears ── */}
-        {!contextLoading && !contextError && (
+        {/* ── PLANT SELECTION STEP — shown for multi-plant containers when no assignment pre-specified ── */}
+        {showSelectionStep && (
+          <div className="bg-white border-2 border-amber-300 rounded-2xl p-5">
+            <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Select Plant to Harvest</div>
+            <div className="text-sm text-gray-600 mb-4">
+              This container has <strong>{activeAssignments.length}</strong> active plants.
+              Select the plant you are cutting now.
+            </div>
+            <div className="flex flex-col gap-3 mb-5">
+              {activeAssignments.map(a => {
+                const last4 = a.metrc_plant_tag ? a.metrc_plant_tag.slice(-4) : null;
+                const isSelected = selectedAssignmentId === a.assignment_id;
+                const placedDate = a.placed_at
+                  ? new Date(a.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                  : null;
+                return (
+                  <button
+                    key={a.assignment_id}
+                    onClick={() => setSelectedAssignmentId(a.assignment_id)}
+                    className={`w-full text-left px-4 py-4 rounded-2xl border-2 transition-colors relative ${
+                      isSelected
+                        ? 'border-green-500 bg-green-50'
+                        : 'border-gray-200 bg-white hover:border-green-300'
+                    }`}
+                    style={{ minHeight: '72px' }}
+                  >
+                    {isSelected && (
+                      <span className="absolute top-3 right-4 text-green-600 text-lg font-bold">✓</span>
+                    )}
+                    {last4 ? (
+                      <>
+                        <div className="text-3xl font-bold tracking-widest text-gray-900 leading-tight" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                          …{last4}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 truncate" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                          {a.metrc_plant_tag}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-base font-semibold text-amber-700">Untagged</div>
+                    )}
+                    {placedDate && (
+                      <div className="text-xs text-gray-400 mt-1">Placed {placedDate}</div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              onClick={handleSelectionContinue}
+              disabled={!selectedAssignmentId}
+              className={`w-full py-4 font-bold rounded-2xl text-white transition-colors ${
+                selectedAssignmentId
+                  ? 'bg-green-800 hover:bg-green-900'
+                  : 'bg-gray-300 cursor-not-allowed'
+              }`}
+              style={{ minHeight: '64px' }}
+            >
+              Continue
+            </button>
+          </div>
+        )}
+
+        {/* ── TAG VERIFICATION STEP — shown once assignment is resolved ── */}
+        {!contextLoading && !contextError && assignment !== null && (
           <div className={`rounded-2xl p-5 border-2 ${tagConfirmed ? 'border-green-400 bg-green-50' : 'border-red-300 bg-red-50'}`}>
             <div className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Step 1 — Tag Verification</div>
 
