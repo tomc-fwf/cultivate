@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 
@@ -28,6 +28,34 @@ export default function PlantReplacementForm() {
   // Form state
   const [notes, setNotes] = useState('');
 
+  const autoSaveTimer = useRef(null);
+
+  // Draft persistence
+  const saveDraft = useCallback(() => {
+    try {
+      localStorage.setItem(`cv_draft_plant_replacement_${containerId}`, JSON.stringify({
+        notes, savedAt: Date.now(),
+      }));
+    } catch { /* ignore */ }
+  }, [containerId, notes]);
+
+  useEffect(() => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(saveDraft, 3000);
+    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+  }, [saveDraft]);
+
+  // Restore draft on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(`cv_draft_plant_replacement_${containerId}`);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
+      if (draft.notes) setNotes(draft.notes);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Save state
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -53,6 +81,7 @@ export default function PlantReplacementForm() {
         container_id: containerId,
         notes: notes.trim() || null,
       });
+      try { localStorage.removeItem(`cv_draft_plant_replacement_${containerId}`); } catch { /* ignore */ }
       setToast('Replacement plant assigned. Use Tag Assignment to link a METRC tag.');
       setTimeout(() => navigate(`/containers/${encodeURIComponent(containerId)}`), 2000);
     } catch (e) {
