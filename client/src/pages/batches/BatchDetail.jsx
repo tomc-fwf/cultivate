@@ -145,6 +145,14 @@ export default function BatchDetail() {
   const [batchPlan, setBatchPlan] = useState(null);
   const [toast, setToast] = useState(null);
 
+  // Inline fertigation quick-log panel
+  const [fertiPanelOpen, setFertiPanelOpen] = useState(false);
+  const [fertiVolume, setFertiVolume] = useState(() => localStorage.getItem('cv_last_fertigation_volume') || '');
+  const [fertiEC, setFertiEC] = useState('');
+  const [fertiPH, setFertiPH] = useState('');
+  const [fertiSaving, setFertiSaving] = useState(false);
+  const [fertiError, setFertiError] = useState('');
+
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
   function load() {
@@ -215,6 +223,43 @@ export default function BatchDetail() {
       setBulkTeardownLoading(false);
     }
   }
+
+  async function handleFertigationQuickLog() {
+    setFertiSaving(true);
+    setFertiError('');
+    try {
+      await api.createFertigationApplication({
+        batch_ids: [batch.batch_id],
+        recipe_id: batch.active_recipe_id,
+        applied_at: new Date().toISOString(),
+        volume_gallons: parseFloat(fertiVolume),
+        ec_measured: parseFloat(fertiEC),
+        ph_measured: parseFloat(fertiPH),
+      });
+      if (fertiVolume) localStorage.setItem('cv_last_fertigation_volume', fertiVolume);
+      setFertiPanelOpen(false);
+      setFertiEC('');
+      setFertiPH('');
+      setToast({ message: 'Fertigation logged', type: 'success' });
+      load();
+    } catch (e) {
+      setFertiError(e.message);
+    } finally {
+      setFertiSaving(false);
+    }
+  }
+
+  // Inline fertigation panel — range indicators for EC and pH
+  const fertiEcStatus = (() => {
+    const n = parseFloat(fertiEC);
+    if (isNaN(n) || batch.active_recipe_ec_low == null) return null;
+    return n >= batch.active_recipe_ec_low && n <= batch.active_recipe_ec_high ? 'in' : 'out';
+  })();
+  const fertiPhStatus = (() => {
+    const n = parseFloat(fertiPH);
+    if (isNaN(n) || batch.active_recipe_ph_low == null) return null;
+    return n >= batch.active_recipe_ph_low && n <= batch.active_recipe_ph_high ? 'in' : 'out';
+  })();
 
   // ── METRC phase helpers ─────────────────────────────────────────────────
   const metrcPhase = batch.metrc_phase ?? 'Immature';
@@ -505,16 +550,88 @@ export default function BatchDetail() {
                 <span className="text-green-300 text-lg">→</span>
               </Link>
             )}
-            {/* Fertigation — hidden during harvesting */}
+            {/* Fertigation — inline quick-log panel, hidden during harvesting */}
             {batch.status !== 'harvesting' && (
-              <Link
-                to={`/applications/fertigation/new?batch_id=${batch.batch_id}`}
-                className="flex items-center justify-between w-full bg-green-800 text-white font-semibold rounded-2xl px-5 hover:bg-green-900 transition-colors shadow-sm"
-                style={{ minHeight: '56px', textDecoration: 'none' }}
-              >
-                <span className="flex items-center gap-2"><span className="text-lg">💧</span>Log Fertigation</span>
-                <span className="text-green-300">→</span>
-              </Link>
+              <div className="rounded-2xl overflow-hidden shadow-sm">
+                <button
+                  onClick={() => setFertiPanelOpen(p => !p)}
+                  className="flex items-center justify-between w-full bg-green-800 text-white font-semibold px-5 hover:bg-green-900 transition-colors"
+                  style={{ minHeight: '56px' }}
+                >
+                  <span className="flex items-center gap-2"><span className="text-lg">💧</span>Log Fertigation</span>
+                  <span className="text-green-300 text-sm">{fertiPanelOpen ? '▲' : '▼'}</span>
+                </button>
+                {fertiPanelOpen && (
+                  <div className="bg-green-50 border border-green-200 border-t-0 rounded-b-2xl px-4 pt-3 pb-4">
+                    {batch.active_recipe_id ? (
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Recipe</span>
+                        <span className="bg-green-100 text-green-800 text-sm font-bold px-3 py-1 rounded-full" style={{ fontFamily: 'Fraunces, serif' }}>
+                          {batch.active_recipe_name}
+                          {batch.active_recipe_version && (
+                            <span className="ml-1 text-xs font-normal text-green-600">v{batch.active_recipe_version}</span>
+                          )}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-amber-700 font-medium mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                        ⚠ No recipe assigned — assign one first.
+                      </div>
+                    )}
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">Volume (gal)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 bg-white"
+                          placeholder="50"
+                          value={fertiVolume}
+                          onChange={e => setFertiVolume(e.target.value)}
+                          style={{ minHeight: '44px' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">EC (mS/cm)</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 bg-white ${
+                            fertiEcStatus === 'in' ? 'border-green-400' : fertiEcStatus === 'out' ? 'border-amber-400' : 'border-gray-300'
+                          }`}
+                          placeholder={batch.active_recipe_ec_low != null ? `${batch.active_recipe_ec_low}–${batch.active_recipe_ec_high}` : 'e.g. 0.8'}
+                          value={fertiEC}
+                          onChange={e => setFertiEC(e.target.value)}
+                          style={{ minHeight: '44px' }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">pH</label>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-600 bg-white ${
+                            fertiPhStatus === 'in' ? 'border-green-400' : fertiPhStatus === 'out' ? 'border-amber-400' : 'border-gray-300'
+                          }`}
+                          placeholder={batch.active_recipe_ph_low != null ? `${batch.active_recipe_ph_low}–${batch.active_recipe_ph_high}` : 'e.g. 6.2'}
+                          value={fertiPH}
+                          onChange={e => setFertiPH(e.target.value)}
+                          style={{ minHeight: '44px' }}
+                        />
+                      </div>
+                    </div>
+                    {fertiError && <p className="text-red-600 text-xs mb-2">{fertiError}</p>}
+                    <button
+                      onClick={handleFertigationQuickLog}
+                      disabled={fertiSaving || !fertiVolume || !fertiEC || !fertiPH || !batch.active_recipe_id}
+                      className="w-full py-3.5 bg-green-800 text-white font-semibold rounded-xl hover:bg-green-900 disabled:opacity-50 transition-colors"
+                      style={{ minHeight: '56px' }}
+                    >
+                      {fertiSaving ? 'Saving…' : 'Save Fertigation'}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             <div className="grid grid-cols-2 gap-2">
               <Link
