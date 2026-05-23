@@ -124,6 +124,7 @@ export const api = {
     return req('GET', `/applications/amendments${q ? '?' + q : ''}`);
   },
   createContainerAmendment: (data) => req('POST', '/applications/amendments', data),
+  createContainerAmendmentFromStartup: (containerId, data) => req('POST', `/containers/${encodeURIComponent(containerId)}/amendments`, data),
   updateContainerAmendment: (id, data) => req('PATCH', `/applications/amendments/${id}`, data),
   deleteContainerAmendment: (id) => req('DELETE', `/applications/amendments/${id}`),
 

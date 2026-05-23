@@ -479,6 +479,104 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * POST /:id/amendments — create a container amendment from a guided workflow (e.g. startup).
+   * Accepts explicit container_state and startup_id; auto-populates batch_id from cv_container_state.
+   * If startup_id is provided, increments cv_startup_events.amendments_applied_count.
+   */
+  const ContainerAmendmentSchema = z.object({
+    amendment_type: z.enum(['media_replacement', 'amendment', 'inoculation', 'drench', 'top_dress', 'mix_in', 'correction', 'removal', 'other']),
+    applied_at: z.string().refine(s => !isNaN(Date.parse(s)), { message: 'applied_at must be a valid ISO datetime' }).optional(),
+    container_state: z.enum(['active', 'empty', 'teardown', 'startup']).nullable().optional(),
+    input_id: z.number().int().positive().nullable().optional(),
+    input_lot_id: z.number().int().positive().nullable().optional(),
+    quantity: z.number().nullable().optional(),
+    quantity_unit: z.string().nullable().optional(),
+    application_method: z.enum(['top_dress', 'mix_in', 'drench', 'side_dress', 'replaced', 'removed', 'other']).nullable().optional(),
+    purpose: z.string().nullable().optional(),
+    soil_sample_id: z.number().int().positive().nullable().optional(),
+    startup_id: z.number().int().positive().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  });
+
+  app.post<{ Params: IdParams; Body: z.infer<typeof ContainerAmendmentSchema> }>(
+    '/:id/amendments',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const containerId = request.params.id;
+
+      let body: z.infer<typeof ContainerAmendmentSchema>;
+      try {
+        body = ContainerAmendmentSchema.parse(request.body);
+      } catch (err) {
+        if (err instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: err.issues });
+        throw err;
+      }
+
+      const db = getDB();
+
+      const container = db.prepare('SELECT container_id FROM cv_containers WHERE container_id = ?').get(containerId);
+      if (!container) return reply.code(404).send({ error: `Container "${containerId}" not found` });
+
+      // Auto-populate container_state and batch_id from current DB state
+      const stateRow = db.prepare(
+        'SELECT current_state, current_batch_id FROM cv_container_state WHERE container_id = ?',
+      ).get(containerId) as Record<string, unknown> | undefined;
+
+      const containerStateVal = body.container_state ?? String(stateRow?.current_state ?? 'startup');
+      const batchId = stateRow?.current_batch_id != null ? Number(stateRow.current_batch_id) : null;
+
+      const now = new Date().toISOString();
+      const userId = request.user.id;
+      const appliedAt = body.applied_at ?? now;
+
+      const result = db.prepare(`
+        INSERT INTO cv_container_amendments
+          (container_id, batch_id, container_state, applied_at, amendment_type,
+           application_method, input_id, input_lot_id, quantity, quantity_unit,
+           purpose, soil_sample_id, applicator, notes, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        containerId,
+        batchId,
+        containerStateVal,
+        appliedAt,
+        body.amendment_type,
+        body.application_method ?? null,
+        body.input_id != null ? Number(body.input_id) : null,
+        body.input_lot_id != null ? Number(body.input_lot_id) : null,
+        body.quantity != null ? Number(body.quantity) : null,
+        body.quantity_unit ?? null,
+        body.purpose ? String(body.purpose).trim() : null,
+        body.soil_sample_id != null ? Number(body.soil_sample_id) : null,
+        userId,
+        body.notes ?? null,
+        userId,
+        now,
+      );
+
+      const amendmentId = Number(result.lastInsertRowid);
+
+      // Update amendments_applied_count on the startup event if startup_id provided
+      if (body.startup_id != null) {
+        db.prepare(`
+          UPDATE cv_startup_events
+          SET amendments_applied_count = amendments_applied_count + 1
+          WHERE startup_id = ? AND container_id = ?
+        `).run(body.startup_id, containerId);
+      }
+
+      const amendment = db.prepare(`
+        SELECT a.*, u.name AS applicator_name
+        FROM cv_container_amendments a
+        LEFT JOIN cv_users u ON u.id = a.applicator
+        WHERE a.amendment_id = ?
+      `).get(amendmentId) as Record<string, unknown>;
+
+      return reply.code(201).send(amendment);
+    },
+  );
+
+  /**
    * PATCH /:id/notes — update container and/or state notes. Requires supervisor+.
    */
   app.patch<{ Params: IdParams; Body: z.infer<typeof ContainerNotesSchema> }>(
