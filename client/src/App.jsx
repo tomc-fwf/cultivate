@@ -61,6 +61,7 @@ import PlantingPlanDetail from './pages/planting-plans/PlantingPlanDetail';
 import LocationView from './pages/locations/LocationView';
 import ContainerLabels from './pages/admin/ContainerLabels';
 import AuditMode from './pages/containers/AuditMode';
+import InspectionMode from './pages/containers/InspectionMode';
 import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
@@ -185,6 +186,7 @@ export default function App() {
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/tag-assignments" element={<Protected><TagAssignmentWalkthrough /></Protected>} />
               <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
+              <Route path="/inspect/:rowId" element={<Protected><InspectionMode /></Protected>} />
               <Route path="/audit" element={<Protected minRole="supervisor"><AuditMode /></Protected>} />
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />
               <Route path="/admin/environmental-history" element={<Protected minRole="admin"><EnvironmentalHistory /></Protected>} />

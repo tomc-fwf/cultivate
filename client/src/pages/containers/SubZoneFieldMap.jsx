@@ -267,9 +267,21 @@ export default function SubZoneFieldMap() {
         <div className="space-y-4">
           {rowNumbers.map(rn => {
             const rowContainers = byRow[rn] ?? [];
+            const zone = subZoneId.charAt(1);
+            const desig = subZoneId.charAt(2);
+            const rowId = `Z${zone}-${desig}-R${rn}`;
             return (
               <div key={rn}>
-                <div className="text-xs font-semibold text-gray-500 mb-1.5">Row {rn}</div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-xs font-semibold text-gray-500">Row {rn}</div>
+                  <button
+                    onClick={() => navigate(`/inspect/${rowId}`)}
+                    className="text-xs font-semibold text-teal-700 hover:text-teal-900 px-2.5 py-1 rounded-lg hover:bg-teal-50 transition-colors"
+                    style={{ minHeight: '32px' }}
+                  >
+                    Inspect Row →
+                  </button>
+                </div>
                 <div className="overflow-x-auto pb-2">
                   <div className="flex gap-1.5" style={{ minWidth: 'max-content' }}>
                     {rowContainers.map(c => (

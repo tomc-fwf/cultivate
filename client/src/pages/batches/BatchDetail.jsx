@@ -446,6 +446,32 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {/* ── Inspect Rows — for field-stage batches ─────────────────────── */}
+      {batch.sub_zone_id && ['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting'].includes(batch.status) && (
+        <div className="bg-teal-50 border border-teal-200 rounded-2xl p-5 mb-4">
+          <h2 className="font-semibold text-teal-900 text-sm mb-3">Inspect Rows</h2>
+          <div className="flex flex-wrap gap-2">
+            {[1, 2, 3, 4, 5].map(rn => {
+              const zone = batch.sub_zone_id.charAt(1);
+              const desig = batch.sub_zone_id.charAt(2);
+              const rowId = `Z${zone}-${desig}-R${rn}`;
+              return (
+                <Link
+                  key={rn}
+                  to={`/inspect/${rowId}`}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-teal-300 text-teal-800 font-semibold text-sm rounded-xl hover:bg-teal-100 transition-colors shadow-sm"
+                  style={{ minHeight: '44px', textDecoration: 'none' }}
+                >
+                  <span>Row {rn}</span>
+                  <span className="text-teal-400 text-xs">→</span>
+                </Link>
+              );
+            })}
+          </div>
+          <p className="text-xs text-teal-600 mt-3">Swipe through containers one at a time · log observations, foliar, pesticide, or plant loss from each card</p>
+        </div>
+      )}
+
       {/* ── Quick actions for this batch ──────────────────────────────── */}
       {batch.status !== 'closed' && (
         <div className="mb-4">
