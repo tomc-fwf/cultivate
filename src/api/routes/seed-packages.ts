@@ -12,9 +12,9 @@ const SeedPackageQuerySchema = z.object({
 });
 
 const CreateSeedPackageSchema = z.object({
-  strain_id: z.number().int().positive(),
+  strain_id: z.number().int().positive().nullable().optional(),
   location_id: z.number().int().positive().nullable().optional(),
-  lot_number: z.string().min(1),
+  lot_number: z.string().nullable().optional(),
   package_name: z.string().nullable().optional(),
   metrc_package_id: z.string().nullable().optional(),
   feminized: z.boolean().optional().default(false),
@@ -22,8 +22,8 @@ const CreateSeedPackageSchema = z.object({
   supplier: z.string().nullable().optional(),
   source_detail: z.string().nullable().optional(),
   received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  seed_count_initial: z.number().int().positive(),
-  weight_g_initial: z.number().positive().nullable().optional(),
+  seed_count_initial: z.number().int().positive().nullable().optional(),
+  weight_g_initial: z.number().positive(),
   notes: z.string().nullable().optional(),
 });
 type CreateSeedPackageBody = z.infer<typeof CreateSeedPackageSchema>;
@@ -39,6 +39,7 @@ const UpdateSeedPackageSchema = z.object({
   received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   seed_count_remaining: z.number().int().min(0).optional(),
   weight_g_initial: z.number().positive().nullable().optional(),
+  weight_g_remaining: z.number().min(0).nullable().optional(),
   notes: z.string().nullable().optional(),
   active: z.number().int().min(0).max(1).optional(),
 });
@@ -110,8 +111,10 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
 
     const db = getDB();
 
-    const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(body.strain_id));
-    if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
+    if (body.strain_id != null) {
+      const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(body.strain_id));
+      if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
+    }
 
     if (body.location_id != null) {
       const loc = db.prepare('SELECT * FROM cv_locations WHERE location_id = ?').get(Number(body.location_id));
@@ -125,13 +128,13 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
       INSERT INTO cv_seed_packages
         (strain_id, location_id, lot_number, package_name, metrc_package_id,
          feminized, season_year, supplier, source_detail, received_date,
-         seed_count_initial, seed_count_remaining, weight_g_initial,
+         seed_count_initial, seed_count_remaining, weight_g_initial, weight_g_remaining,
          notes, active, created_at, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
-      Number(body.strain_id),
+      body.strain_id != null ? Number(body.strain_id) : null,
       body.location_id ?? null,
-      body.lot_number.trim(),
+      body.lot_number?.trim() ?? null,
       body.package_name ?? null,
       body.metrc_package_id ?? null,
       body.feminized ? 1 : 0,
@@ -139,9 +142,10 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
       body.supplier ?? null,
       body.source_detail ?? null,
       body.received_date ?? null,
-      Number(body.seed_count_initial),
-      Number(body.seed_count_initial),
-      body.weight_g_initial ?? null,
+      body.seed_count_initial != null ? Number(body.seed_count_initial) : null,
+      body.seed_count_initial != null ? Number(body.seed_count_initial) : null,
+      Number(body.weight_g_initial),
+      Number(body.weight_g_initial),
       body.notes ?? null,
       now, userId,
     );
@@ -183,6 +187,7 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
       if ('received_date' in body)        { updates.push('received_date = ?');        values.push(body.received_date ?? null); }
       if ('seed_count_remaining' in body) { updates.push('seed_count_remaining = ?'); values.push(body.seed_count_remaining); }
       if ('weight_g_initial' in body)     { updates.push('weight_g_initial = ?');     values.push(body.weight_g_initial ?? null); }
+      if ('weight_g_remaining' in body)   { updates.push('weight_g_remaining = ?');   values.push(body.weight_g_remaining ?? null); }
       if ('notes' in body)                { updates.push('notes = ?');                values.push(body.notes ?? null); }
       if ('active' in body)               { updates.push('active = ?');               values.push(body.active); }
 

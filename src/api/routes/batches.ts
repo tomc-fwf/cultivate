@@ -330,12 +330,24 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (!subZone) return reply.code(400).send({ error: `sub_zone_id "${sub_zone_id}" does not exist` });
       }
 
+      let _seedPkgForDeduction: Record<string, unknown> | null = null;
+      let _weightToDeduct: number | null = null;
       if (seed_package_id != null) {
         const pkg = db.prepare('SELECT * FROM cv_seed_packages WHERE package_id = ? AND active = 1').get(Number(seed_package_id)) as Record<string, unknown> | undefined;
         if (!pkg) return reply.code(400).send({ error: 'seed_package_id does not exist or is not active' });
-        if (seed_count_used != null && Number(pkg['seed_count_remaining']) < seed_count_used) {
-          return reply.code(400).send({ error: `Seed package only has ${pkg['seed_count_remaining']} seeds remaining; requested ${seed_count_used}` });
+
+        // Weight to deduct: explicit seed_weight_g takes priority; else derive from count × per-seed weight
+        if (seed_weight_g != null) {
+          _weightToDeduct = seed_weight_g;
+        } else if (seed_count_used != null && pkg['weight_g_initial'] != null && pkg['seed_count_initial'] != null && Number(pkg['seed_count_initial']) > 0) {
+          _weightToDeduct = Number(seed_count_used) * Number(pkg['weight_g_initial']) / Number(pkg['seed_count_initial']);
         }
+
+        if (_weightToDeduct != null && pkg['weight_g_remaining'] != null && Number(pkg['weight_g_remaining']) < _weightToDeduct) {
+          return reply.code(400).send({ error: `Seed package only has ${pkg['weight_g_remaining']}g remaining; requested ${_weightToDeduct.toFixed(2)}g` });
+        }
+
+        _seedPkgForDeduction = pkg;
       }
 
       const now = new Date().toISOString();
@@ -397,13 +409,23 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           VALUES (?, NULL, ?, ?, ?, 'manual', 'not_required', ?)
         `).run(newBatchId, initial_location_id, now, userId, now);
 
-        // Decrement seed package remaining count if seeds were used
-        if (seed_package_id != null && seed_count_used != null) {
-          db.prepare(`
-            UPDATE cv_seed_packages
-            SET seed_count_remaining = seed_count_remaining - ?
-            WHERE package_id = ?
-          `).run(Number(seed_count_used), Number(seed_package_id));
+        // Decrement seed package inventory (weight primary, count secondary)
+        if (seed_package_id != null && _seedPkgForDeduction != null) {
+          const deductParts: string[] = [];
+          const deductVals: unknown[] = [];
+
+          if (seed_count_used != null) {
+            deductParts.push('seed_count_remaining = seed_count_remaining - ?');
+            deductVals.push(Number(seed_count_used));
+          }
+          if (_weightToDeduct != null) {
+            deductParts.push('weight_g_remaining = weight_g_remaining - ?');
+            deductVals.push(_weightToDeduct);
+          }
+          if (deductParts.length > 0) {
+            deductVals.push(Number(seed_package_id));
+            db.prepare(`UPDATE cv_seed_packages SET ${deductParts.join(', ')} WHERE package_id = ?`).run(...deductVals);
+          }
         }
 
         return newBatchId;

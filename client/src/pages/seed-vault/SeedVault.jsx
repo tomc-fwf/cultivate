@@ -19,9 +19,11 @@ function SkeletonCard() {
 }
 
 function PackageCard({ pkg, navigate, onEdit }) {
-  const remaining = pkg.seed_count_remaining ?? 0;
-  const initial = pkg.seed_count_initial ?? 1;
-  const pct = Math.min(100, Math.round((remaining / Math.max(1, initial)) * 100));
+  // Weight-based inventory (primary); fall back to seed count if no weight data
+  const useWeight = pkg.weight_g_initial != null && pkg.weight_g_remaining != null;
+  const remaining = useWeight ? pkg.weight_g_remaining : (pkg.seed_count_remaining ?? 0);
+  const initial = useWeight ? pkg.weight_g_initial : (pkg.seed_count_initial ?? 1);
+  const pct = Math.min(100, Math.round((remaining / Math.max(0.001, initial)) * 100));
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 transition-colors">
@@ -57,18 +59,30 @@ function PackageCard({ pkg, navigate, onEdit }) {
         </div>
       </div>
 
-      {/* Row 2 — seed count progress bar */}
+      {/* Row 2 — inventory progress bar */}
       <div className="mb-3">
         <div className="flex justify-between text-xs text-gray-500 mb-1">
-          <span>{remaining} seeds remaining</span>
-          <span>{initial} initial</span>
+          {useWeight ? (
+            <>
+              <span>{Number(remaining).toFixed(2)}g remaining</span>
+              <span>{Number(initial).toFixed(2)}g initial</span>
+            </>
+          ) : (
+            <>
+              <span>{remaining} seeds remaining</span>
+              <span>{initial} initial</span>
+            </>
+          )}
         </div>
         <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div
-            className="h-full bg-green-500 rounded-full"
+            className={`h-full rounded-full ${pct < 20 ? 'bg-amber-500' : 'bg-green-500'}`}
             style={{ width: `${pct}%` }}
           />
         </div>
+        {useWeight && pkg.seed_count_remaining != null && (
+          <p className="text-[11px] text-gray-400 mt-0.5">{pkg.seed_count_remaining} seeds remaining</p>
+        )}
       </div>
 
       {/* Row 3 — metadata chips */}
@@ -140,16 +154,14 @@ function AddPackageForm({ strains, onSave, onCancel }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!strainId) { setError('Strain is required'); return; }
-    if (!lotNumber.trim()) { setError('Lot number is required'); return; }
-    if (!seedCount || Number(seedCount) <= 0) { setError('Seed count must be a positive number'); return; }
+    if (!weightG || Number(weightG) <= 0) { setError('Total weight in grams is required'); return; }
 
     setSaving(true);
     setError('');
     try {
       const pkg = await api.createSeedPackage({
-        strain_id: Number(strainId),
-        lot_number: lotNumber.trim(),
+        strain_id: strainId ? Number(strainId) : undefined,
+        lot_number: lotNumber.trim() || null,
         package_name: packageName.trim() || null,
         metrc_package_id: metrcPackageId.trim() || null,
         feminized,
@@ -157,8 +169,8 @@ function AddPackageForm({ strains, onSave, onCancel }) {
         supplier: supplier.trim() || null,
         source_detail: sourceDetail.trim() || null,
         received_date: receivedDate || null,
-        seed_count_initial: Number(seedCount),
-        weight_g_initial: weightG ? Number(weightG) : null,
+        seed_count_initial: seedCount ? Number(seedCount) : null,
+        weight_g_initial: Number(weightG),
         notes: notes.trim() || null,
       });
       onSave(pkg);
@@ -196,15 +208,12 @@ function AddPackageForm({ strains, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Strain <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Strain</label>
             <select
               value={strainId}
               onChange={e => setStrainId(e.target.value)}
               className={inputClass}
               style={{ minHeight: '44px' }}
-              required
             >
               <option value="">Select strain…</option>
               {strains.map(s => (
@@ -228,9 +237,7 @@ function AddPackageForm({ strains, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Lot Number <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Lot Number</label>
             <input
               type="text"
               value={lotNumber}
@@ -238,7 +245,6 @@ function AddPackageForm({ strains, onSave, onCancel }) {
               placeholder="Lot number from packaging"
               className={inputClass}
               style={{ minHeight: '44px' }}
-              required
             />
           </div>
 
@@ -292,32 +298,34 @@ function AddPackageForm({ strains, onSave, onCancel }) {
 
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Seed Count <span className="text-red-500">*</span>
+              Total Weight (g) <span className="text-red-500">*</span>
             </label>
-            <input
-              type="number"
-              value={seedCount}
-              onChange={e => setSeedCount(e.target.value)}
-              placeholder="Number of seeds"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-              inputMode="numeric"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Total Weight (g)</label>
             <input
               type="number"
               value={weightG}
               onChange={e => setWeightG(e.target.value)}
-              placeholder="Optional — total weight in grams"
+              placeholder="Total package weight in grams"
               className={inputClass}
               style={{ minHeight: '44px' }}
               inputMode="decimal"
               step="0.01"
+              required
             />
+            <p className="text-[11px] text-gray-400 mt-1">METRC tracks inventory by weight — seeds deducted by grams</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Seed Count (optional)</label>
+            <input
+              type="number"
+              value={seedCount}
+              onChange={e => setSeedCount(e.target.value)}
+              placeholder="Number of seeds (used for per-seed weight)"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              inputMode="numeric"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Enables per-seed weight calculation when starting batches</p>
           </div>
 
           <div>
@@ -386,6 +394,7 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
   const [receivedDate, setReceivedDate] = useState(pkg.received_date || '');
   const [seasonYear, setSeasonYear] = useState(pkg.season_year ? String(pkg.season_year) : '');
   const [weightG, setWeightG] = useState(pkg.weight_g_initial ? String(pkg.weight_g_initial) : '');
+  const [weightGRemaining, setWeightGRemaining] = useState(pkg.weight_g_remaining != null ? String(pkg.weight_g_remaining) : '');
   const [seedCountRemaining, setSeedCountRemaining] = useState(String(pkg.seed_count_remaining ?? ''));
   const [feminized, setFeminized] = useState(Boolean(pkg.feminized));
   const [notes, setNotes] = useState(pkg.notes || '');
@@ -402,12 +411,13 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
       const updated = await api.updateSeedPackage(pkg.package_id, {
         package_name: packageName.trim() || null,
         metrc_package_id: metrcPackageId.trim() || null,
-        lot_number: lotNumber.trim(),
+        lot_number: lotNumber.trim() || null,
         supplier: supplier.trim() || null,
         source_detail: sourceDetail.trim() || null,
         received_date: receivedDate || null,
         season_year: seasonYear ? Number(seasonYear) : null,
         weight_g_initial: weightG ? Number(weightG) : null,
+        weight_g_remaining: weightGRemaining !== '' ? Number(weightGRemaining) : undefined,
         seed_count_remaining: seedCountRemaining !== '' ? Number(seedCountRemaining) : undefined,
         feminized,
         notes: notes.trim() || null,
@@ -462,9 +472,7 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">
-              Lot Number <span className="text-red-500">*</span>
-            </label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Lot Number</label>
             <input
               type="text"
               value={lotNumber}
@@ -472,7 +480,6 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
               placeholder="Lot number from packaging"
               className={inputClass}
               style={{ minHeight: '44px' }}
-              required
             />
           </div>
 
@@ -538,17 +545,31 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Seeds Remaining</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Weight Remaining (g)</label>
+            <input
+              type="number"
+              value={weightGRemaining}
+              onChange={e => setWeightGRemaining(e.target.value)}
+              placeholder="Current weight remaining in grams"
+              className={inputClass}
+              style={{ minHeight: '44px' }}
+              inputMode="decimal"
+              step="0.01"
+            />
+            <p className="text-[11px] text-gray-400 mt-1">Manual correction — use only to fix inventory discrepancies</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Seeds Remaining (optional)</label>
             <input
               type="number"
               value={seedCountRemaining}
               onChange={e => setSeedCountRemaining(e.target.value)}
-              placeholder="Current inventory count"
+              placeholder="Current seed count"
               className={inputClass}
               style={{ minHeight: '44px' }}
               inputMode="numeric"
             />
-            <p className="text-[11px] text-gray-400 mt-1">Manual correction — use only to fix inventory discrepancies</p>
           </div>
 
           <div>
