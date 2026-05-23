@@ -188,6 +188,8 @@ export const api = {
   downloadPlantLossesCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/plant-losses?${q}`); },
   getHarvestRecordsReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/harvest-records${q ? '?' + q : ''}`); },
   downloadHarvestRecordsCsv: (params = {}) => { const q = new URLSearchParams({ ...params, format: 'csv' }).toString(); window.open(`/api/exports/harvest-records?${q}`); },
+  getPhiComplianceReport: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/phi-compliance${q ? '?' + q : ''}`); },
+  getAnnualSummary: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/annual-summary${q ? '?' + q : ''}`); },
 
   // Sensors
   getSensors: () => req('GET', '/sensors'),

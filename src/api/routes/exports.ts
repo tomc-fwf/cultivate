@@ -1928,6 +1928,263 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // Report 10 — PHI Compliance Report
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const PhiComplianceQuerySchema = z.object({
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    batch_id:  z.string().optional(),
+  });
+
+  /**
+   * GET /phi-compliance — PHI compliance status for all pesticide applications.
+   * Default: last 90 days. Optional batch_id filter.
+   * Returns per-application phi_risk_flag + summary counts.
+   */
+  app.get('/phi-compliance', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = PhiComplianceQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { date_from, batch_id } = parsed.data;
+
+    // Default date_from = 90 days ago
+    const effectiveDateFrom = date_from ?? (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 90);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    const db = getDB();
+
+    const clauses: string[] = [`date(ap.applied_at) >= date(?)`];
+    const params: unknown[] = [effectiveDateFrom];
+    if (batch_id) {
+      clauses.push(`ap.batch_id = ?`);
+      params.push(Number(batch_id));
+    }
+    const where = `WHERE ${clauses.join(' AND ')}`;
+
+    const rows = db.prepare(`
+      SELECT ap.pesticide_app_id, ap.batch_id, ap.applied_at, ap.input_id,
+             ap.product_name_snapshot, ap.epa_reg_no_snapshot,
+             ap.phi_compliant, ap.expected_harvest_date, ap.notes,
+             ap.rei_expires_at, ap.rei_cleared_at,
+             b.status AS batch_status, b.metrc_plant_batch_uid, b.sow_date,
+             s.name AS strain_name, s.type AS strain_type
+      FROM cv_applications_pesticide ap
+      JOIN cv_batches b ON b.batch_id = ap.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      ${where}
+      ORDER BY ap.applied_at DESC
+      LIMIT 500
+    `).all(...params) as Array<Record<string, unknown>>;
+
+    const nowDay = new Date().toISOString().slice(0, 10);
+
+    const applications = rows.map(r => {
+      const batchStatus = String(r['batch_status'] ?? '');
+      const phiCompliant = r['phi_compliant'];
+      const expectedHarvestDate = r['expected_harvest_date'] as string | null;
+
+      // phi_risk_flag: batch is approaching harvest AND phi is not compliant or harvest window < 14 days
+      const approachingHarvest = ['flush', 'harvest_window', 'harvesting'].includes(batchStatus);
+      const phiNonCompliant = phiCompliant === 0 || phiCompliant === false;
+      const harvestWithin14Days = expectedHarvestDate != null
+        ? (new Date(expectedHarvestDate).getTime() - new Date(nowDay).getTime()) / 86400000 < 14
+        : false;
+      const phi_risk_flag = approachingHarvest && (phiNonCompliant || harvestWithin14Days);
+
+      const sowDate = r['sow_date'] as string | null;
+      const batchName = sowDate
+        ? makeBatchName(String(r['strain_name'] ?? ''), sowDate, String(r['strain_type'] ?? ''))
+        : (r['metrc_plant_batch_uid'] ? String(r['metrc_plant_batch_uid']) : `Batch #${r['batch_id']}`);
+
+      return {
+        pesticide_app_id:      r['pesticide_app_id'],
+        batch_id:              r['batch_id'],
+        batch_name:            batchName,
+        batch_status:          batchStatus,
+        applied_at:            r['applied_at'],
+        product_name:          r['product_name_snapshot'] ?? (r['input_id'] != null ? `Input #${r['input_id']}` : 'Unknown product'),
+        epa_reg_no:            r['epa_reg_no_snapshot'] ?? null,
+        phi_compliant:         phiCompliant,
+        expected_harvest_date: expectedHarvestDate,
+        rei_expires_at:        r['rei_expires_at'] ?? null,
+        rei_cleared_at:        r['rei_cleared_at'] ?? null,
+        notes:                 r['notes'] ?? null,
+        phi_risk_flag,
+      };
+    });
+
+    const phiViolations = applications.filter(a => a.phi_compliant === 0 || a.phi_compliant === false).length;
+    const riskBatches = new Set(applications.filter(a => a.phi_risk_flag).map(a => a.batch_id));
+
+    return reply.send({
+      generated_at:   new Date().toISOString(),
+      date_from:      effectiveDateFrom,
+      batch_id_filter: batch_id ? Number(batch_id) : null,
+      summary: {
+        total_applications: applications.length,
+        phi_violations:     phiViolations,
+        phi_risk_batches:   riskBatches.size,
+      },
+      applications,
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Report 11 — Annual Batch Summary
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const AnnualSummaryQuerySchema = z.object({
+    year: z.string().regex(/^\d{4}$/).optional(),
+  });
+
+  /** Normalize wet_weight to grams given a weight_unit string. */
+  function toGrams(weight: number, unit: string): number {
+    switch (unit.toLowerCase()) {
+      case 'oz':  return weight * 28.3495;
+      case 'lb':  return weight * 453.592;
+      default:    return weight; // already grams
+    }
+  }
+
+  /**
+   * GET /annual-summary — year-to-date operational summary.
+   * Default year = current year. Aggregates batches, plants, yield, compliance metrics.
+   */
+  app.get('/annual-summary', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = AnnualSummaryQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const year = parsed.data.year ?? String(new Date().getFullYear());
+
+    const db = getDB();
+
+    // Batches started in year
+    const batchRows = db.prepare(`
+      SELECT b.batch_id, b.plant_count_initial, s.type AS strain_type
+      FROM cv_batches b
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      WHERE strftime('%Y', b.sow_date) = ?
+    `).all(year) as Array<Record<string, unknown>>;
+
+    const batchIds = batchRows.map(b => Number(b['batch_id']));
+    const totalBatches = batchRows.length;
+    const autoCount  = batchRows.filter(b => b['strain_type'] === 'auto').length;
+    const photoCount = batchRows.filter(b => b['strain_type'] === 'photo').length;
+    const totalPlantsPlaced = batchRows.reduce((sum, b) => sum + Number(b['plant_count_initial'] ?? 0), 0);
+
+    // Plant losses for these batches
+    let totalPlantsLost = 0;
+    if (batchIds.length > 0) {
+      const lossRow = db.prepare(`
+        SELECT COUNT(*) AS cnt
+        FROM cv_plant_loss_events
+        WHERE batch_id IN (${batchIds.map(() => '?').join(',')})
+      `).get(...batchIds) as Record<string, unknown>;
+      totalPlantsLost = Number(lossRow['cnt'] ?? 0);
+    }
+
+    // Harvest events (final only) for these batches
+    let totalPlantsHarvested = 0;
+    if (batchIds.length > 0) {
+      const harvestCountRow = db.prepare(`
+        SELECT COUNT(*) AS cnt
+        FROM cv_plant_harvest_events
+        WHERE batch_id IN (${batchIds.map(() => '?').join(',')})
+          AND event_type = 'final_harvest'
+      `).get(...batchIds) as Record<string, unknown>;
+      totalPlantsHarvested = Number(harvestCountRow['cnt'] ?? 0);
+    }
+
+    // Wet weight by product type for these batches
+    type WeightRow = { product_type: string; wet_weight: number; weight_unit: string };
+    let harvestWeightRows: WeightRow[] = [];
+    if (batchIds.length > 0) {
+      harvestWeightRows = db.prepare(`
+        SELECT product_type, wet_weight, weight_unit
+        FROM cv_plant_harvest_events
+        WHERE batch_id IN (${batchIds.map(() => '?').join(',')})
+      `).all(...batchIds) as WeightRow[];
+    }
+
+    const byProductType: Record<string, number> = { flower: 0, larf: 0, popcorn: 0, trim_product: 0, other: 0 };
+    let totalWetWeightG = 0;
+    for (const r of harvestWeightRows) {
+      const g = toGrams(Number(r.wet_weight ?? 0), r.weight_unit ?? 'g');
+      totalWetWeightG += g;
+      const key = r.product_type in byProductType ? r.product_type : 'other';
+      byProductType[key] = (byProductType[key] ?? 0) + g;
+    }
+
+    // Waste trim weight for these batches
+    type WasteRow = { wet_weight: number; weight_unit: string };
+    let wasteRows: WasteRow[] = [];
+    if (batchIds.length > 0) {
+      wasteRows = db.prepare(`
+        SELECT wet_weight, weight_unit
+        FROM cv_plant_waste_trim_events
+        WHERE batch_id IN (${batchIds.map(() => '?').join(',')})
+      `).all(...batchIds) as WasteRow[];
+    }
+    const totalWasteTrimG = wasteRows.reduce((sum, r) => sum + toGrams(Number(r.wet_weight ?? 0), r.weight_unit ?? 'g'), 0);
+
+    // Pesticide applications for these batches
+    let totalPesticideApps = 0;
+    let phiViolations = 0;
+    if (batchIds.length > 0) {
+      const pestRow = db.prepare(`
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN phi_compliant = 0 THEN 1 ELSE 0 END) AS violations
+        FROM cv_applications_pesticide
+        WHERE batch_id IN (${batchIds.map(() => '?').join(',')})
+      `).get(...batchIds) as Record<string, unknown>;
+      totalPesticideApps = Number(pestRow['total'] ?? 0);
+      phiViolations = Number(pestRow['violations'] ?? 0);
+    }
+
+    // METRC pending counts across all tracked tables
+    const metrcPending = {
+      phase_history:    (getSyncCounts(db, 'cv_batch_phase_history',      'transitioned_at').counts['pending'] ?? 0),
+      location_history: (getSyncCounts(db, 'cv_batch_location_history',   'moved_at').counts['pending'] ?? 0),
+      harvest_events:   (getSyncCounts(db, 'cv_plant_harvest_events',     'harvested_at').counts['pending'] ?? 0),
+      waste_trim:       (getSyncCounts(db, 'cv_plant_waste_trim_events',  'trimmed_at').counts['pending'] ?? 0),
+      plant_loss:       (getSyncCounts(db, 'cv_plant_loss_events',        'occurred_at').counts['pending'] ?? 0),
+    };
+    const metrcPendingTotal = Object.values(metrcPending).reduce((a, b) => a + b, 0);
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      year,
+      batches: {
+        total:              totalBatches,
+        by_strain_type:     { auto: autoCount, photo: photoCount },
+      },
+      plants: {
+        total_placed:       totalPlantsPlaced,
+        total_lost:         totalPlantsLost,
+        total_harvested:    totalPlantsHarvested,
+      },
+      yield: {
+        total_wet_weight_g:      Math.round(totalWetWeightG * 10) / 10,
+        by_product_type_g:       Object.fromEntries(
+          Object.entries(byProductType).map(([k, v]) => [k, Math.round(v * 10) / 10]),
+        ),
+        total_waste_trim_g:      Math.round(totalWasteTrimG * 10) / 10,
+      },
+      compliance: {
+        total_pesticide_applications: totalPesticideApps,
+        phi_violations:               phiViolations,
+        metrc_pending:                metrcPendingTotal,
+        metrc_pending_by_type:        metrcPending,
+      },
+    });
+  });
+
 };
 
 export default exportsRoutes;

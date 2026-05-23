@@ -346,6 +346,30 @@ export default function ApplicationsHub() {
           </div>
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
+        <button
+          onClick={() => navigate('/exports/phi-compliance')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">⚗️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">PHI Compliance Report</div>
+            <div className="text-xs text-gray-500">Pre-harvest interval status · MDA inspection readiness · risk flags</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/annual-summary')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">📅</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Annual Batch Summary</div>
+            <div className="text-xs text-gray-500">Batches · plants · yield · compliance stats · OCM annual review</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
       </div>
 
       {/* ── Analytics ─────────────────────────────────────────────────── */}
