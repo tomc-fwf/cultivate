@@ -1013,7 +1013,7 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
              wt.trimmed_at AS event_date, wt.wet_weight, wt.weight_unit,
              wt.trim_reason AS reason, wt.waste_status, wt.disposed_at,
              wt.disposition, wt.metrc_sync_status,
-             wt.metrc_plant_tag AS metrc_tag,
+             pa.metrc_plant_tag AS metrc_tag,
              b.metrc_plant_batch_uid, b.batch_id,
              s.name AS strain_name,
              pa.metrc_plant_tag AS assignment_tag,
