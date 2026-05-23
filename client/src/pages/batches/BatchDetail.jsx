@@ -674,6 +674,20 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {/* ── EC/pH Trends — shown for field-stage batches with fertigation data ── */}
+      {batch.sub_zone_id && ['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting'].includes(batch.status) && (
+        <div className="mb-4">
+          <Link
+            to={`/analytics/batch/${batch.batch_id}/trends`}
+            className="flex items-center justify-between w-full bg-blue-50 border border-blue-200 text-blue-900 font-semibold rounded-2xl px-5 hover:bg-blue-100 transition-colors"
+            style={{ minHeight: '56px', textDecoration: 'none' }}
+          >
+            <span className="flex items-center gap-2 text-sm"><span>📈</span>EC / pH Trends</span>
+            <span className="text-blue-400">→</span>
+          </Link>
+        </div>
+      )}
+
       {/* ── Phase & Location History ─────────────────────────────────────── */}
       <BatchHistory batch={batch} />
 

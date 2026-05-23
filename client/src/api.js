@@ -199,6 +199,7 @@ export const api = {
   getAnnualTracker: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/annual-tracker${q ? '?' + q : ''}`); },
   getRecipePerformance: () => req('GET', '/analytics/recipe-performance'),
   getCrossBatchCompare: (batchIds) => req('GET', `/analytics/compare?batch_ids=${batchIds.join(',')}`),
+  getEcPhTrends: (batchId) => req('GET', `/analytics/batch/${batchId}/ec-ph`),
 
   // Skills (UEM skill schema proof-of-concept)
   listSkills: () => req('GET', '/skills'),

@@ -71,6 +71,7 @@ import PesticideSummary from './pages/analytics/PesticideSummary';
 import AnnualTracker from './pages/analytics/AnnualTracker';
 import RecipePerformance from './pages/analytics/RecipePerformance';
 import CrossBatchCompare from './pages/analytics/CrossBatchCompare';
+import EcPhTrends from './pages/analytics/EcPhTrends';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -202,6 +203,7 @@ export default function App() {
               <Route path="/analytics/annual" element={<Protected><AnnualTracker /></Protected>} />
               <Route path="/analytics/recipe-performance" element={<Protected><RecipePerformance /></Protected>} />
               <Route path="/analytics/compare" element={<Protected><CrossBatchCompare /></Protected>} />
+              <Route path="/analytics/batch/:batchId/trends" element={<Protected><EcPhTrends /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

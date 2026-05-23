@@ -417,6 +417,55 @@ const analyticsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(result);
   });
 
+  /**
+   * GET /batch/:batchId/ec-ph — EC and pH time-series for a batch.
+   *
+   * Returns one row per fertigation application ordered by applied_at ASC,
+   * including the recipe's target ranges for the chart's reference band.
+   */
+  app.get('/batch/:batchId/ec-ph', { preHandler: requireAuth }, async (request, reply) => {
+    const { batchId } = request.params as { batchId: string };
+    const id = parseInt(batchId, 10);
+    if (!Number.isInteger(id) || id <= 0) {
+      return reply.status(400).send({ error: 'Invalid batch ID' });
+    }
+
+    const db = getDB();
+
+    const rows = db.prepare(`
+      SELECT
+        fa.applied_at,
+        fa.ec_measured,
+        fa.ph_measured,
+        fa.volume_gallons,
+        fr.ec_target_low,
+        fr.ec_target_high,
+        fr.ph_target_low,
+        fr.ph_target_high,
+        fr.name    AS recipe_name,
+        fr.version AS recipe_version
+      FROM cv_applications_fertigation fa
+      LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = fa.recipe_id
+      WHERE fa.batch_id = ?
+      ORDER BY fa.applied_at ASC
+    `).all(id) as Array<Record<string, unknown>>;
+
+    const result = rows.map(row => ({
+      applied_at:      row['applied_at'],
+      ec_measured:     row['ec_measured'] != null ? Number(row['ec_measured']) : null,
+      ph_measured:     row['ph_measured'] != null ? Number(row['ph_measured']) : null,
+      volume_gallons:  row['volume_gallons'] != null ? Number(row['volume_gallons']) : null,
+      ec_target_low:   row['ec_target_low']  != null ? Number(row['ec_target_low'])  : null,
+      ec_target_high:  row['ec_target_high'] != null ? Number(row['ec_target_high']) : null,
+      ph_target_low:   row['ph_target_low']  != null ? Number(row['ph_target_low'])  : null,
+      ph_target_high:  row['ph_target_high'] != null ? Number(row['ph_target_high']) : null,
+      recipe_name:     row['recipe_name']    ?? null,
+      recipe_version:  row['recipe_version'] ?? null,
+    }));
+
+    return reply.send(result);
+  });
+
 };
 
 export default analyticsRoutes;
