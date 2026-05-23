@@ -376,10 +376,10 @@ export default function ContainerDetail() {
     <div className="max-w-2xl mx-auto px-4 py-6 pb-28">
       {/* Back button */}
       <button
-        onClick={() => navigate('/containers')}
+        onClick={() => navigate(-1)}
         className="text-sm text-green-700 font-medium mb-4 flex items-center gap-1 hover:text-green-900"
       >
-        ← Containers
+        ← Back
       </button>
 
       {/* Header */}
