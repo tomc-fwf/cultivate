@@ -4,11 +4,9 @@ import { api } from '../../api';
 
 const DRAFT_KEY = 'cv_draft_batch_new';
 
-const PHASE_OPTIONS = [
-  { value: 'immature', label: 'Immature', desc: 'Seed or clone, no plant tags', status: 'germ' },
-  { value: 'veg',      label: 'Veg',      desc: 'Tagged vegetative plants',      status: 'field-veg' },
-  { value: 'flower',   label: 'Flower',   desc: 'Tagged flowering plants',       status: 'field-flower' },
-];
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }, [onDone]);
@@ -22,50 +20,28 @@ function Toast({ message, type = 'success', onDone }) {
   );
 }
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function formatMetrcDate(iso) {
-  const [y, m, d] = iso.split('-');
-  return `${m}/${d}/${y}`;
-}
-
-function flattenLocations(tree) {
-  const result = [];
-  for (const category of ['indoor', 'hoop_house', 'outdoor']) {
-    const locs = tree[category] ?? [];
-    for (const loc of locs) {
-      result.push(loc);
-      for (const sub of loc.sub_locations ?? []) result.push(sub);
-    }
-  }
-  return result;
-}
-
 export default function BatchNew() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const presetLocationId = searchParams.get('location_id');
   const presetSeedPackageId = searchParams.get('seed_package_id');
 
-  const [phase, setPhase] = useState('immature');
-  const [sourceType, setSourceType] = useState('seed');
+  // Plant type — seed or clone
+  const [plantType, setPlantType] = useState('seed');
 
+  // Seed package
   const [seedPackages, setSeedPackages] = useState([]);
   const [seedPackagesLoading, setSeedPackagesLoading] = useState(false);
   const [selectedPackageId, setSelectedPackageId] = useState(presetSeedPackageId ?? '');
-  const [seedCountUsed, setSeedCountUsed] = useState('');
-  const [seedWeightGManual, setSeedWeightGManual] = useState('');
 
+  // Core fields
+  const [quantityG, setQuantityG] = useState('');
+  const [batchName, setBatchName] = useState('');
   const [plantCount, setPlantCount] = useState('');
   const [plantsPerContainer, setPlantsPerContainer] = useState('1');
-  const [startDate, setStartDate] = useState(todayISO());
-  const [expectedHarvestDate, setExpectedHarvestDate] = useState('');
+  const [plantingDate, setPlantingDate] = useState(todayISO());
+  const [unpackageDate, setUnpackageDate] = useState(todayISO());
   const [metrcUid, setMetrcUid] = useState('');
   const [notes, setNotes] = useState('');
-
-  const [presetLocationName, setPresetLocationName] = useState(null);
 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -73,60 +49,47 @@ export default function BatchNew() {
   const [toast, setToast] = useState(null);
   const autoSaveTimer = useRef(null);
 
-  // Load all active seed packages on mount
+  // Load seed packages
   useEffect(() => {
-    if (phase !== 'immature' || sourceType !== 'seed') return;
+    if (plantType !== 'seed') return;
     setSeedPackagesLoading(true);
     api.getSeedPackages({ active: '1' })
       .then(data => {
         setSeedPackages(data);
-        setSeedPackagesLoading(false);
         if (presetSeedPackageId && data.some(p => String(p.package_id) === presetSeedPackageId)) {
           setSelectedPackageId(presetSeedPackageId);
         }
       })
-      .catch(() => setSeedPackagesLoading(false));
-  }, [phase, sourceType]);
+      .finally(() => setSeedPackagesLoading(false));
+  }, [plantType]);
 
   // Restore draft
   useEffect(() => {
     try {
       const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
       if (draft) {
-        if (draft.phase) setPhase(draft.phase);
-        if (draft.sourceType) setSourceType(draft.sourceType);
+        if (draft.plantType) setPlantType(draft.plantType);
         if (draft.plantCount) setPlantCount(draft.plantCount);
         if (draft.plantsPerContainer) setPlantsPerContainer(draft.plantsPerContainer);
-        if (draft.startDate) setStartDate(draft.startDate);
-        if (draft.expectedHarvestDate) setExpectedHarvestDate(draft.expectedHarvestDate);
+        if (draft.plantingDate) setPlantingDate(draft.plantingDate);
+        if (draft.unpackageDate) setUnpackageDate(draft.unpackageDate);
+        if (draft.batchName) setBatchName(draft.batchName);
+        if (draft.quantityG) setQuantityG(draft.quantityG);
         if (draft.notes) setNotes(draft.notes);
-        if (draft.seedCountUsed) setSeedCountUsed(draft.seedCountUsed);
         if (!presetSeedPackageId && draft.selectedPackageId) setSelectedPackageId(draft.selectedPackageId);
       }
     } catch { /* ignore */ }
   }, []);
 
-  // Resolve preset location name
-  useEffect(() => {
-    if (!presetLocationId) return;
-    api.getLocationsTree()
-      .then(d => {
-        const loc = flattenLocations(d.tree).find(l => String(l.location_id) === presetLocationId);
-        if (loc) setPresetLocationName(loc.name);
-      })
-      .catch(() => {});
-  }, [presetLocationId]);
-
   const saveDraft = useCallback(() => {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        phase, sourceType, plantCount, plantsPerContainer, startDate,
-        expectedHarvestDate, notes, selectedPackageId, seedCountUsed,
-        savedAt: Date.now(),
+        plantType, plantCount, plantsPerContainer, plantingDate, unpackageDate,
+        batchName, quantityG, notes, selectedPackageId, savedAt: Date.now(),
       }));
     } catch { /* ignore */ }
-  }, [phase, sourceType, plantCount, plantsPerContainer, startDate,
-      expectedHarvestDate, notes, selectedPackageId, seedCountUsed]);
+  }, [plantType, plantCount, plantsPerContainer, plantingDate, unpackageDate,
+      batchName, quantityG, notes, selectedPackageId]);
 
   useEffect(() => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -136,32 +99,31 @@ export default function BatchNew() {
 
   // Derived from selected package
   const selectedPackage = seedPackages.find(p => String(p.package_id) === selectedPackageId) ?? null;
+
+  // Auto-calculate quantity if package has per-seed weight and plant count is filled
   const perSeedWeight = selectedPackage?.seed_count_initial > 0 && selectedPackage?.weight_g_initial != null
     ? selectedPackage.weight_g_initial / selectedPackage.seed_count_initial
     : null;
-  const canAutoCalcWeight = perSeedWeight != null;
-  const calculatedWeightG = canAutoCalcWeight && seedCountUsed && Number(seedCountUsed) > 0
-    ? Number((Number(seedCountUsed) * perSeedWeight).toFixed(3))
+  const autoQuantity = perSeedWeight != null && plantCount && Number(plantCount) > 0
+    ? Number((Number(plantCount) * perSeedWeight).toFixed(3))
     : null;
-  const effectiveWeightG = calculatedWeightG ?? (seedWeightGManual ? Number(seedWeightGManual) : null);
-  const weightAfter = selectedPackage?.weight_g_remaining != null && effectiveWeightG != null
-    ? Math.max(0, selectedPackage.weight_g_remaining - effectiveWeightG)
+  const effectiveQuantityG = quantityG ? Number(quantityG) : (autoQuantity ?? null);
+  const weightAfter = selectedPackage?.weight_g_remaining != null && effectiveQuantityG != null
+    ? Math.max(0, Number(selectedPackage.weight_g_remaining) - effectiveQuantityG)
     : null;
-  const weightExceeded = selectedPackage?.weight_g_remaining != null && effectiveWeightG != null
-    && effectiveWeightG > selectedPackage.weight_g_remaining;
-
-  // METRC batch name derived from package
-  const metrcBatchName = selectedPackage && startDate
-    ? `${selectedPackage.strain_name} | ${formatMetrcDate(startDate)} | ${selectedPackage.strain_type === 'auto' ? 'Auto' : 'Photo'}`
-    : null;
+  const weightExceeded = selectedPackage?.weight_g_remaining != null && effectiveQuantityG != null
+    && effectiveQuantityG > Number(selectedPackage.weight_g_remaining);
 
   function validate() {
     const errors = {};
-    // seed package is optional — batch can be created without inventory tracking
+    if (plantType === 'seed' && !selectedPackageId)
+      errors.package = 'Select a seed package';
     if (!plantCount || isNaN(Number(plantCount)) || Number(plantCount) <= 0)
-      errors.plantCount = 'Plant count must be a positive number';
-    if (!startDate) errors.startDate = 'Start date is required';
-    if (weightExceeded) errors.weight = 'Deduction exceeds available weight';
+      errors.plantCount = 'Plant count is required';
+    if (!plantingDate)
+      errors.plantingDate = 'Planting date is required';
+    if (weightExceeded)
+      errors.quantity = 'Quantity exceeds available weight in package';
     if (metrcUid && (metrcUid.length !== 24 || !/^[A-Za-z0-9]+$/.test(metrcUid)))
       errors.metrcUid = 'METRC UID must be exactly 24 alphanumeric characters';
     return errors;
@@ -173,26 +135,23 @@ export default function BatchNew() {
     setSaving(true);
     setErr('');
     try {
-      const initialStatus = PHASE_OPTIONS.find(p => p.value === phase)?.status ?? 'germ';
       const batch = await api.createBatch({
+        name: batchName.trim() || null,
         strain_id: selectedPackage?.strain_id ?? null,
         plant_count_initial: Number(plantCount),
         plants_per_container: Number(plantsPerContainer),
-        sow_date: startDate,
-        expected_harvest_date: (phase !== 'immature' && expectedHarvestDate) ? expectedHarvestDate : null,
+        sow_date: plantingDate,
+        package_open_date: plantType === 'seed' ? (unpackageDate || null) : null,
+        source_type: plantType,
+        seed_package_id: plantType === 'seed' && selectedPackageId ? Number(selectedPackageId) : null,
+        seed_weight_g: plantType === 'seed' ? (effectiveQuantityG ?? null) : null,
         metrc_plant_batch_uid: metrcUid.trim() || null,
-        sub_zone_id: null,
+        initial_phase: 'immature',
+        initial_status: 'germ',
         notes: notes || null,
-        source_type: phase === 'immature' ? sourceType : null,
-        seed_package_id: (phase === 'immature' && sourceType === 'seed' && selectedPackageId)
-          ? Number(selectedPackageId) : null,
-        seed_count_used: seedCountUsed ? Number(seedCountUsed) : null,
-        seed_weight_g: effectiveWeightG,
-        initial_phase: phase,
-        initial_status: initialStatus,
       });
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
-      setToast({ message: 'Plant group created ✓', type: 'success' });
+      setToast({ message: 'Plant batch created', type: 'success' });
       setTimeout(() => navigate(`/batches/${batch.batch_id}`), 1200);
     } catch (e) {
       setErr(e.message);
@@ -203,7 +162,7 @@ export default function BatchNew() {
   const inputClass = 'w-full border border-gray-200 rounded-xl px-4 py-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-600';
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6 pb-32">
+    <div className="max-w-lg mx-auto px-4 py-6 pb-36">
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
 
       <button
@@ -213,107 +172,64 @@ export default function BatchNew() {
         ← Back
       </button>
 
-      <h1 className="text-2xl font-bold text-gray-900 mb-1" style={{ fontFamily: 'Fraunces, serif' }}>
-        New Plant Group
+      <h1 className="text-2xl font-bold text-gray-900 mb-6" style={{ fontFamily: 'Fraunces, serif' }}>
+        New Plant Batch
       </h1>
-      <p className="text-sm text-gray-500 mb-6">
-        {{
-          immature: 'Immature plants — tracked as a group, no individual METRC tags yet.',
-          veg:      'Vegetative — plants have individual METRC plant tags.',
-          flower:   'Flowering — plants have individual METRC plant tags.',
-        }[phase]}
-      </p>
-
-      {presetLocationName && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-6">
-          <div className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">Starting From</div>
-          <div className="text-sm font-semibold text-green-900">{presetLocationName}</div>
-        </div>
-      )}
 
       {err && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{err}</div>
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-5 text-sm">{err}</div>
       )}
 
-      {/* Growth Phase */}
+      {/* ── Plant Type ───────────────────────────────────────────── */}
       <div className="mb-5">
-        <label className="block text-sm font-semibold text-gray-800 mb-2">
-          Growth Phase <span className="text-red-500">*</span>
-        </label>
+        <label className="block text-sm font-semibold text-gray-800 mb-2">Plant Type</label>
         <div className="flex gap-2">
-          {PHASE_OPTIONS.map(opt => (
+          {[
+            { value: 'seed',  label: '🌱 Seed' },
+            { value: 'clone', label: '✂️ Clone' },
+          ].map(opt => (
             <button
               key={opt.value}
               type="button"
-              onClick={() => { setPhase(opt.value); setSelectedPackageId(''); setSeedCountUsed(''); }}
-              className={`flex-1 rounded-xl border-2 px-2 py-2 text-sm font-semibold transition-colors text-center ${
-                phase === opt.value
+              onClick={() => { setPlantType(opt.value); setSelectedPackageId(''); setFieldErrors({}); }}
+              className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                plantType === opt.value
                   ? 'bg-green-800 text-white border-green-800'
                   : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
               }`}
               style={{ minHeight: '56px' }}
             >
-              <div>{opt.label}</div>
-              <div className={`text-xs font-normal mt-0.5 ${phase === opt.value ? 'text-green-200' : 'text-gray-400'}`}>
-                {opt.desc}
-              </div>
+              {opt.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Source Type — immature only */}
-      {phase === 'immature' && (
-        <div className="mb-5">
-          <label className="block text-sm font-semibold text-gray-800 mb-2">Source</label>
-          <div className="flex gap-2">
-            {[
-              { value: 'seed',  label: '🌱 Seed' },
-              { value: 'clone', label: '✂️ Clone' },
-            ].map(opt => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => { setSourceType(opt.value); setSelectedPackageId(''); setSeedCountUsed(''); }}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-colors ${
-                  sourceType === opt.value
-                    ? 'bg-green-800 text-white border-green-800'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
-                }`}
-                style={{ minHeight: '56px' }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Seed Package — immature + seed only */}
-      {phase === 'immature' && sourceType === 'seed' && (
+      {/* ── Source Package (seed only) ────────────────────────────── */}
+      {plantType === 'seed' && (
         <div className="mb-5">
           <div className="flex items-baseline justify-between mb-1.5">
             <label className="text-sm font-semibold text-gray-800">
-              Seed Package <span className="text-red-500">*</span>
+              Source Package <span className="text-red-500">*</span>
             </label>
             <button
-              onClick={() => navigate('/seed-vault')}
+              onClick={() => navigate('/seed-vault?add=1')}
               className="text-xs text-green-700 underline hover:text-green-900"
             >
-              Manage Seed Vault →
+              + Add package
             </button>
           </div>
 
           {seedPackagesLoading ? (
-            <div className="text-sm text-gray-400 italic px-1">Loading packages…</div>
+            <div className="text-sm text-gray-400 italic px-1">Loading…</div>
           ) : seedPackages.length === 0 ? (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-              <p className="text-sm text-amber-800 mb-2">No active seed packages on file.</p>
+              <p className="text-sm text-amber-800 mb-2">No seed packages on file.</p>
               <button
                 onClick={() => navigate('/seed-vault?add=1')}
-                className="text-sm font-semibold text-amber-700 underline hover:text-amber-900"
+                className="text-sm font-semibold text-amber-700 underline"
               >
-                Add a package in the Seed Vault →
+                Add one in Seed Vault →
               </button>
             </div>
           ) : (
@@ -327,28 +243,20 @@ export default function BatchNew() {
                   <button
                     key={p.package_id}
                     type="button"
-                    onClick={() => {
-                      setSelectedPackageId(String(p.package_id));
-                      setSeedCountUsed('');
-                      setSeedWeightGManual('');
-                      setFieldErrors(fe => ({ ...fe, package: undefined }));
-                    }}
+                    onClick={() => { setSelectedPackageId(String(p.package_id)); setQuantityG(''); setFieldErrors(fe => ({ ...fe, package: undefined })); }}
                     className={`w-full text-left rounded-xl border-2 px-4 py-3 transition-colors ${
-                      isSelected
-                        ? 'border-green-700 bg-green-50'
-                        : 'border-gray-200 bg-white hover:border-green-300'
+                      isSelected ? 'border-green-700 bg-green-50' : 'border-gray-200 bg-white hover:border-green-300'
                     }`}
                     style={{ minHeight: '56px' }}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-1.5">
-                      <div>
-                        <span className="text-sm font-semibold text-gray-900">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <div className="min-w-0">
+                        <span className="text-sm font-semibold text-gray-900 truncate block">
                           {p.package_name || p.lot_number || `Package #${p.package_id}`}
                         </span>
-                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                          p.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-                        }`}>
-                          {p.strain_name} · {p.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
+                        <span className="text-xs text-gray-500">
+                          {p.strain_name} · {p.strain_type === 'auto' ? 'Auto' : 'Photo'}
+                          {p.feminized ? ' · ♀ Fem' : ''}
                         </span>
                       </div>
                       {isSelected && (
@@ -365,13 +273,13 @@ export default function BatchNew() {
                         </div>
                       </div>
                       <span className="text-xs text-gray-500 whitespace-nowrap">
-                        {p.weight_g_remaining != null
-                          ? `${Number(p.weight_g_remaining).toFixed(2)}g remaining`
-                          : `${p.seed_count_remaining ?? '?'} seeds`}
+                        {p.weight_g_remaining != null ? `${Number(p.weight_g_remaining).toFixed(2)}g` : '?g'} remaining
                       </span>
                     </div>
-                    {p.feminized && (
-                      <span className="text-[10px] font-semibold text-pink-600 mt-0.5 block">♀ Feminized</span>
+                    {p.metrc_package_id && (
+                      <p className="text-[10px] font-mono text-gray-400 mt-1 truncate">
+                        {p.metrc_package_id}
+                      </p>
                     )}
                   </button>
                 );
@@ -380,216 +288,177 @@ export default function BatchNew() {
           )}
           {fieldErrors.package && <p className="text-red-500 text-xs mt-1">{fieldErrors.package}</p>}
 
-          {/* Seeds to Start + deduction preview */}
+          {/* Strain display — auto-filled from package */}
           {selectedPackage && (
-            <div className="mt-3">
-              {canAutoCalcWeight ? (
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">Seeds to Start</label>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    value={seedCountUsed}
-                    onChange={e => setSeedCountUsed(e.target.value)}
-                    placeholder="Number of seeds"
-                    className={inputClass}
-                    style={{ minHeight: '56px' }}
-                  />
-                  <p className="text-xs text-gray-400 mt-1">
-                    {perSeedWeight.toFixed(3)}g per seed
-                    ({selectedPackage.weight_g_initial}g ÷ {selectedPackage.seed_count_initial} seeds)
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">Seeds to Start</label>
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        value={seedCountUsed}
-                        onChange={e => setSeedCountUsed(e.target.value)}
-                        placeholder="Count (optional)"
-                        className={inputClass}
-                        style={{ minHeight: '48px' }}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-1">Weight to Deduct (g)</label>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        value={seedWeightGManual}
-                        onChange={e => setSeedWeightGManual(e.target.value)}
-                        placeholder="Grams"
-                        className={inputClass}
-                        style={{ minHeight: '48px' }}
-                        step="0.001"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-xs text-amber-600 mt-1">
-                    Add seed count to this package in the Seed Vault to enable auto-calculation.
-                  </p>
-                </div>
-              )}
-
-              {/* Deduction preview */}
-              {effectiveWeightG != null && effectiveWeightG > 0 && (
-                <div className={`mt-3 rounded-xl px-4 py-3 border ${
-                  weightExceeded ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'
+            <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-gray-500 mb-0.5">Strain (from METRC)</p>
+              <p className="text-sm font-semibold text-gray-900">
+                {selectedPackage.strain_name}
+                <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                  selectedPackage.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
                 }`}>
-                  <div className={`text-sm font-semibold ${weightExceeded ? 'text-red-800' : 'text-green-900'}`}>
-                    −{effectiveWeightG.toFixed(2)}g from {selectedPackage.package_name || selectedPackage.lot_number}
-                  </div>
-                  {selectedPackage.weight_g_remaining != null && (
-                    <div className={`text-xs mt-0.5 ${weightExceeded ? 'text-red-700' : 'text-green-700'}`}>
-                      {Number(selectedPackage.weight_g_remaining).toFixed(2)}g → {weightAfter.toFixed(2)}g remaining
-                      {weightExceeded && ' · ⚠ Exceeds available weight'}
-                    </div>
-                  )}
-                </div>
-              )}
-              {fieldErrors.weight && <p className="text-red-500 text-xs mt-1">{fieldErrors.weight}</p>}
+                  {selectedPackage.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
+                </span>
+              </p>
             </div>
           )}
         </div>
       )}
 
-      {/* Start Date */}
-      <div className="mb-5">
-        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-          Start Date <span className="text-red-500">*</span>
-        </label>
-        <input
-          type="date"
-          value={startDate}
-          onChange={e => { setStartDate(e.target.value); setFieldErrors(fe => ({ ...fe, startDate: undefined })); }}
-          className={inputClass}
-          style={{ minHeight: '56px' }}
-        />
-        {fieldErrors.startDate && <p className="text-red-500 text-xs mt-1">{fieldErrors.startDate}</p>}
-      </div>
-
-      {/* Plant Count + Per container */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <div>
+      {/* ── Quantity in grams ─────────────────────────────────────── */}
+      {plantType === 'seed' && selectedPackage && (
+        <div className="mb-5">
           <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-            Plant Count <span className="text-red-500">*</span>
+            Quantity in Grams
           </label>
           <input
             type="number"
-            inputMode="numeric"
-            min="1"
-            value={plantCount}
-            onChange={e => { setPlantCount(e.target.value); setFieldErrors(fe => ({ ...fe, plantCount: undefined })); }}
-            placeholder="e.g. 150"
+            inputMode="decimal"
+            step="0.001"
+            value={quantityG}
+            onChange={e => { setQuantityG(e.target.value); setFieldErrors(fe => ({ ...fe, quantity: undefined })); }}
+            placeholder={autoQuantity != null ? `${autoQuantity} (auto-calculated)` : 'Enter grams used'}
             className={inputClass}
             style={{ minHeight: '56px' }}
           />
-          {phase === 'immature' && sourceType === 'seed' && (
-            <p className="text-xs text-gray-400 mt-1">Expected plants (may differ from seeds started)</p>
+          {autoQuantity != null && !quantityG && (
+            <p className="text-xs text-gray-400 mt-1">
+              Auto-calculated from plant count × {perSeedWeight.toFixed(3)}g/seed. Override if actual weight differs.
+            </p>
           )}
-          {fieldErrors.plantCount && <p className="text-red-500 text-xs mt-1">{fieldErrors.plantCount}</p>}
+          {effectiveQuantityG != null && selectedPackage.weight_g_remaining != null && (
+            <div className={`mt-2 rounded-xl px-3 py-2 text-xs ${weightExceeded ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-green-50 border border-green-200 text-green-800'}`}>
+              {Number(selectedPackage.weight_g_remaining).toFixed(2)}g → {weightAfter.toFixed(2)}g remaining after deduction
+              {weightExceeded && ' · ⚠ Exceeds available'}
+            </div>
+          )}
+          {fieldErrors.quantity && <p className="text-red-500 text-xs mt-1">{fieldErrors.quantity}</p>}
         </div>
-        <div>
-          <label className="block text-sm font-semibold text-gray-800 mb-1.5">Per container</label>
-          <div className="flex gap-2">
-            {['1', '2'].map(n => (
-              <button
-                key={n}
-                type="button"
-                onClick={() => setPlantsPerContainer(n)}
-                className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-colors ${
-                  plantsPerContainer === n
-                    ? 'bg-green-800 text-white border-green-800'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
-                }`}
-                style={{ minHeight: '56px' }}
-              >
-                {n}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-1">2 = autoflowers</p>
-        </div>
+      )}
+
+      {/* ── Batch Name ────────────────────────────────────────────── */}
+      <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+          Batch Name
+          <span className="ml-1 text-xs font-normal text-gray-400">(optional)</span>
+        </label>
+        <input
+          type="text"
+          value={batchName}
+          onChange={e => setBatchName(e.target.value)}
+          placeholder={selectedPackage ? `${selectedPackage.strain_name} — Germ ${plantingDate}` : 'e.g. Z1A NL Auto Spring 2026'}
+          className={inputClass}
+          style={{ minHeight: '56px' }}
+        />
       </div>
 
-      {/* Expected Harvest Date — non-immature only */}
-      {phase !== 'immature' && (
+      {/* ── Plant Count ───────────────────────────────────────────── */}
+      <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+          Plant Count <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={plantCount}
+          onChange={e => { setPlantCount(e.target.value); setFieldErrors(fe => ({ ...fe, plantCount: undefined })); }}
+          placeholder="Actual number of seeds planted"
+          className={inputClass}
+          style={{ minHeight: '56px' }}
+        />
+        <p className="text-xs text-gray-400 mt-1">Actual seeds planted, not expected yield</p>
+        {fieldErrors.plantCount && <p className="text-red-500 text-xs mt-1">{fieldErrors.plantCount}</p>}
+      </div>
+
+      {/* Plants per container — secondary, shown small */}
+      <div className="mb-5">
+        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Plants per container</label>
+        <div className="flex gap-2">
+          {['1', '2'].map(n => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setPlantsPerContainer(n)}
+              className={`flex-1 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                plantsPerContainer === n
+                  ? 'bg-green-800 text-white border-green-800'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
+              }`}
+              style={{ minHeight: '44px' }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400 mt-1">2 per container is common for autoflowers</p>
+      </div>
+
+      {/* ── Planting Date ─────────────────────────────────────────── */}
+      <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+          Planting Date <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="date"
+          value={plantingDate}
+          onChange={e => { setPlantingDate(e.target.value); setFieldErrors(fe => ({ ...fe, plantingDate: undefined })); }}
+          className={inputClass}
+          style={{ minHeight: '56px' }}
+        />
+        {fieldErrors.plantingDate && <p className="text-red-500 text-xs mt-1">{fieldErrors.plantingDate}</p>}
+      </div>
+
+      {/* ── Unpackage Date (seed only) ────────────────────────────── */}
+      {plantType === 'seed' && (
         <div className="mb-5">
-          <label className="block text-sm font-semibold text-gray-800 mb-1">Expected Harvest Date</label>
-          <p className="text-xs text-gray-500 mb-2">Optional — used for PHI calculations. Can be updated later.</p>
+          <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+            Unpackage Date
+            <span className="ml-1 text-xs font-normal text-gray-400">(when seed package was opened)</span>
+          </label>
           <input
             type="date"
-            value={expectedHarvestDate}
-            onChange={e => setExpectedHarvestDate(e.target.value)}
+            value={unpackageDate}
+            onChange={e => setUnpackageDate(e.target.value)}
             className={inputClass}
             style={{ minHeight: '56px' }}
           />
         </div>
       )}
 
-      {/* Notes */}
+      {/* ── METRC UID (optional) ──────────────────────────────────── */}
       <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1">
+          METRC Plant Batch UID
+          <span className="ml-1 text-xs font-normal text-gray-400">(optional — enter if already created in METRC)</span>
+        </label>
+        <input
+          type="text"
+          value={metrcUid}
+          onChange={e => { setMetrcUid(e.target.value.trim()); setFieldErrors(fe => ({ ...fe, metrcUid: undefined })); }}
+          placeholder="24-character alphanumeric UID"
+          className={`${inputClass} font-mono tracking-wide`}
+          style={{ minHeight: '56px' }}
+          maxLength={24}
+          autoCapitalize="characters"
+        />
+        {metrcUid && metrcUid.length !== 24 && (
+          <p className="text-xs text-amber-600 mt-1">{metrcUid.length}/24 characters</p>
+        )}
+        {fieldErrors.metrcUid && <p className="text-red-500 text-xs mt-1">{fieldErrors.metrcUid}</p>}
+      </div>
+
+      {/* ── Notes ─────────────────────────────────────────────────── */}
+      <div className="mb-6">
         <label className="block text-sm font-semibold text-gray-800 mb-1.5">Notes</label>
         <textarea
           value={notes}
           onChange={e => setNotes(e.target.value)}
-          placeholder="Any notes about this plant group…"
+          placeholder="Any notes about this plant batch…"
           className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-600"
-          rows={3}
+          rows={2}
         />
       </div>
-
-      {phase !== 'immature' && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm text-amber-800">
-          METRC Plant Batch UID can be added from the batch detail after creation.
-        </div>
-      )}
-
-      {/* No-package notice — immature + seed with no package selected */}
-      {phase === 'immature' && sourceType === 'seed' && !selectedPackageId && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm text-amber-800">
-          <span className="font-semibold">No seed package selected.</span> Batch will be created without seed inventory tracking. You can link a seed package later by adding one to the Seed Vault.
-        </div>
-      )}
-
-      {/* METRC batch name preview — shown when package + date are set */}
-      {metrcBatchName && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-5">
-          <div className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">METRC Plant Batch Name</div>
-          <div className="font-mono text-sm font-bold text-green-900">{metrcBatchName}</div>
-          <div className="text-xs text-green-600 mt-1">
-            Auto-generated · {phase === 'immature' ? 'Immature · Germ-01' : phase === 'veg' ? 'Vegetative' : 'Flowering'}
-          </div>
-        </div>
-      )}
-
-      {/* METRC UID — optional, enter if batch already exists in METRC */}
-      {phase === 'immature' && (
-        <div className="mb-5">
-          <label className="block text-sm font-semibold text-gray-800 mb-1">
-            METRC Plant Batch UID <span className="text-gray-400 font-normal text-xs">(optional — enter if batch already created in METRC)</span>
-          </label>
-          <input
-            type="text"
-            value={metrcUid}
-            onChange={e => { setMetrcUid(e.target.value.trim()); setFieldErrors(fe => ({ ...fe, metrcUid: undefined })); }}
-            placeholder="24-character alphanumeric UID"
-            className={`${inputClass} font-mono tracking-wide`}
-            style={{ minHeight: '56px' }}
-            maxLength={24}
-            autoCapitalize="characters"
-          />
-          {metrcUid && metrcUid.length !== 24 && (
-            <p className="text-xs text-amber-600 mt-1">{metrcUid.length}/24 characters</p>
-          )}
-          {fieldErrors.metrcUid && <p className="text-red-500 text-xs mt-1">{fieldErrors.metrcUid}</p>}
-          <p className="text-xs text-gray-400 mt-1">Can also be added from the batch detail page after creation.</p>
-        </div>
-      )}
 
       <div className="fixed bottom-20 left-0 right-0 px-4 max-w-lg mx-auto">
         <button
@@ -598,7 +467,7 @@ export default function BatchNew() {
           className="w-full py-4 bg-green-800 text-white font-semibold rounded-2xl hover:bg-green-900 disabled:opacity-50 transition-colors shadow-lg text-base"
           style={{ minHeight: '56px' }}
         >
-          {saving ? 'Creating plant group…' : 'Create Plant Group'}
+          {saving ? 'Creating…' : 'Create Plant Batch'}
         </button>
       </div>
     </div>

@@ -68,11 +68,13 @@ const METRC_LOCATION_EVENT: Partial<Record<string, boolean>> = {
 };
 
 const BatchCreateSchema = z.object({
-  strain_id: z.number().int().positive(),
+  name: z.string().nullable().optional(),
+  strain_id: z.number().int().positive().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
   plant_count_initial: z.number().int().positive(),
   plants_per_container: z.number().int().min(1).default(1),
   sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sow_date must be YYYY-MM-DD'),
+  package_open_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   expected_harvest_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
   notes: z.string().nullable().optional(),
@@ -144,7 +146,7 @@ const BATCH_SELECT = `
            ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date)))
          AS INTEGER) AS days_in_stage
   FROM cv_batches b
-  JOIN cv_strains s ON s.strain_id = b.strain_id
+  LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
   LEFT JOIN cv_locations loc ON loc.location_id = b.current_location_id
   LEFT JOIN cv_batch_stage_recipes bsr ON bsr.batch_id = b.batch_id AND bsr.effective_to IS NULL
   LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
@@ -314,15 +316,23 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         throw e;
       }
       const {
-        strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date,
-        expected_harvest_date, metrc_plant_batch_uid, notes,
+        name, strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date,
+        package_open_date, expected_harvest_date, metrc_plant_batch_uid, notes,
         source_type, seed_package_id, seed_count_used, seed_weight_g, initial_phase,
         initial_status,
       } = body;
 
       const db = getDB();
 
-      const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(Number(strain_id));
+      // Resolve strain: explicit strain_id > strain from seed package
+      let resolvedStrainId: number | null = strain_id != null ? Number(strain_id) : null;
+      if (resolvedStrainId == null && seed_package_id != null) {
+        const pkg = db.prepare('SELECT strain_id FROM cv_seed_packages WHERE package_id = ?').get(Number(seed_package_id)) as { strain_id: number } | undefined;
+        resolvedStrainId = pkg?.strain_id ?? null;
+      }
+      if (resolvedStrainId == null) return reply.code(400).send({ error: 'strain_id is required (or provide a seed_package_id with an associated strain)' });
+
+      const strain = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ? AND active = 1').get(resolvedStrainId);
       if (!strain) return reply.code(400).send({ error: 'strain_id does not exist or is not active' });
 
       if (sub_zone_id) {
@@ -365,17 +375,20 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const batchId = db.transaction(() => {
         const r = db.prepare(`
           INSERT INTO cv_batches
-            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date,
+            (name, strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date,
+             package_open_date, expected_harvest_date,
              status, current_stage_since, current_location_id, metrc_plant_batch_uid,
              source_type, seed_package_id, seed_count_used, seed_weight_g, initial_phase,
              notes, supervisor, created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          Number(strain_id),
+          name ?? null,
+          resolvedStrainId,
           sub_zone_id ?? null,
           Number(plant_count_initial),
           plants_per_container ? Number(plants_per_container) : 1,
           sow_date,
+          package_open_date ?? null,
           expected_harvest_date ?? null,
           effective_status,
           stage_since,
