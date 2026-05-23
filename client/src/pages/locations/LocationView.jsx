@@ -389,6 +389,7 @@ export default function LocationView() {
   const [addName, setAddName] = useState('');
   const [addMetrcName, setAddMetrcName] = useState('');
   const [addDescription, setAddDescription] = useState('');
+  const [addDisplayOrder, setAddDisplayOrder] = useState('');
   const [addNameError, setAddNameError] = useState('');
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState('');
@@ -416,6 +417,7 @@ export default function LocationView() {
     setAddName('');
     setAddMetrcName('');
     setAddDescription('');
+    setAddDisplayOrder('');
     setAddNameError('');
     setAddError('');
   };
@@ -434,6 +436,7 @@ export default function LocationView() {
         location_category: addLocationModal.category,
         metrc_name: addMetrcName.trim() || addName.trim(),
         ...(addDescription.trim() ? { description: addDescription.trim() } : {}),
+        ...(addDisplayOrder ? { display_order: Number(addDisplayOrder) } : {}),
       });
       closeAddModal();
       loadData();
@@ -529,22 +532,28 @@ export default function LocationView() {
             ) : (
               <div className={
                 isOutdoor
-                  ? 'grid grid-cols-2 md:grid-cols-4 gap-3'
+                  ? 'grid grid-cols-2 gap-3'
                   : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'
               }>
                 {locations.map(loc => {
                   if (isOutdoor) {
+                    const colClass = loc.col_span === 2 ? 'col-span-2' : '';
                     if (loc.sub_locations && loc.sub_locations.length > 0) {
                       return (
-                        <ZoneCard
-                          key={loc.location_id}
-                          location={loc}
-                          navigate={navigate}
-                          onOpenMenu={openMenu}
-                        />
+                        <div key={loc.location_id} className={colClass}>
+                          <ZoneCard
+                            location={loc}
+                            navigate={navigate}
+                            onOpenMenu={openMenu}
+                          />
+                        </div>
                       );
                     }
-                    return <NoSubZonesCard key={loc.location_id} location={loc} onOpenMenu={openMenu} />;
+                    return (
+                      <div key={loc.location_id} className={colClass}>
+                        <NoSubZonesCard location={loc} onOpenMenu={openMenu} />
+                      </div>
+                    );
                   }
                   return (
                     <IndoorCard
@@ -565,77 +574,111 @@ export default function LocationView() {
       {addLocationModal && (
         <>
           <div className="fixed inset-0 bg-black/40 z-40" onClick={closeAddModal} />
-          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 p-4 pb-8">
-            <h3 className="text-base font-bold text-gray-900 mb-4">
-              Add {CATEGORY_DISPLAY[addLocationModal.category]} Location
-            </h3>
+          <div
+            className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 flex flex-col"
+            style={{ maxHeight: '85vh', paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1 shrink-0">
+              <div className="w-10 h-1 rounded-full bg-gray-300" />
+            </div>
 
-            {addError && (
-              <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-sm text-red-800">
-                {addError}
-              </div>
-            )}
+            {/* Header */}
+            <div className="px-4 pb-2 shrink-0">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Add {CATEGORY_DISPLAY[addLocationModal.category]} Location
+              </h3>
+            </div>
 
-            <div className="space-y-3 mb-5">
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={addName}
-                  onChange={e => { setAddName(e.target.value); setAddNameError(''); }}
-                  placeholder={CATEGORY_PLACEHOLDERS[addLocationModal.category]}
-                  className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${addNameError ? 'border-red-400' : 'border-gray-300'}`}
-                  style={{ minHeight: '44px' }}
-                  autoFocus
-                />
-                {addNameError && (
-                  <p className="mt-1 text-xs text-red-600">{addNameError}</p>
-                )}
-              </div>
+            {/* Scrollable form fields */}
+            <div className="flex-1 overflow-y-auto px-4 pb-4">
+              {addError && (
+                <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-sm text-red-800">
+                  {addError}
+                </div>
+              )}
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  METRC Name <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={addMetrcName}
-                  onChange={e => setAddMetrcName(e.target.value)}
-                  placeholder="Same as name if blank"
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  style={{ minHeight: '44px' }}
-                />
-              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addName}
+                    onChange={e => { setAddName(e.target.value); setAddNameError(''); }}
+                    placeholder={CATEGORY_PLACEHOLDERS[addLocationModal.category]}
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${addNameError ? 'border-red-400' : 'border-gray-300'}`}
+                    style={{ minHeight: '44px' }}
+                    autoFocus
+                  />
+                  {addNameError && (
+                    <p className="mt-1 text-xs text-red-600">{addNameError}</p>
+                  )}
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-600 mb-1">
-                  Description <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={addDescription}
-                  onChange={e => setAddDescription(e.target.value)}
-                  placeholder="Short description"
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  style={{ minHeight: '44px' }}
-                />
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    METRC Name <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addMetrcName}
+                    onChange={e => setAddMetrcName(e.target.value)}
+                    placeholder="Same as name if blank"
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    style={{ minHeight: '44px' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={addDescription}
+                    onChange={e => setAddDescription(e.target.value)}
+                    placeholder="Short description"
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    style={{ minHeight: '44px' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">
+                    Display Order <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={addDisplayOrder}
+                    onChange={e => setAddDisplayOrder(e.target.value)}
+                    placeholder="e.g. 10, 20, 30 — lower numbers appear first"
+                    className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    style={{ minHeight: '44px' }}
+                    inputMode="numeric"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="flex gap-3">
+            {/* Sticky footer — always above keyboard/NavBar */}
+            <div
+              className="px-4 pt-3 pb-6 border-t border-gray-100 flex gap-3 shrink-0"
+              style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+            >
               <button
                 onClick={closeAddModal}
-                className="flex-1 text-sm font-medium text-gray-600 hover:text-gray-900 py-3 transition"
                 disabled={addSaving}
+                className="flex-1 py-3 rounded-2xl border border-gray-200 text-gray-700 font-semibold"
+                style={{ minHeight: '48px' }}
               >
                 Cancel
               </button>
               <button
                 onClick={handleAddLocation}
                 disabled={addSaving}
-                className="flex-1 bg-green-700 hover:bg-green-800 disabled:opacity-50 text-white rounded-2xl px-6 py-3 font-semibold text-sm transition"
+                className="flex-1 py-3 rounded-2xl bg-green-700 hover:bg-green-800 disabled:opacity-50 text-white font-semibold"
                 style={{ minHeight: '48px' }}
               >
                 {addSaving ? 'Saving…' : 'Save'}

@@ -291,7 +291,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     let locationRows: Array<Record<string, unknown>> = [];
     try {
       locationRows = db.prepare(`
-        SELECT * FROM cv_locations WHERE active = 1 ORDER BY location_id
+        SELECT * FROM cv_locations WHERE active = 1 ORDER BY display_order ASC, location_id ASC
       `).all() as Array<Record<string, unknown>>;
     } catch {
       locationRows = [];
@@ -555,6 +555,8 @@ const CreateLocationSchema = z.object({
   parent_location_id: z.number().int().positive().nullable().optional(),
   metrc_name: z.string().optional(),
   description: z.string().optional(),
+  display_order: z.number().int().optional(),
+  col_span: z.number().int().min(1).max(2).optional(),
 });
 
 export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
@@ -573,8 +575,8 @@ export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
 
     const db = getDB();
     const row = db.prepare(`
-      INSERT INTO cv_locations (name, location_type, location_category, metrc_name, parent_location_id, description, active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
+      INSERT INTO cv_locations (name, location_type, location_category, metrc_name, parent_location_id, description, display_order, col_span, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       data.name,
       location_type,
@@ -582,6 +584,8 @@ export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
       data.metrc_name ?? data.name,
       data.parent_location_id ?? null,
       data.description ?? null,
+      data.display_order ?? 999,
+      data.col_span ?? 1,
     );
 
     const created = db.prepare(`SELECT * FROM cv_locations WHERE location_id = ?`).get(row.lastInsertRowid) as Record<string, unknown>;

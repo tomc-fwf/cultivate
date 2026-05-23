@@ -88,18 +88,67 @@ export function AddSubLocationModal({ location, onClose, onRefresh }) {
     );
   }
 
-  // Mobile: bottom sheet
+  // Mobile: bottom sheet with scrollable content + sticky footer
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 p-5 pb-8 shadow-xl">
-        <div className="flex items-center justify-between mb-4">
+      <div
+        className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 shadow-xl flex flex-col"
+        style={{ maxHeight: '85vh', paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 rounded-full bg-gray-300" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pb-3 shrink-0">
           <h3 className="font-semibold text-gray-900">Add Sub-location to {location.name}</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
             <X size={20} />
           </button>
         </div>
-        {formContent}
+
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto px-5 pb-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700 mb-3">
+              {error}
+            </div>
+          )}
+          <div className="space-y-3">
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="Name (required)"
+              autoFocus
+            />
+            <input
+              type="text"
+              value={metrcName}
+              onChange={e => setMetrcName(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="METRC name (same as name if blank)"
+            />
+          </div>
+        </div>
+
+        {/* Sticky footer */}
+        <div
+          className="px-5 pt-3 pb-6 border-t border-gray-100 shrink-0"
+          style={{ paddingBottom: 'max(1.5rem, env(safe-area-inset-bottom))' }}
+        >
+          <button
+            onClick={handleSave}
+            disabled={!name.trim() || saving}
+            className="w-full bg-green-700 text-white rounded-xl py-3 font-semibold text-sm disabled:opacity-50"
+            style={{ minHeight: '48px' }}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       </div>
     </>
   );
