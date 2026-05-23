@@ -175,6 +175,21 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       { name: 'Cult-Hoop', type: 'veg'         },
     ];
 
+    // Lookup location_id and location_category for indoor locations
+    let indoorLocRows: Array<Record<string, unknown>> = [];
+    try {
+      indoorLocRows = db.prepare(`
+        SELECT location_id, name, location_category
+        FROM cv_locations
+        WHERE name IN ('Germ-01', 'Seedlings', 'Cult-Hoop') AND active = 1
+      `).all() as Array<Record<string, unknown>>;
+    } catch { /* table may not exist yet */ }
+
+    const indoorLocByName = new Map<string, Record<string, unknown>>();
+    for (const row of indoorLocRows) {
+      indoorLocByName.set(row['name'] as string, row);
+    }
+
     // Batches for each indoor location
     const batchesByLocation = new Map<string, Array<Record<string, unknown>>>();
     for (const b of batchRows) {
@@ -186,20 +201,25 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const indoor = PRE_FIELD_DEFS.map(def => ({
-      name: def.name,
-      type: def.type,
-      batches: (batchesByLocation.get(def.name) ?? []).map(b => ({
-        batch_id: b['batch_id'],
-        strain_name: b['strain_name'],
-        status: b['status'],
-        plant_count_current: b['plant_count_current'],
-        plant_count_initial: b['plant_count_initial'],
-        days_in_stage: b['days_in_stage'],
-        sub_zone_id: b['sub_zone_id'],
-      })),
-      open_observation_count: obsByLocationName.get(def.name) ?? 0,
-    }));
+    const indoor = PRE_FIELD_DEFS.map(def => {
+      const locRow = indoorLocByName.get(def.name);
+      return {
+        location_id: (locRow?.['location_id'] as number) ?? null,
+        location_category: (locRow?.['location_category'] as string) ?? 'indoor',
+        name: def.name,
+        type: def.type,
+        batches: (batchesByLocation.get(def.name) ?? []).map(b => ({
+          batch_id: b['batch_id'],
+          strain_name: b['strain_name'],
+          status: b['status'],
+          plant_count_current: b['plant_count_current'],
+          plant_count_initial: b['plant_count_initial'],
+          days_in_stage: b['days_in_stage'],
+          sub_zone_id: b['sub_zone_id'],
+        })),
+        open_observation_count: obsByLocationName.get(def.name) ?? 0,
+      };
+    });
 
     // ── Build field section ────────────────────────────────────────────────────
     // Batches by sub_zone_id (field status batches)
