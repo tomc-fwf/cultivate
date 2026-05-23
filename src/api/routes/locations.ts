@@ -477,6 +477,15 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Sort by display_order — Object.values(byId) iterates in numeric key order (location_id),
+    // not SQL ORDER BY order, so we must re-sort after assembly.
+    const byOrder = (a: LocationNode, b: LocationNode) =>
+      (Number(a['display_order'] ?? 999) - Number(b['display_order'] ?? 999)) ||
+      (Number(a['location_id']) - Number(b['location_id']));
+
+    roots.sort(byOrder);
+    for (const root of roots) root.sub_locations.sort(byOrder);
+
     // Group roots by category
     const tree: Record<string, LocationNode[]> = { indoor: [], hoop_house: [], outdoor: [] };
     for (const root of roots) {
