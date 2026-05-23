@@ -47,6 +47,9 @@ const STATE_LABELS = {
 
 const ALL_STATES = ['active', 'empty', 'ready', 'startup', 'teardown', 'out_of_service'];
 
+const SECTION_LABELS = { indoor: 'Indoor', hoop_house: 'Hoop-House', outdoor: 'Outdoors' };
+const SECTION_ORDER = ['indoor', 'hoop_house', 'outdoor'];
+
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
 function StateBar({ counts, total }) {
@@ -66,20 +69,6 @@ function StateBar({ counts, total }) {
           />
         );
       })}
-    </div>
-  );
-}
-
-function StateCountRow({ counts }) {
-  const nonZero = ALL_STATES.filter(s => (counts[s] ?? 0) > 0);
-  if (!nonZero.length) return null;
-  return (
-    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-      {nonZero.map(state => (
-        <span key={state} className="text-xs text-gray-500">
-          {counts[state]} {STATE_LABELS[state].toLowerCase()}
-        </span>
-      ))}
     </div>
   );
 }
@@ -107,16 +96,17 @@ function ObsBadge({ count }) {
 }
 
 function IndoorCard({ location, navigate }) {
-  const { name, batches, open_observation_count } = location;
+  const { location_id, name, batches, open_observation_count } = location;
   return (
     <div
       className="relative bg-white rounded-2xl border border-gray-200 px-4 py-4 hover:border-green-300 transition-colors cursor-pointer"
       style={{ minHeight: '100px' }}
-      onClick={() => navigate('/batches')}
+      onClick={() => navigate(`/batches?location_id=${location_id}&location_name=${encodeURIComponent(name)}`)}
+      onContextMenu={e => e.preventDefault()}
     >
       <ObsBadge count={open_observation_count} />
       <h3 className="font-semibold text-gray-800 mb-2">{name}</h3>
-      {batches.length === 0 ? (
+      {!batches || batches.length === 0 ? (
         <p className="text-sm text-gray-400 italic">Empty</p>
       ) : (
         <div className="space-y-1.5">
@@ -143,17 +133,36 @@ function IndoorCard({ location, navigate }) {
   );
 }
 
-function SubZoneRow({ sz, navigate }) {
-  const { sub_zone_id, pot_size_gal, container_count, container_counts, batch, rei_active, rei_expires_at, open_observation_count } = sz;
+function SubZoneRow({ subLoc, navigate }) {
+  const {
+    location_id,
+    name,
+    sub_zone_id,
+    pot_size_gal,
+    container_count,
+    container_counts,
+    batches,
+    rei_active,
+    rei_expires_at,
+    open_observation_count,
+  } = subLoc;
+  const batch = batches && batches.length > 0 ? batches[0] : null;
+
   return (
     <div
-      className={`relative py-2 px-0 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors -mx-1 px-1`}
-      onClick={() => navigate(`/containers/map/${sub_zone_id}`)}
+      className="relative py-2 px-0 cursor-pointer hover:bg-gray-50 rounded-lg transition-colors -mx-1 px-1"
+      onClick={() => sub_zone_id
+        ? navigate(`/containers/map/${sub_zone_id}`)
+        : navigate(`/locations/${location_id}`)
+      }
+      onContextMenu={e => e.preventDefault()}
     >
       {/* Sub-zone header */}
       <div className="flex items-center gap-1.5 mb-1">
-        <span className="font-semibold text-gray-800 text-sm">{sub_zone_id}</span>
-        <span className="text-xs text-gray-400">{pot_size_gal}-gal</span>
+        <span className="font-semibold text-gray-800 text-sm">{name}</span>
+        {pot_size_gal != null && (
+          <span className="text-xs text-gray-400">{pot_size_gal}-gal</span>
+        )}
         {rei_active && (
           <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-px leading-tight">
             ⚠ REI{rei_expires_at ? ` until ${formatTime(rei_expires_at)}` : ''}
@@ -167,7 +176,7 @@ function SubZoneRow({ sz, navigate }) {
       </div>
 
       {/* State bar */}
-      <StateBar counts={container_counts} total={container_count} />
+      <StateBar counts={container_counts ?? {}} total={container_count ?? 0} />
 
       {/* Batch info */}
       {batch ? (
@@ -187,18 +196,17 @@ function SubZoneRow({ sz, navigate }) {
   );
 }
 
-function ZoneCard({ zone, navigate }) {
-  const { zone: zoneNum, sub_zones } = zone;
-  const hasAnyRei = sub_zones.some(sz => sz.rei_active);
+function ZoneCard({ location, navigate }) {
+  const { name, sub_locations, rei_active } = location;
   return (
     <div
       className={`bg-white rounded-2xl border px-4 py-4 transition-colors ${
-        hasAnyRei ? 'border-amber-300' : 'border-gray-200 hover:border-green-300'
+        rei_active ? 'border-amber-300' : 'border-gray-200 hover:border-green-300'
       }`}
     >
       <div className="flex items-center justify-between mb-2">
-        <h3 className="font-bold text-gray-800">Zone {zoneNum}</h3>
-        {hasAnyRei && (
+        <h3 className="font-bold text-gray-800">{name}</h3>
+        {rei_active && (
           <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 flex items-center gap-1">
             <AlertTriangle size={11} />
             REI
@@ -206,10 +214,19 @@ function ZoneCard({ zone, navigate }) {
         )}
       </div>
       <div className="divide-y divide-gray-100">
-        {sub_zones.map(sz => (
-          <SubZoneRow key={sz.sub_zone_id} sz={sz} navigate={navigate} />
+        {(sub_locations ?? []).map(sl => (
+          <SubZoneRow key={sl.location_id} subLoc={sl} navigate={navigate} />
         ))}
       </div>
+    </div>
+  );
+}
+
+function NoSubZonesCard({ location }) {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 px-4 py-4" style={{ minHeight: '80px' }}>
+      <h3 className="font-bold text-gray-800 mb-1">{location.name}</h3>
+      <p className="text-xs text-gray-400 italic">No sub-locations yet</p>
     </div>
   );
 }
@@ -228,22 +245,26 @@ function SkeletonCard() {
 
 export default function LocationView() {
   const navigate = useNavigate();
-  const [data, setData] = useState(null);
+  const [tree, setTree] = useState(null);
+  const [globalAlerts, setGlobalAlerts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadData = useCallback(() => {
     setLoading(true);
     setError('');
-    api.getLocationsSummary()
-      .then(d => setData(d))
+    api.getLocationsTree()
+      .then(d => {
+        setTree(d.tree);
+        setGlobalAlerts(d.global_alerts ?? {});
+      })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const alerts = data?.global_alerts ?? {};
+  const alerts = globalAlerts;
   const alertParts = [];
   if (alerts.losses_unsynced > 0) alertParts.push(`${alerts.losses_unsynced} unsynced ${alerts.losses_unsynced === 1 ? 'loss' : 'losses'}`);
   if (alerts.teardown_pending > 0) alertParts.push(`${alerts.teardown_pending} teardown pending`);
@@ -287,31 +308,52 @@ export default function LocationView() {
         </div>
       )}
 
-      {/* ── Pre-field ─────────────────────────────────────────────────────── */}
-      <section className="mb-6">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-3">Pre-Field</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {loading
-            ? [0, 1, 2].map(i => <SkeletonCard key={i} />)
-            : (data?.indoor ?? []).map(loc => (
-                <IndoorCard key={loc.name} location={loc} navigate={navigate} />
-              ))
-          }
-        </div>
-      </section>
+      {/* Loading skeletons */}
+      {loading && (
+        <>
+          <section className="mb-6">
+            <div className="h-3 bg-gray-200 rounded w-20 mb-3" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {[0, 1, 2].map(i => <SkeletonCard key={i} />)}
+            </div>
+          </section>
+          <section>
+            <div className="h-3 bg-gray-200 rounded w-20 mb-3" />
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[0, 1, 2, 3].map(i => <SkeletonCard key={i} />)}
+            </div>
+          </section>
+        </>
+      )}
 
-      {/* ── Field ─────────────────────────────────────────────────────────── */}
-      <section>
-        <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-3">Field — Zones 1–4</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {loading
-            ? [0, 1, 2, 3].map(i => <SkeletonCard key={i} />)
-            : (data?.zones ?? []).map(zone => (
-                <ZoneCard key={zone.zone} zone={zone} navigate={navigate} />
-              ))
-          }
-        </div>
-      </section>
+      {/* Tree sections */}
+      {!loading && tree && SECTION_ORDER.map(category => {
+        const locations = tree[category] ?? [];
+        if (!locations.length) return null;
+        const isOutdoor = category === 'outdoor';
+        return (
+          <section key={category} className="mb-6">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-3">
+              {SECTION_LABELS[category]}
+            </h2>
+            <div className={
+              isOutdoor
+                ? 'grid grid-cols-2 md:grid-cols-4 gap-3'
+                : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'
+            }>
+              {locations.map(loc => {
+                if (isOutdoor) {
+                  if (loc.sub_locations && loc.sub_locations.length > 0) {
+                    return <ZoneCard key={loc.location_id} location={loc} navigate={navigate} />;
+                  }
+                  return <NoSubZonesCard key={loc.location_id} location={loc} />;
+                }
+                return <IndoorCard key={loc.location_id} location={loc} navigate={navigate} />;
+              })}
+            </div>
+          </section>
+        );
+      })}
 
       {/* ── Quick Actions bar ─────────────────────────────────────────────── */}
       <div className="fixed bottom-20 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-gray-200 py-3">

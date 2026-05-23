@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
@@ -52,20 +52,29 @@ const FILTER_TABS = [
 export default function Batches() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const initialLocationId = searchParams.get('location_id');
+  const initialLocationName = searchParams.get('location_name');
+
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('active');
+  const [locationFilter, setLocationFilter] = useState(initialLocationId ? Number(initialLocationId) : null);
+  const [locationName] = useState(initialLocationName ?? null);
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
   useEffect(() => {
     setLoading(true);
     setError('');
-    api.getBatches({ status: filter })
+    const params = { status: filter };
+    if (locationFilter) params.location_id = locationFilter;
+    api.getBatches(params)
       .then(data => { setBatches(data); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [filter]);
+  }, [filter, locationFilter]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
@@ -91,6 +100,23 @@ export default function Batches() {
         )}
       </div>
 
+      {/* Location filter banner */}
+      {locationFilter && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-xl px-4 py-2.5 text-sm text-green-800 flex items-center justify-between">
+          <span>
+            Showing batches for{' '}
+            <span className="font-semibold">{locationName ?? `Location ${locationFilter}`}</span>
+          </span>
+          <button
+            onClick={() => setLocationFilter(null)}
+            className="ml-3 text-green-700 hover:text-green-900 font-bold text-base leading-none"
+            aria-label="Clear location filter"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
         {FILTER_TABS.map(({ key, label }) => (
           <button key={key} onClick={() => setFilter(key)}
@@ -106,7 +132,7 @@ export default function Batches() {
       ) : batches.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-gray-500 mb-4">No {filter !== 'all' ? filter + ' ' : ''}plant batches found.</p>
-          {isSupervisor && filter === 'active' && (
+          {isSupervisor && filter === 'active' && !locationFilter && (
             <button
               onClick={() => navigate('/batches/new')}
               className="bg-green-800 text-white text-sm font-semibold px-5 py-3 rounded-xl hover:bg-green-900 transition-colors"

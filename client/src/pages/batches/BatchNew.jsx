@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
 const DRAFT_KEY = 'cv_draft_batch_new';
+
+const SUB_ZONES = ['Z1A', 'Z1B', 'Z2A', 'Z2B', 'Z3A', 'Z3B', 'Z4A', 'Z4B'];
 
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }, [onDone]);
@@ -26,9 +28,25 @@ function formatMetrcDate(iso) {
   return `${m}/${d}/${y}`;
 }
 
+function flattenLocations(tree) {
+  const result = [];
+  for (const category of ['indoor', 'hoop_house', 'outdoor']) {
+    const locs = tree[category] ?? [];
+    for (const loc of locs) {
+      result.push(loc);
+      for (const sub of loc.sub_locations ?? []) {
+        result.push(sub);
+      }
+    }
+  }
+  return result;
+}
+
 export default function BatchNew() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const presetLocationId = searchParams.get('location_id');
 
   const [strains, setStrains] = useState([]);
   const [strainsLoading, setStrainsLoading] = useState(true);
@@ -39,7 +57,10 @@ export default function BatchNew() {
   const [sowDate, setSowDate] = useState(todayISO());
   const [expectedHarvestDate, setExpectedHarvestDate] = useState('');
   const [metrcUid, setMetrcUid] = useState('');
+  const [subZoneId, setSubZoneId] = useState('');
   const [notes, setNotes] = useState('');
+
+  const [presetLocationName, setPresetLocationName] = useState(null);
 
   const [showNewStrain, setShowNewStrain] = useState(false);
   const [newStrainName, setNewStrainName] = useState('');
@@ -68,16 +89,34 @@ export default function BatchNew() {
         if (draft.sowDate) setSowDate(draft.sowDate);
         if (draft.expectedHarvestDate) setExpectedHarvestDate(draft.expectedHarvestDate);
         if (draft.metrcUid) setMetrcUid(draft.metrcUid);
+        if (draft.subZoneId) setSubZoneId(draft.subZoneId);
         if (draft.notes) setNotes(draft.notes);
       }
     } catch { /* ignore */ }
   }, []);
 
+  // Resolve preset location name and sub_zone_id
+  useEffect(() => {
+    if (!presetLocationId) return;
+    api.getLocationsTree()
+      .then(d => {
+        const loc = flattenLocations(d.tree).find(l => String(l.location_id) === presetLocationId);
+        if (loc) {
+          setPresetLocationName(loc.name);
+          if (loc.sub_zone_id) setSubZoneId(loc.sub_zone_id);
+        }
+      })
+      .catch(() => { /* ignore — non-critical */ });
+  }, [presetLocationId]);
+
   const saveDraft = useCallback(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ strainId, plantCount, plantsPerContainer, sowDate, expectedHarvestDate, metrcUid, notes, savedAt: Date.now() }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        strainId, plantCount, plantsPerContainer, sowDate,
+        expectedHarvestDate, metrcUid, subZoneId, notes, savedAt: Date.now(),
+      }));
     } catch { /* ignore */ }
-  }, [strainId, plantCount, plantsPerContainer, sowDate, expectedHarvestDate, metrcUid, notes]);
+  }, [strainId, plantCount, plantsPerContainer, sowDate, expectedHarvestDate, metrcUid, subZoneId, notes]);
 
   useEffect(() => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -117,6 +156,7 @@ export default function BatchNew() {
         sow_date: sowDate,
         expected_harvest_date: expectedHarvestDate || null,
         metrc_plant_batch_uid: metrcUid || null,
+        sub_zone_id: subZoneId || null,
         notes: notes || null,
       });
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
@@ -166,6 +206,14 @@ export default function BatchNew() {
       <p className="text-sm text-gray-500 mb-6">
         Starts in <span className="font-semibold text-gray-700">Germ-01</span> as <span className="font-semibold text-gray-700">Immature</span>. Sub-zone is assigned when the batch moves to Field.
       </p>
+
+      {/* Starting from location callout */}
+      {presetLocationName && (
+        <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-6">
+          <div className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">Starting From</div>
+          <div className="text-sm font-semibold text-green-900">{presetLocationName}</div>
+        </div>
+      )}
 
       {/* METRC batch name preview */}
       {metrcBatchName && (
@@ -328,6 +376,31 @@ export default function BatchNew() {
           </div>
           <p className="text-xs text-gray-400 mt-1">2 = autoflowers</p>
           {fieldErrors.plantsPerContainer && <p className="text-red-500 text-xs mt-1">{fieldErrors.plantsPerContainer}</p>}
+        </div>
+      </div>
+
+      {/* Sub-Zone picker */}
+      <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1.5">Sub-Zone</label>
+        <p className="text-xs text-gray-500 mb-2">
+          Optional — field batches only. Can be assigned when the batch moves to Field.
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          {SUB_ZONES.map(sz => (
+            <button
+              key={sz}
+              type="button"
+              onClick={() => setSubZoneId(subZoneId === sz ? '' : sz)}
+              className={`py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                subZoneId === sz
+                  ? 'bg-green-800 text-white border-green-800'
+                  : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
+              }`}
+              style={{ minHeight: '48px' }}
+            >
+              {sz}
+            </button>
+          ))}
         </div>
       </div>
 
