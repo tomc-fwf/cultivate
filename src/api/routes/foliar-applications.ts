@@ -158,7 +158,7 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
    */
   app.post<{ Body: FoliarCreateBody }>(
     '/',
-    { preHandler: requireAuth },
+    { preHandler: requireRole('grower') },
     async (request, reply) => {
       let body: FoliarCreateBody;
       try { body = FoliarCreateSchema.parse(request.body); }

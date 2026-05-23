@@ -1,15 +1,17 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
 
 interface IdParams { id: string }
 
-interface StrainBody {
-  name: string;
-  type: 'auto' | 'photo';
-  genetics?: string | null;
-  notes?: string | null;
-}
+const StrainSchema = z.object({
+  name: z.string().min(1).max(200),
+  type: z.enum(['auto', 'photo']),
+  genetics: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type StrainBody = z.infer<typeof StrainSchema>;
 
 const strainsRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -34,14 +36,14 @@ const strainsRoutes: FastifyPluginAsync = async (app) => {
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const { name, type, genetics, notes } = request.body as StrainBody;
-
-      if (!name || !name.trim()) {
-        return reply.code(400).send({ error: 'name is required' });
+      let parsed: StrainBody;
+      try {
+        parsed = StrainSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
-      if (!type || !['auto', 'photo'].includes(type)) {
-        return reply.code(400).send({ error: 'type must be "auto" or "photo"' });
-      }
+      const { name, type, genetics, notes } = parsed;
 
       const db = getDB();
       const now = new Date().toISOString();
@@ -67,14 +69,14 @@ const strainsRoutes: FastifyPluginAsync = async (app) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid strain id' });
 
-      const { name, type, genetics, notes } = request.body as StrainBody;
-
-      if (!name || !name.trim()) {
-        return reply.code(400).send({ error: 'name is required' });
+      let parsed: StrainBody;
+      try {
+        parsed = StrainSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
-      if (!type || !['auto', 'photo'].includes(type)) {
-        return reply.code(400).send({ error: 'type must be "auto" or "photo"' });
-      }
+      const { name, type, genetics, notes } = parsed;
 
       const db = getDB();
       const existing = db.prepare('SELECT * FROM cv_strains WHERE strain_id = ?').get(id) as Record<string, unknown> | undefined;

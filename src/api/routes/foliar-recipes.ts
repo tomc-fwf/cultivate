@@ -1,23 +1,33 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
 
 interface IdParams { id: string }
 
-interface IngredientBody {
-  input_id: number;
-  rate_value: number;
-  rate_unit: string;
-  order_index: number;
-  notes?: string | null;
-}
+const FoliarIngredientSchema = z.object({
+  input_id: z.number().int().positive(),
+  rate_value: z.number().positive(),
+  rate_unit: z.string().min(1),
+  order_index: z.number().int().nonnegative(),
+  notes: z.string().nullable().optional(),
+});
 
-interface RecipeBody {
-  name?: string;
-  purpose?: string | null;
-  notes?: string | null;
-  ingredients: IngredientBody[];
-}
+const FoliarRecipeCreateSchema = z.object({
+  name: z.string().min(1).max(200),
+  purpose: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(FoliarIngredientSchema).min(1, 'At least one ingredient is required'),
+});
+
+const FoliarRecipeVersionSchema = z.object({
+  purpose: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(FoliarIngredientSchema).min(1, 'At least one ingredient is required'),
+});
+
+type FoliarRecipeCreateBody = z.infer<typeof FoliarRecipeCreateSchema>;
+type FoliarRecipeVersionBody = z.infer<typeof FoliarRecipeVersionSchema>;
 
 /**
  * Increment version string: "1.0" → "1.1", "1.9" → "1.10", "2.0" → "2.1"
@@ -127,19 +137,18 @@ const foliarRecipesRoutes: FastifyPluginAsync = async (app) => {
    * POST / — create first version of a foliar recipe.
    * Returns 409 if an active recipe with the same name already exists (use /version instead).
    */
-  app.post<{ Body: RecipeBody }>(
+  app.post<{ Body: FoliarRecipeCreateBody }>(
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const body = request.body as RecipeBody;
+      let body: FoliarRecipeCreateBody;
+      try {
+        body = FoliarRecipeCreateSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
+      }
       const { name, purpose, notes, ingredients } = body;
-
-      if (!name || name.trim().length === 0) {
-        return reply.code(400).send({ error: 'name is required and must be a non-empty string' });
-      }
-      if (!ingredients || ingredients.length === 0) {
-        return reply.code(400).send({ error: 'At least one ingredient is required' });
-      }
 
       const db = getDB();
       const existing = db
@@ -188,7 +197,7 @@ const foliarRecipesRoutes: FastifyPluginAsync = async (app) => {
   /**
    * POST /:id/version — create new version, superseding the given foliar_recipe_id.
    */
-  app.post<{ Params: IdParams; Body: RecipeBody }>(
+  app.post<{ Params: IdParams; Body: FoliarRecipeVersionBody }>(
     '/:id/version',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
@@ -196,12 +205,14 @@ const foliarRecipesRoutes: FastifyPluginAsync = async (app) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid recipe id' });
 
-      const body = request.body as RecipeBody;
-      const { purpose, notes, ingredients } = body;
-
-      if (!ingredients || ingredients.length === 0) {
-        return reply.code(400).send({ error: 'At least one ingredient is required' });
+      let body: FoliarRecipeVersionBody;
+      try {
+        body = FoliarRecipeVersionSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
+      const { purpose, notes, ingredients } = body;
 
       const existing = db
         .prepare('SELECT * FROM cv_foliar_recipes WHERE foliar_recipe_id=? AND active=1')

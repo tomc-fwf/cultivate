@@ -173,7 +173,7 @@ const pesticideApplicationsRoutes: FastifyPluginAsync = async (app) => {
    */
   app.post<{ Body: PesticideCreateBody }>(
     '/',
-    { preHandler: requireAuth },
+    { preHandler: requireRole('grower') },
     async (request, reply) => {
       let body: PesticideCreateBody;
       try { body = PesticideCreateSchema.parse(request.body); }

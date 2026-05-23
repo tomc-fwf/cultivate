@@ -148,7 +148,7 @@ const fertigationApplicationsRoutes: FastifyPluginAsync = async (app) => {
    */
   app.post<{ Body: FertigationCreateBody }>(
     '/',
-    { preHandler: requireAuth },
+    { preHandler: requireRole('grower') },
     async (request, reply) => {
       let body: FertigationCreateBody;
       try { body = FertigationCreateSchema.parse(request.body); }

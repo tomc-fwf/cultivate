@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
 
@@ -8,24 +9,37 @@ type RecipeName = (typeof RECIPE_NAMES)[number];
 interface IdParams { id: string }
 interface NameParams { name: string }
 
-interface IngredientBody {
-  input_id: number;
-  rate_value: number;
-  rate_unit: string;
-  order_index: number;
-  notes?: string | null;
-}
+const IngredientSchema = z.object({
+  input_id: z.number().int().positive(),
+  rate_value: z.number().positive(),
+  rate_unit: z.string().min(1),
+  order_index: z.number().int().nonnegative(),
+  notes: z.string().nullable().optional(),
+});
 
-interface RecipeBody {
-  name?: RecipeName;
-  ec_target_low?: number | null;
-  ec_target_high?: number | null;
-  ph_target_low?: number | null;
-  ph_target_high?: number | null;
-  mixing_order?: string | null;
-  notes?: string | null;
-  ingredients: IngredientBody[];
-}
+const RecipeCreateSchema = z.object({
+  name: z.enum(RECIPE_NAMES),
+  ec_target_low: z.number().nullable().optional(),
+  ec_target_high: z.number().nullable().optional(),
+  ph_target_low: z.number().nullable().optional(),
+  ph_target_high: z.number().nullable().optional(),
+  mixing_order: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema).min(1, 'At least one ingredient is required'),
+});
+
+const RecipeVersionSchema = z.object({
+  ec_target_low: z.number().nullable().optional(),
+  ec_target_high: z.number().nullable().optional(),
+  ph_target_low: z.number().nullable().optional(),
+  ph_target_high: z.number().nullable().optional(),
+  mixing_order: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  ingredients: z.array(IngredientSchema).min(1, 'At least one ingredient is required'),
+});
+
+type RecipeCreateBody = z.infer<typeof RecipeCreateSchema>;
+type RecipeVersionBody = z.infer<typeof RecipeVersionSchema>;
 
 /**
  * Increment version string: "1.0" → "1.1", "1.9" → "1.10", "2.0" → "2.1"
@@ -177,21 +191,18 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
    * POST / — create first version of a recipe for a name.
    * Returns 409 if an active recipe already exists for that name (use /version instead).
    */
-  app.post<{ Body: RecipeBody }>(
+  app.post<{ Body: RecipeCreateBody }>(
     '/',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
-      const body = request.body as RecipeBody;
+      let body: RecipeCreateBody;
+      try {
+        body = RecipeCreateSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
+      }
       const { name, ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients } = body;
-
-      if (!name || !RECIPE_NAMES.includes(name)) {
-        return reply.code(400).send({
-          error: `name is required and must be one of: ${RECIPE_NAMES.join(', ')}`,
-        });
-      }
-      if (!ingredients || ingredients.length === 0) {
-        return reply.code(400).send({ error: 'At least one ingredient is required' });
-      }
 
       const db = getDB();
       const existing = db
@@ -245,7 +256,7 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
   /**
    * POST /:id/version — create new version, superseding the given recipe_id.
    */
-  app.post<{ Params: IdParams; Body: RecipeBody }>(
+  app.post<{ Params: IdParams; Body: RecipeVersionBody }>(
     '/:id/version',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
@@ -253,12 +264,14 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
       const id = Number(request.params.id);
       if (isNaN(id)) return reply.code(400).send({ error: 'Invalid recipe id' });
 
-      const body = request.body as RecipeBody;
-      const { ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients } = body;
-
-      if (!ingredients || ingredients.length === 0) {
-        return reply.code(400).send({ error: 'At least one ingredient is required' });
+      let body: RecipeVersionBody;
+      try {
+        body = RecipeVersionSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
+      const { ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients } = body;
 
       const existing = db
         .prepare('SELECT * FROM cv_fertigation_recipes WHERE recipe_id=? AND active=1')

@@ -128,7 +128,7 @@ const containerAmendmentsRoutes: FastifyPluginAsync = async (app) => {
    */
   app.post<{ Body: AmendmentCreateBody }>(
     '/',
-    { preHandler: requireAuth },
+    { preHandler: requireRole('grower') },
     async (request, reply) => {
       let body: AmendmentCreateBody;
       try { body = AmendmentCreateSchema.parse(request.body); }

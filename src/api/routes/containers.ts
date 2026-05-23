@@ -1,4 +1,5 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
 
@@ -6,6 +7,25 @@ interface IdParams { id: string }
 
 const VALID_STATES = ['ready', 'active', 'empty', 'teardown', 'startup', 'out_of_service'] as const;
 type ContainerState = (typeof VALID_STATES)[number];
+
+const ContainerStateSchema = z.object({
+  to_state: z.enum(VALID_STATES),
+  notes: z.string().optional(),
+});
+
+const BulkSetStateSchema = z.object({
+  to_state: z.enum(VALID_STATES),
+  scope: z.enum(['all', 'zone', 'sub_zone', 'row']),
+  scope_id: z.string().optional(),
+  notes: z.string().optional(),
+}).refine(
+  (data) => data.scope === 'all' || data.scope_id !== undefined,
+  { message: 'scope_id is required when scope is not "all"', path: ['scope_id'] },
+);
+
+const ContainerNotesSchema = z.object({
+  notes: z.string(),
+});
 
 /**
  * Fetch item names from farmstock catalog (best-effort; returns empty map on failure).
@@ -290,18 +310,19 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
    * PATCH /:id/state — manual state update (admin only).
    * Only valid manual transitions: any → out_of_service, out_of_service → ready.
    */
-  app.patch<{ Params: IdParams; Body: { to_state: string; notes?: string } }>(
+  app.patch<{ Params: IdParams; Body: z.infer<typeof ContainerStateSchema> }>(
     '/:id/state',
     { preHandler: requireAdmin },
     async (request, reply) => {
       const containerId = request.params.id;
-      const { to_state, notes } = request.body as { to_state: string; notes?: string };
-
-      if (!to_state || !VALID_STATES.includes(to_state as ContainerState)) {
-        return reply.code(400).send({
-          error: `to_state must be one of: ${VALID_STATES.join(', ')}`,
-        });
+      let parsed: z.infer<typeof ContainerStateSchema>;
+      try {
+        parsed = ContainerStateSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
+      const { to_state, notes } = parsed;
 
       const db = getDB();
 
@@ -355,23 +376,18 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
    * Sets all containers in a given scope (zone, sub_zone, row, or all) to a target state.
    * Body: { to_state, scope: "all"|"zone"|"sub_zone"|"row", scope_id?: string }
    */
-  app.post<{ Body: { to_state: string; scope: string; scope_id?: string; notes?: string } }>(
+  app.post<{ Body: z.infer<typeof BulkSetStateSchema> }>(
     '/admin/bulk-set-state',
     { preHandler: requireAdmin },
     async (request, reply) => {
-      const { to_state, scope, scope_id, notes } = request.body as {
-        to_state: string; scope: string; scope_id?: string; notes?: string;
-      };
-
-      if (!to_state || !VALID_STATES.includes(to_state as ContainerState)) {
-        return reply.code(400).send({ error: `to_state must be one of: ${VALID_STATES.join(', ')}` });
+      let parsed: z.infer<typeof BulkSetStateSchema>;
+      try {
+        parsed = BulkSetStateSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
       }
-      if (!['all', 'zone', 'sub_zone', 'row'].includes(scope)) {
-        return reply.code(400).send({ error: 'scope must be one of: all, zone, sub_zone, row' });
-      }
-      if (scope !== 'all' && !scope_id) {
-        return reply.code(400).send({ error: `scope_id is required when scope is "${scope}"` });
-      }
+      const { to_state, scope, scope_id, notes } = parsed;
 
       const db = getDB();
       const now = new Date().toISOString();
@@ -475,12 +491,19 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
   /**
    * PATCH /:id/notes — update container and/or state notes. Requires supervisor+.
    */
-  app.patch<{ Params: IdParams; Body: { notes: string } }>(
+  app.patch<{ Params: IdParams; Body: z.infer<typeof ContainerNotesSchema> }>(
     '/:id/notes',
     { preHandler: requireRole('supervisor') },
     async (request, reply) => {
       const containerId = request.params.id;
-      const { notes } = request.body as { notes: string };
+      let parsed: z.infer<typeof ContainerNotesSchema>;
+      try {
+        parsed = ContainerNotesSchema.parse(request.body);
+      } catch (err: unknown) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
+      }
+      const { notes } = parsed;
 
       const db = getDB();
 
