@@ -2179,3 +2179,263 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - Committed d394512 and pushed to origin/master
 - The move route does NOT create a METRC sync event — moves within a batch do not require METRC notification in Phase 1 (Phase 4 will add this)
 - If the source container had multiple plants (plants_per_container > 1), only the moved plant's assignment changes; remaining plants stay in the source (source stays 'active')
+
+---
+
+## Task: Audit/Reconciliation Mode (P2-09)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/tag-assignments` list endpoint to `src/api/routes/tag-assignments.ts`. Returns all active (unassigned_at IS NULL) plant assignments with optional `?batch_id` and `?sub_zone_id` filters. Sorted sub_zone → row_number → container position. Response: `{ total, assignments[] }` with the full ASSIGNMENT_SELECT enrichment (strain_name, row_id, sub_zone_id, container_state, etc.).
+- Added `api.getTagAssignments(params)` method to `client/src/api.js`.
+- Created `client/src/pages/containers/AuditMode.jsx` — 3-step guided audit workflow at `/audit` (minRole=supervisor):
+  - **Step 1 (Setup)**: Batch selector (active batches only), sub-zone selector (auto-filters to batch's sub_zone_id when batch is selected), Start Audit button.
+  - **Step 2 (Walk)**: Loads tagged assignments via `getTagAssignments`. For each container: shows container_id, strain, and last 4 digits of METRC tag in large display (5xl). Three tap targets: "Verified ✓" (green), "Tag Missing ✗" (red), "Mismatch ⚠" (amber). Auto-advances to next unreviewed container on tap. Progress bar + navigation buttons. Finish Audit button available at any point.
+  - **Step 3 (Report)**: Summary 2×2 grid (verified / missing / mismatch / not reviewed). Discrepancy list showing container_id, strain, tag last-4, and MISSING/MISMATCH badge. "↓ Export CSV" button generates a downloadable CSV. "New Audit" resets to step 1.
+- Added Compliance section with "Tag Audit" link to `ApplicationsHub.jsx` (above the existing METRC section).
+- Registered `/audit` route in `App.jsx` (minRole=supervisor).
+
+### Key Decisions
+- Audit walks only tagged assignments (untagged plants have nothing to verify by physical inspection). Untagged placements are filtered out on load.
+- Container state is held in the root `AuditMode` component and passed down to child steps — this allows the report step to access the full container list from the walk step without re-fetching.
+- Sub-zone selector auto-restricts to the batch's `sub_zone_id` when a batch is selected (batch's zone may be a subset of all 8 sub-zones).
+- CSV export is client-side (Blob → URL.createObjectURL) — no server round-trip needed.
+- Progress bar auto-advance logic: after recording an outcome, finds the next unreviewed container starting from current+1 (wraps to start if needed).
+
+### Files Modified/Created
+- `src/api/routes/tag-assignments.ts` — `GET /` list endpoint added (27 lines)
+- `client/src/api.js` — `getTagAssignments` method added
+- `client/src/pages/containers/AuditMode.jsx` — new file (~310 lines)
+- `client/src/App.jsx` — import + `/audit` route (minRole=supervisor)
+- `client/src/pages/applications/ApplicationsHub.jsx` — Compliance section with Tag Audit link
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes clean; committed 7a1c9ca and pushed to origin/master
+- The audit does not persist results to the database — it is a session-only workflow. If persistence is needed in the future, a `cv_audit_sessions` table would capture the outcome per assignment.
+- The `GET /api/tag-assignments` list endpoint is available for other consumers (reporting, reconciliation) since it lists all active assignments with rich joins.
+- Next Phase 2 items from backlog: Offline Mode hardening (P2-02), Inspection Mode row-walk (P2-03), Bulk Teardown/Startup (P2-07).
+
+## Task: Draft persistence on remaining forms (HIGH-14)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added 3-second debounce localStorage draft persistence to three forms that were missing it
+- FertigationRecipeEdit: persists ecLow/High, phLow/High, mixingOrder, notes, ingredients, and name (new only); draft key `cv_draft_fertigation_recipe_{id|new}`
+- FoliarRecipeEdit: persists name, purpose, notes, ingredients; draft key `cv_draft_foliar_recipe_{id|new}`
+- PlantReplacementForm: persists notes only (sole user-entered field); draft key `cv_draft_plant_replacement_{containerId}`
+
+### Key Decisions
+- For recipe versioning (`isVersioning=true`), draft is restored INSIDE the API `.then()` callback after API data is loaded, so draft values override API baseline values — preserves in-progress edits across interruptions
+- For new recipes (`isVersioning=false`), draft is restored synchronously in the existing `if (!isVersioning)` branch before the early `return`
+- `name` is not restored when versioning since it's a locked read-only field in that mode
+- `useCallback` and `useRef` added to imports in all three files; pattern mirrors FertigationNew.jsx exactly
+
+### Files Modified/Created
+- `client/src/pages/recipes/FertigationRecipeEdit.jsx` — added saveDraft + debounce + restore
+- `client/src/pages/recipes/FoliarRecipeEdit.jsx` — added saveDraft + debounce + restore
+- `client/src/pages/containers/PlantReplacementForm.jsx` — added saveDraft + debounce + restore
+
+### Notes for Next Tasks
+- All three forms clear their draft on successful submit before navigate()
+- npm run build passes (963082d)
+
+---
+
+## Task: PDF cultivation record — browser print (HIGH-08)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `buildPrintHtml(record)` function to `CultivationRecord.jsx` that generates a complete styled HTML document from the existing `getCultivationRecord` API response
+- Added `openPrintWindow(record)` that uses `window.open('', '_blank')` + `document.write()` pattern (same as ContainerLabels.jsx) and auto-triggers `window.print()` on load
+- Added "Print / Save as PDF" button (green, primary) above the existing JSON download button
+- Removed the "PDF export will be available in Phase 3" placeholder text
+- Seven sections rendered: Fertigation (with expanded ingredient chips), Foliar, Pesticide, Container Amendments, Observations, Harvest Events, Waste Trim
+- Header: batch name, strain, sub-zone, sow date, METRC UID, plant count in dark-green meta grid
+- Footer: Cultivate · Fairwater Farm · MN Statute 342.25, export timestamp CT
+- Style: Fraunces serif headers, JetBrains Mono for all numbers/codes, earthy palette (#faf6ed/#1f3320/#a04727) matching recipe print cards
+
+### Key Decisions
+- Used `window.open('', '_blank')` + `document.write()` (not `window.print()` on the same page) so the cultivation record prints as a standalone document without the app chrome
+- HTML-escaped all user data via `esc()` to prevent XSS if any batch/product data contains special characters
+- `fmtDate()` adds `T12:00:00` suffix for date-only strings to avoid UTC midnight timezone shift
+- Pesticide section is the widest table (11 columns) — font-size 8.5px handles it without horizontal scroll on letter paper
+- `phi_compliant` is stored as SQLite INTEGER 0/1; checks `=== 1` and `=== 0` rather than truthiness
+
+### Files Modified/Created
+- `client/src/pages/exports/CultivationRecord.jsx` — added ~273 lines of print infrastructure + button
+
+### Notes for Next Tasks
+- Fertigation ingredient chips show `input #N` (input_id) because the cultivation-record endpoint fetches ingredients without a name join; if richer ingredient labels are needed, add a JOIN to `cv_crop_inputs` in the exports.ts cultivation-record query
+- The print window does not require pop-up permissions on Safari iOS (uses synchronous write), but desktop Chrome/Firefox will block if pop-ups are disabled — the existing alert() handles that
+
+---
+
+## Task: Inspection Mode — row-walk swipe navigation (P2-02)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `client/src/pages/containers/InspectionMode.jsx` — full-screen overlay at `/inspect/:rowId` (e.g. `/inspect/Z1-A-R3`)
+- Top bar: row ID (font-mono), progress counter (N/total), Exit button
+- Main card: container position (large mono), state chip, REI/obs badges, strain name + batch status + days in state, METRC tag last 4 (with "no tag assigned" amber warning for active containers), recent observations (last 2, loaded lazily per container, 30-day window)
+- Touch swipe: left = next container, right = previous; horizontal vs. vertical scroll detected via touchMove tracking to avoid scroll interference
+- Keyboard nav: ArrowLeft/ArrowRight (adds event listener on mount)
+- Prev/Next arrow buttons with position label (C5 → / ← C4)
+- Harvest Readiness Panel: shown only when `batch_status === 'harvest_window'`; maturity % slider (0–100, step 5), Ready/Not Ready toggle (full-width, 56pt tap targets), priority picker (1–5 chips); POSTs to `api.createObservation({ category: 'harvest_readiness', maturity_pct, ready_to_harvest, harvest_priority, note })`; draft persisted to `cv_draft_readiness_{containerId}`; invalidates obs cache after save
+- Bottom action bar (always visible): 5 action buttons (Observe, Foliar, Pesticide, Loss, Photo) navigating to existing forms with `?container_id=` + `?return_to=` pre-filled
+- Added import + `/inspect/:rowId` route to `App.jsx`
+- Added "Inspect Row →" buttons to `SubZoneFieldMap.jsx` row headers (teal text, navigates to `/inspect/Z${zone}-${desig}-R${rn}`)
+- Added "Inspect Rows" teal section to `BatchDetail.jsx` for field-stage batches (field-veg, field-flower, flush, harvest_window, harvesting) — 5 row buttons (R1–R5) derived from `batch.sub_zone_id`
+
+### Key Decisions
+- Full-screen `fixed inset-0 z-50` overlay to cover the NavBar, matching ContainerScanner pattern
+- Observations loaded per-container on index change (simple, no pre-fetch complexity); `obsKey` counter state allows forced reload after harvest readiness save
+- Swipe detection uses `touchMove` horizontal vs vertical comparison (dx > dy + 10) to allow vertical scrolling without triggering nav
+- `parseRowId('Z1-A-R3')` → `{ subZoneId: 'Z1A', rowNumber: 3 }` — filters full sub-zone container list by `row_number` field
+- Keyboard listener uses `containers.length` in dep array; `setIdx(i => Math.min(...))` functional update is safe without containers in deps
+- `return_to` query param is URL-encoded via `encodeURIComponent`; existing forms don't use it yet but it's wired for future use
+- Photo action navigates to ContainerDetail (no standalone photo page exists)
+
+### Files Modified/Created
+- `client/src/pages/containers/InspectionMode.jsx` (new — 330 lines)
+- `client/src/App.jsx` (import + route `/inspect/:rowId`)
+- `client/src/pages/containers/SubZoneFieldMap.jsx` (row header: teal "Inspect Row →" button)
+- `client/src/pages/batches/BatchDetail.jsx` ("Inspect Rows" teal section for field batches)
+
+### Notes for Next Tasks
+- `npm run build` passes clean; committed 17e752a and pushed to origin/master
+- `return_to` query param on action buttons is wired but not consumed by the destination forms — any form that wants "back to inspection mode" behavior would need to check `searchParams.get('return_to')` on successful save
+- Harvest Readiness observations clear their draft after successful save; the obs reload (via `obsKey`) shows the new entry in "Recent Observations" without a page refresh
+- Phase 2 next items from backlog: Offline Mode hardening, Bulk Startup workflow, Voice Input for notes
+
+---
+
+## Task: Applicator Performance Metrics (P3-05)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Created `src/api/routes/analytics.ts` with `GET /api/analytics/applicators` — UNION ALL query across all four application tables (cv_applications_fertigation, cv_applications_foliar, cv_applications_pesticide, cv_container_amendments) with per-applicator aggregation: application_count, fertigation_count, pesticide_count, avg_ec_deviation (ABS of measured vs recipe midpoint), first/last application timestamps
+- Registered analytics routes in `src/api/app.ts` at prefix `/api/analytics`
+- Added `getApplicatorMetrics()` to `client/src/api.js`
+- Created `client/src/pages/analytics/ApplicatorMetrics.jsx` — table with date range filter, EC deviation color-coded (amber if >0.2), pesticide count highlighted red
+- Added route `/analytics/applicators` to `client/src/App.jsx`
+- Added Analytics section to `client/src/pages/applications/ApplicationsHub.jsx`
+- `npx tsc --noEmit` passes; `npm run build` passes
+
+### Key Decisions
+- Used CTE with UNION ALL for the four-table aggregation — cleanest SQL for this cross-table aggregate; no N+1 risk
+- EC deviation computed only when both ec_target_low and ec_target_high are non-null (CASE guard prevents spurious 0-deviation rows)
+- Date filter params duplicated 4x in the params array (one set per UNION sub-query) since SQLite/better-sqlite3 uses positional `?` parameters
+- avg_ec_deviation rounded to 3 decimal places in backend response
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` (new)
+- `src/api/app.ts` (import + register)
+- `client/src/api.js` (getApplicatorMetrics method)
+- `client/src/pages/analytics/ApplicatorMetrics.jsx` (new)
+- `client/src/App.jsx` (import + route)
+- `client/src/pages/applications/ApplicationsHub.jsx` (Analytics section)
+
+### Notes for Next Tasks
+- `/api/analytics` prefix is established for Phase 3 analytics features; next analytics endpoints can be added to analytics.ts or as separate files registered under the same prefix
+- The UNION ALL approach scales to additional metric columns without query restructure
+
+---
+
+## Task: Annual Pesticide Use Summary (P3-06)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/analytics/pesticide-summary` to `src/api/routes/analytics.ts`. Groups `cv_applications_pesticide` by `input_id` with a `?year=YYYY` filter (defaults to current year). Returns per-product: `product_name` (from `product_name_snapshot` for 5-year retention compliance), `epa_reg_no` (from `epa_reg_no_snapshot`), `application_count`, `total_volume_applied`, `volume_unit`, `date_range`, `unique_batches_count`, `target_pests` (distinct list). SQLite `GROUP_CONCAT(DISTINCT ...)` + JS deduplication for target pests.
+- Added `getPesticideSummary(params)` to `client/src/api.js`.
+- Created `client/src/pages/analytics/PesticideSummary.jsx` at route `/analytics/pesticide-summary`. Year picker (current year + prior 4). Table showing per-product rows with product name, EPA reg #, app count, total volume, unique batches, date range, target pest chips. Print button calls `window.print()` with an injected `@media print` stylesheet using earthy palette (Fraunces/JetBrains Mono, cream/leaf-dark/rust). Loading, error+retry, and empty states all handled.
+- Registered `/analytics/pesticide-summary` route in `client/src/App.jsx`.
+- Added "Annual Pesticide Summary" entry to the Analytics section in `ApplicationsHub.jsx`.
+- `npx tsc --noEmit` passes clean; `npm run build` passes; committed b4052bb and pushed to origin/master.
+
+### Key Decisions
+- Used `COALESCE(MAX(product_name_snapshot), 'Product #' || input_id)` — the aggregate `MAX()` satisfies SQLite's GROUP BY requirement while picking the snapshot value when present.
+- Print uses `window.print()` on the current page (not `window.open()`) to keep implementation simple; `@media print` CSS hides the `.no-print` nav elements and applies the earthy palette.
+- Target pest deduplication is done in JS after `GROUP_CONCAT(DISTINCT ...)` to handle any whitespace/case collation edge cases.
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` — pesticide-summary endpoint added
+- `client/src/api.js` — getPesticideSummary method added
+- `client/src/pages/analytics/PesticideSummary.jsx` — new file
+- `client/src/App.jsx` — import + route registered
+- `client/src/pages/applications/ApplicationsHub.jsx` — Annual Pesticide Summary link in Analytics section
+
+### Notes for Next Tasks
+- The endpoint returns `{ year, products: [...] }` envelope — the `year` field echoes the resolved year for the client to display.
+- Print stylesheet is injected via a `<style>` tag in the JSX component — not a shared CSS module. If multiple pages need the same print styles, extract to a shared print.css.
+- Phase 3 analytics next: EC/pH trend charts (recharts), recipe performance analysis.
+
+---
+
+## Task: Annual Batch Tracker Gantt view (P3-01)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/analytics/annual-tracker?year=YYYY` to `src/api/routes/analytics.ts`. Returns all batches whose date range overlaps the requested year, joined with cv_strains for strain_name/strain_type.
+- Added `api.getAnnualTracker(params)` method to `client/src/api.js`.
+- Created `client/src/pages/analytics/AnnualTracker.jsx` — CSS Grid Gantt chart at `/analytics/annual`:
+  - X axis: 52 calendar weeks (17px/week = 884px total, scrollable)
+  - Y axis: 8 sub-zones (Z1A–Z4B) as fixed rows
+  - Batch bars positioned via absolute px math: left/width derived from (date - yearStart) / yearTotalMs * totalW
+  - Colors: auto=green (dark=open, light=closed), photo=purple (dark=open, light=closed)
+  - Bar label (strain name, truncated) shown when bar width > 36px
+  - Hover tooltip (fixed-position, follows cursor): strain name, sub-zone, plant count, date range, days open, status, METRC UID tail
+  - Click bar → navigate to /batches/:id
+  - Today marker (red vertical line) when viewing current year
+  - Month tick labels at month boundaries; major week grid lines every 4 weeks
+  - Year picker (‹/›) — no upper bound, empty chart for years with no data
+  - Legend row beneath chart
+- Added route `/analytics/annual` to `client/src/App.jsx`
+- Added "Annual Batch Tracker" entry to Analytics section in `client/src/pages/applications/ApplicationsHub.jsx`
+
+### Key Decisions
+- Dates are parsed as local midnight (not UTC) via `new Date(y, m-1, d)` to avoid day-shift from timezone offset.
+- Open batches extend to `min(today, yearEnd)` so the bar accurately shows duration without extending into next year.
+- `yearEnd` is exclusive (`new Date(year+1, 0, 1)`) for clean millisecond math.
+- Tooltip uses `position: fixed` + clientX/clientY — works correctly across the horizontal scroll container.
+- Chunk size warning is pre-existing (QR scanner session); not caused by this change.
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` — annual-tracker route added
+- `client/src/api.js` — getAnnualTracker method added
+- `client/src/pages/analytics/AnnualTracker.jsx` — new
+- `client/src/App.jsx` — import + /analytics/annual route
+- `client/src/pages/applications/ApplicationsHub.jsx` — Analytics section entry added
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes (6.96s, 250KB gzipped)
+- Committed and pushed as cffe592
+- The Gantt chart has no test coverage — it's a pure UI component; business logic lives in the backend query
+
+---
+
+## Task: Recipe Performance Analysis (P3-03)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/analytics/recipe-performance` to `src/api/routes/analytics.ts`. Uses two CTEs: `batch_recipes` (distinct batch_id/recipe_id pairs with min/max effective_from for date range) and `harvest_totals` (final_harvest event weights normalized to grams with unit conversion for g/oz/lb). Joins through `cv_fertigation_recipes`, `cv_batch_stage_recipes`, and `cv_batches` to compute per-recipe-version: `batches_used`, `total_wet_weight_g`, `harvest_count`, `avg_yield_per_plant_g` (total_wet_weight_g / sum of plant_count_initial), and `date_range`.
+- Added `getRecipePerformance()` to `client/src/api.js`.
+- Created `client/src/pages/analytics/RecipePerformance.jsx` at route `/analytics/recipe-performance`. Table showing per-recipe-version: recipe name, version badge, batches used, plants harvested, avg yield per plant (g, mono font), total harvest weight (kg), date range. Loading/error/empty states with retry. Amber disclaimer note about correlation vs. causation.
+- Added import + route `/analytics/recipe-performance` to `client/src/App.jsx`.
+- Added "Recipe Performance" entry to the Analytics section in `client/src/pages/applications/ApplicationsHub.jsx`.
+
+### Key Decisions
+- CTE approach avoids row multiplication: `batch_recipes` deduplicates (batch_id, recipe_id) pairs before the aggregation so `SUM(b.plant_count_initial)` and `SUM(ht.weight_g)` aggregate correctly with no double-counting risk.
+- Weight unit conversion factors: oz → g = × 28.3495, lb → g = × 453.592; fallback passes `wet_weight` as-is for unknown units.
+- Only recipes with at least one associated final_harvest event appear in results (inner JOIN on `harvest_totals` filters out recipe versions used only on in-progress batches).
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` — recipe-performance endpoint added (66 lines)
+- `client/src/api.js` — getRecipePerformance method added
+- `client/src/pages/analytics/RecipePerformance.jsx` — new file (130 lines)
+- `client/src/App.jsx` — import + /analytics/recipe-performance route
+- `client/src/pages/applications/ApplicationsHub.jsx` — Recipe Performance link in Analytics section
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes; committed and pushed as 0ff016b
+- Results will be empty until at least one batch reaches final_harvest status — expected for a new operation
+- Phase 3 analytics still pending: EC/pH trend charts (recharts), cross-batch strain × sub-zone comparisons
