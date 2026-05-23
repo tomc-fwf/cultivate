@@ -369,6 +369,7 @@ function AddPackageForm({ strains, onSave, onCancel }) {
 
 export default function SeedVault() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [packages, setPackages] = useState([]);
   const [strains, setStrains] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -390,6 +391,10 @@ export default function SeedVault() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    if (searchParams.get('add') === '1') setShowAddForm(true);
+  }, []);
 
   // Derived year list from packages plus current year
   const currentYear = new Date().getFullYear();

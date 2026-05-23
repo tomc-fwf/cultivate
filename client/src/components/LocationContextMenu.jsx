@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sprout, MapPin, Droplets, ClipboardList, X, Pencil } from 'lucide-react';
+import { Sprout, MapPin, Droplets, ClipboardList, X, Pencil, Package, Plus, Leaf, Map, Footprints } from 'lucide-react';
 import { api } from '../api';
 
 // 60px = NavBar height; extra 12px breathing room; safe-area for iOS home bar
@@ -157,6 +157,26 @@ export function AddSubLocationModal({ location, onClose, onRefresh }) {
   );
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function isSeedVault(location) {
+  return location.name?.toLowerCase().includes('seed vault') ||
+         location.name?.toLowerCase().includes('seed-vault');
+}
+
+const ICON_MAP = {
+  Pencil,
+  Package,
+  Plus,
+  Droplets,
+  Leaf,
+  Map,
+  Footprints,
+  Sprout,
+  MapPin,
+  ClipboardList,
+};
+
 // ─── Context Menu ────────────────────────────────────────────────────────────
 
 export default function LocationContextMenu({ location, level, onClose, anchorPosition, onEdit, onRefresh }) {
@@ -165,41 +185,134 @@ export default function LocationContextMenu({ location, level, onClose, anchorPo
   const [isMouse] = useState(() => window.matchMedia('(pointer: fine)').matches);
 
   const firstBatch = location.batches?.[0] ?? location.batch ?? null;
+  const hasActiveBatch = !!firstBatch;
+  const isVault = isSeedVault(location);
+  const category = location.location_category;
+  const isSubLocation = level === 'sub_location';
 
-  const actions = [
-    {
-      label: 'Edit Location',
-      icon: Pencil,
-      onClick: () => { onEdit(location); onClose(); },
-    },
-    {
-      label: 'Add Plant Group',
-      icon: Sprout,
-      onClick: () => { navigate(`/batches/new?location_id=${location.location_id}`); onClose(); },
-    },
-  ];
+  const actions = [];
 
-  if (level === 'location') {
+  // ── Edit Location — always first ─────────────────────────────────────────
+  actions.push({
+    label: 'Edit Location',
+    icon: 'Pencil',
+    onClick: () => { onEdit(location); onClose(); },
+  });
+
+  // ── Seed Vault ────────────────────────────────────────────────────────────
+  if (isVault) {
+    actions.push({
+      label: 'View Seed Packages',
+      icon: 'Package',
+      onClick: () => { navigate('/seed-vault'); onClose(); },
+    });
+    actions.push({
+      label: 'Add Seed Package',
+      icon: 'Plus',
+      onClick: () => { navigate('/seed-vault?add=1'); onClose(); },
+    });
+  }
+
+  // ── Outdoor sub-location (Z1A, Z1B, etc.) ────────────────────────────────
+  else if (isSubLocation && category === 'outdoor') {
+    if (hasActiveBatch) {
+      actions.push({
+        label: 'Apply Fertigation',
+        icon: 'Droplets',
+        onClick: () => { navigate(`/applications/fertigation/new?batch_id=${firstBatch.batch_id}`); onClose(); },
+      });
+      actions.push({
+        label: 'Log Foliar',
+        icon: 'Leaf',
+        onClick: () => { navigate(`/applications/foliar/new?batch_id=${firstBatch.batch_id}`); onClose(); },
+      });
+      // Derive first row ID from sub_zone_id (e.g. 'Z1A' → 'Z1-A-R1')
+      const szId = location.sub_zone_id ?? location.name;
+      const zone = szId?.charAt(1);
+      const desig = szId?.charAt(2);
+      if (zone && desig) {
+        actions.push({
+          label: 'Walk Row',
+          icon: 'Footprints',
+          onClick: () => { navigate(`/inspect/Z${zone}-${desig}-R1`); onClose(); },
+        });
+      }
+      actions.push({
+        label: 'View Planting Group',
+        icon: 'Sprout',
+        onClick: () => { navigate(`/batches/${firstBatch.batch_id}`); onClose(); },
+      });
+    } else {
+      actions.push({
+        label: 'Add Plant Group',
+        icon: 'Sprout',
+        onClick: () => { navigate(`/batches/new?location_id=${location.location_id}`); onClose(); },
+      });
+    }
+    actions.push({
+      label: 'View Zone Map',
+      icon: 'Map',
+      onClick: () => {
+        const szId = location.sub_zone_id ?? location.name;
+        navigate(`/containers/map/${szId}`);
+        onClose();
+      },
+    });
+  }
+
+  // ── Outdoor top-level zone ────────────────────────────────────────────────
+  else if (!isSubLocation && category === 'outdoor') {
+    const firstSubZone = location.sub_locations?.[0];
+    if (firstSubZone?.sub_zone_id) {
+      actions.push({
+        label: 'View Zone Map',
+        icon: 'Map',
+        onClick: () => { navigate(`/containers/map/${firstSubZone.sub_zone_id}`); onClose(); },
+      });
+    }
     actions.push({
       label: 'Add Sub-location',
-      icon: MapPin,
+      icon: 'MapPin',
       onClick: () => setShowAddSub(true),
     });
   }
 
-  if (firstBatch) {
+  // ── Indoor or Hoop-House ──────────────────────────────────────────────────
+  else {
     actions.push({
-      label: 'Apply Fertigation',
-      icon: Droplets,
-      onClick: () => { navigate(`/applications/fertigation/new?batch_id=${firstBatch.batch_id}`); onClose(); },
+      label: 'Add Plant Group',
+      icon: 'Sprout',
+      onClick: () => { navigate(`/batches/new?location_id=${location.location_id}`); onClose(); },
     });
+    if (hasActiveBatch) {
+      actions.push({
+        label: 'Apply Fertigation',
+        icon: 'Droplets',
+        onClick: () => { navigate(`/applications/fertigation/new?batch_id=${firstBatch.batch_id}`); onClose(); },
+      });
+      actions.push({
+        label: 'View Planting Group',
+        icon: 'Sprout',
+        onClick: () => { navigate(`/batches/${firstBatch.batch_id}`); onClose(); },
+      });
+    }
+    if (!isSubLocation) {
+      actions.push({
+        label: 'Add Sub-location',
+        icon: 'MapPin',
+        onClick: () => setShowAddSub(true),
+      });
+    }
   }
 
-  actions.push({
-    label: 'View History',
-    icon: ClipboardList,
-    onClick: () => { navigate(`/batches?location_id=${location.location_id}`); onClose(); },
-  });
+  // ── View History — always last (not for Seed Vault) ───────────────────────
+  if (!isVault) {
+    actions.push({
+      label: 'View History',
+      icon: 'ClipboardList',
+      onClick: () => { navigate(`/batches?location_id=${location.location_id}`); onClose(); },
+    });
+  }
 
   if (showAddSub) {
     return (
@@ -224,17 +337,20 @@ export default function LocationContextMenu({ location, level, onClose, anchorPo
             </button>
           </div>
           <div className="py-2" style={{ paddingBottom: SHEET_FOOTER_PB }}>
-            {actions.map(action => (
-              <button
-                key={action.label}
-                onClick={action.onClick}
-                className="w-full flex items-center gap-4 px-4 py-3.5 text-gray-800 font-medium hover:bg-gray-50 transition-colors text-left"
-                style={{ minHeight: '56px' }}
-              >
-                <action.icon size={20} className="text-gray-500 shrink-0" />
-                {action.label}
-              </button>
-            ))}
+            {actions.map(action => {
+              const IconComp = ICON_MAP[action.icon];
+              return (
+                <button
+                  key={action.label}
+                  onClick={action.onClick}
+                  className="w-full flex items-center gap-4 px-4 py-3.5 text-gray-800 font-medium hover:bg-gray-50 transition-colors text-left"
+                  style={{ minHeight: '56px' }}
+                >
+                  {IconComp && <IconComp size={20} className="text-gray-500 shrink-0" />}
+                  {action.label}
+                </button>
+              );
+            })}
           </div>
         </div>
       </>
@@ -254,16 +370,19 @@ export default function LocationContextMenu({ location, level, onClose, anchorPo
         style={{ position: 'fixed', top: y, left: x, zIndex: 50 }}
         className="bg-white rounded-2xl shadow-xl border border-gray-200 py-2 min-w-[200px]"
       >
-        {actions.map(action => (
-          <button
-            key={action.label}
-            onClick={action.onClick}
-            className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-800 hover:bg-gray-50 w-full text-left transition-colors"
-          >
-            <action.icon size={16} className="text-gray-500 shrink-0" />
-            {action.label}
-          </button>
-        ))}
+        {actions.map(action => {
+          const IconComp = ICON_MAP[action.icon];
+          return (
+            <button
+              key={action.label}
+              onClick={action.onClick}
+              className="flex items-center gap-3 px-4 py-2.5 text-sm text-gray-800 hover:bg-gray-50 w-full text-left transition-colors"
+            >
+              {IconComp && <IconComp size={16} className="text-gray-500 shrink-0" />}
+              {action.label}
+            </button>
+          );
+        })}
       </div>
     </>
   );
