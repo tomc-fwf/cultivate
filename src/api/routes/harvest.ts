@@ -61,6 +61,18 @@ const WasteTrimDisposeSchema = z.object({
 });
 type WasteTrimDisposeBody = z.infer<typeof WasteTrimDisposeSchema>;
 
+const WasteTrimHoldSchema = z.object({
+  reason: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+type WasteTrimHoldBody = z.infer<typeof WasteTrimHoldSchema>;
+
+const WasteTrimReportSchema = z.object({
+  metrc_sync_status: z.enum(['synced', 'not_required']),
+  metrc_synced_at: z.string().nullable().optional(),
+});
+type WasteTrimReportBody = z.infer<typeof WasteTrimReportSchema>;
+
 const harvestRoutes: FastifyPluginAsync = async (app) => {
 
   /**
@@ -610,6 +622,107 @@ const harvestRoutes: FastifyPluginAsync = async (app) => {
       db.prepare(
         `UPDATE cv_plant_waste_trim_events SET ${updates.join(', ')} WHERE waste_trim_id = ?`
       ).run(...values);
+
+      const updated = db.prepare(
+        'SELECT * FROM cv_plant_waste_trim_events WHERE waste_trim_id = ?'
+      ).get(id);
+      return reply.send(updated);
+    },
+  );
+
+  /**
+   * PATCH /waste-trim/:id/hold — transition waste_status from 'collected' to 'held'.
+   */
+  app.patch<{ Params: IdParams; Body: WasteTrimHoldBody }>(
+    '/waste-trim/:id/hold',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid waste trim id' });
+
+      let body: WasteTrimHoldBody;
+      try { body = WasteTrimHoldSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+
+      const db = getDB();
+
+      const existing = db.prepare(
+        'SELECT waste_trim_id, waste_status FROM cv_plant_waste_trim_events WHERE waste_trim_id = ?'
+      ).get(id) as { waste_trim_id: number; waste_status: string } | undefined;
+      if (!existing) return reply.code(404).send({ error: 'Waste trim event not found' });
+
+      if (existing.waste_status !== 'collected') {
+        return reply.code(400).send({
+          error: `Cannot hold: waste_status must be 'collected'. Current status: "${existing.waste_status}"`,
+        });
+      }
+
+      const now = new Date().toISOString();
+      const updates = ['waste_status = ?', 'waste_status_updated_at = ?', 'updated_at = ?'];
+      const values: unknown[] = ['held', now, now];
+
+      if (body.notes !== undefined) {
+        updates.push('notes = ?');
+        values.push(body.notes ?? null);
+      }
+
+      values.push(id);
+      db.prepare(
+        `UPDATE cv_plant_waste_trim_events SET ${updates.join(', ')} WHERE waste_trim_id = ?`
+      ).run(...values);
+
+      const updated = db.prepare(
+        'SELECT * FROM cv_plant_waste_trim_events WHERE waste_trim_id = ?'
+      ).get(id);
+      return reply.send(updated);
+    },
+  );
+
+  /**
+   * PATCH /waste-trim/:id/report — transition waste_status from 'disposed' to 'reported'.
+   */
+  app.patch<{ Params: IdParams; Body: WasteTrimReportBody }>(
+    '/waste-trim/:id/report',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid waste trim id' });
+
+      let body: WasteTrimReportBody;
+      try { body = WasteTrimReportSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+
+      const db = getDB();
+
+      const existing = db.prepare(
+        'SELECT waste_trim_id, waste_status FROM cv_plant_waste_trim_events WHERE waste_trim_id = ?'
+      ).get(id) as { waste_trim_id: number; waste_status: string } | undefined;
+      if (!existing) return reply.code(404).send({ error: 'Waste trim event not found' });
+
+      if (existing.waste_status !== 'disposed') {
+        return reply.code(400).send({
+          error: `Cannot report: waste_status must be 'disposed'. Current status: "${existing.waste_status}"`,
+        });
+      }
+
+      const now = new Date().toISOString();
+      const { metrc_sync_status, metrc_synced_at } = body;
+
+      db.prepare(`
+        UPDATE cv_plant_waste_trim_events
+        SET waste_status = 'reported',
+            waste_status_updated_at = ?,
+            metrc_sync_status = ?,
+            metrc_synced_at = ?,
+            updated_at = ?
+        WHERE waste_trim_id = ?
+      `).run(now, metrc_sync_status, metrc_synced_at ?? now, now, id);
 
       const updated = db.prepare(
         'SELECT * FROM cv_plant_waste_trim_events WHERE waste_trim_id = ?'

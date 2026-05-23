@@ -134,6 +134,8 @@ export const api = {
   createWasteTrim: (data) => req('POST', '/harvest/waste-trim', data),
   getWasteTrim: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/harvest/waste-trim${q ? '?' + q : ''}`); },
   disposeWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/dispose`, data),
+  holdWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/hold`, data),
+  reportWasteTrim: (id, data) => req('PATCH', `/harvest/waste-trim/${id}/report`, data),
 
   // Tag assignments
   getTagAssignments: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/tag-assignments${q ? '?' + q : ''}`); },

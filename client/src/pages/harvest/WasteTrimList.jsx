@@ -166,6 +166,7 @@ export default function WasteTrimList() {
   const [error, setError] = useState('');
   const [disposeTarget, setDisposeTarget] = useState(null);
   const [toast, setToast] = useState(null);
+  const [actionLoading, setActionLoading] = useState(null);
 
   function load() {
     setLoading(true);
@@ -186,6 +187,32 @@ export default function WasteTrimList() {
   }, []);
 
   const pendingCount = records.filter(r => r.waste_status === 'collected' || r.waste_status === 'held').length;
+
+  async function handleHold(rec) {
+    setActionLoading(rec.waste_trim_id);
+    try {
+      await api.holdWasteTrim(rec.waste_trim_id, {});
+      setToast({ message: 'Marked as held', type: 'success' });
+      load();
+    } catch (e) {
+      setToast({ message: e.message || 'Failed to update', type: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleReport(rec) {
+    setActionLoading(rec.waste_trim_id);
+    try {
+      await api.reportWasteTrim(rec.waste_trim_id, { metrc_sync_status: 'synced' });
+      setToast({ message: 'Marked as reported to METRC', type: 'success' });
+      load();
+    } catch (e) {
+      setToast({ message: e.message || 'Failed to update', type: 'error' });
+    } finally {
+      setActionLoading(null);
+    }
+  }
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 pb-10">
@@ -291,15 +318,38 @@ export default function WasteTrimList() {
                     )}
                   </div>
 
-                  {(status === 'collected' || status === 'held') && (
-                    <button
-                      onClick={() => setDisposeTarget(rec)}
-                      className="flex-shrink-0 text-xs font-semibold bg-green-50 border border-green-300 text-green-800 rounded-xl px-3 hover:bg-green-100 transition-colors"
-                      style={{ minHeight: '44px' }}
-                    >
-                      Mark Disposed
-                    </button>
-                  )}
+                  <div className="flex flex-col gap-2 flex-shrink-0">
+                    {status === 'collected' && (
+                      <button
+                        onClick={() => handleHold(rec)}
+                        disabled={actionLoading === rec.waste_trim_id}
+                        className="text-xs font-semibold bg-blue-50 border border-blue-300 text-blue-800 rounded-xl px-3 hover:bg-blue-100 transition-colors disabled:opacity-50"
+                        style={{ minHeight: '44px' }}
+                      >
+                        {actionLoading === rec.waste_trim_id ? '…' : 'Mark Held'}
+                      </button>
+                    )}
+                    {(status === 'collected' || status === 'held') && (
+                      <button
+                        onClick={() => setDisposeTarget(rec)}
+                        disabled={actionLoading === rec.waste_trim_id}
+                        className="text-xs font-semibold bg-green-50 border border-green-300 text-green-800 rounded-xl px-3 hover:bg-green-100 transition-colors disabled:opacity-50"
+                        style={{ minHeight: '44px' }}
+                      >
+                        Mark Disposed
+                      </button>
+                    )}
+                    {status === 'disposed' && (
+                      <button
+                        onClick={() => handleReport(rec)}
+                        disabled={actionLoading === rec.waste_trim_id}
+                        className="text-xs font-semibold bg-purple-50 border border-purple-300 text-purple-800 rounded-xl px-3 hover:bg-purple-100 transition-colors disabled:opacity-50"
+                        style={{ minHeight: '44px' }}
+                      >
+                        {actionLoading === rec.waste_trim_id ? '…' : 'Mark Reported'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
