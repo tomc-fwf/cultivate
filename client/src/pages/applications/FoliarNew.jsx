@@ -341,6 +341,10 @@ export default function FoliarNew() {
   const [tempEdited, setTempEdited] = useState(false);
   const [rhEdited, setRhEdited] = useState(false);
 
+  // Stage-block check
+  const [stageBlock, setStageBlock] = useState(null); // { blocked: true, reason } | null
+  const stageCheckTimerRef = useRef(null);
+
   // Save state
   const [saveError, setSaveError] = useState('');
   const [saveFlash, setSaveFlash] = useState(false);
@@ -452,13 +456,30 @@ export default function FoliarNew() {
 
   // Can save?
   const batchId = batchIdParam ? Number(batchIdParam) : activeBatch?.batch_id;
+
+  // Debounced stage-block pre-flight check (single-product mode only)
+  const inputIdForCheck = mode === 'product' ? selectedProduct?.id : null;
+  useEffect(() => {
+    if (stageCheckTimerRef.current) clearTimeout(stageCheckTimerRef.current);
+    if (!inputIdForCheck || !batchId) {
+      setStageBlock(null);
+      return;
+    }
+    stageCheckTimerRef.current = setTimeout(() => {
+      api.foliarStageCheck(inputIdForCheck, batchId)
+        .then(result => setStageBlock(result.blocked ? result : null))
+        .catch(() => { /* silently skip on network error */ });
+    }, 300);
+    return () => { if (stageCheckTimerRef.current) clearTimeout(stageCheckTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputIdForCheck, batchId]);
   const hasProduct = mode === 'recipe' ? Boolean(selectedRecipe) : Boolean(selectedProduct);
   const hasRate = mode === 'recipe' || (rateValue !== '' && rateUnit !== '');
   const hasTarget = targetLevel === 'batch'
     || (targetLevel === 'row' && targetRowId !== '')
     || (targetLevel === 'container' && targetContainerId !== '');
 
-  const canSave = Boolean(batchId) && hasProduct && hasRate && purpose.trim() !== '' && hasTarget;
+  const canSave = Boolean(batchId) && hasProduct && hasRate && purpose.trim() !== '' && hasTarget && !stageBlock?.blocked;
 
   // Save handler
   async function handleSave() {
@@ -626,6 +647,17 @@ export default function FoliarNew() {
                 <span className="text-gray-400 font-medium text-sm">Tap to select product →</span>
               )}
             </button>
+            {stageBlock?.blocked && (
+              <div className="mt-3 bg-amber-50 border border-amber-300 rounded-xl px-4 py-3 flex items-start gap-3">
+                <span className="text-amber-500 text-base mt-0.5">⚠</span>
+                <div>
+                  <p className="text-sm font-semibold text-amber-800">Stage restriction — application blocked</p>
+                  {stageBlock.reason && (
+                    <p className="text-xs text-amber-700 mt-0.5">{stageBlock.reason}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div>

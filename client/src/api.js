@@ -94,6 +94,7 @@ export const api = {
     return req('GET', `/applications/foliar${q ? '?' + q : ''}`);
   },
   createFoliarApplication: (data) => req('POST', '/applications/foliar', data),
+  foliarStageCheck: (input_id, batch_id) => req('GET', `/applications/foliar/stage-check?input_id=${encodeURIComponent(input_id)}&batch_id=${encodeURIComponent(batch_id)}`),
   updateFoliarApplication: (id, data) => req('PATCH', `/applications/foliar/${id}`, data),
   deleteFoliarApplication: (id) => req('DELETE', `/applications/foliar/${id}`),
 

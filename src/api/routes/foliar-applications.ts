@@ -263,10 +263,10 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         `).get(Number(input_id), stageKey) as Record<string, unknown> | undefined;
 
         if (override) {
-          return reply.code(422).send({
+          return reply.code(400).send({
             error: `This product is not permitted during the current growth stage (${stageKey.replace(/_/g, ' ')}).`,
+            stage_block: true,
             reason: override['reason'],
-            stage_blocked: true,
           });
         }
       } else if (!stageKey) {
@@ -345,6 +345,54 @@ const foliarApplicationsRoutes: FastifyPluginAsync = async (app) => {
         ...(phi_compliant === 0 ? { warning: 'PHI check: applied within operational pre-harvest interval. Review before harvest.' } : {}),
       });
     },
+  );
+
+  /**
+   * GET /stage-check — pre-flight stage compliance check.
+   * Returns { blocked: true, reason } or { blocked: false } so the form can
+   * surface a banner before the operator submits.
+   * Must be registered BEFORE /:id routes to avoid param conflicts.
+   */
+  app.get<{ Querystring: { input_id?: string; batch_id?: string } }>(
+    '/stage-check',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const { input_id, batch_id } = request.query as { input_id?: string; batch_id?: string };
+      const inputId = Number(input_id);
+      const batchId = Number(batch_id);
+      if (!inputId || isNaN(inputId) || !batchId || isNaN(batchId)) {
+        return reply.code(400).send({ error: 'input_id and batch_id are required' });
+      }
+
+      const db = getDB();
+      const batch = db.prepare(
+        'SELECT status, current_stage_since FROM cv_batches WHERE batch_id = ?'
+      ).get(batchId) as Record<string, unknown> | undefined;
+
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      const stageKey = getBatchStageKey(
+        String(batch['status']),
+        batch['current_stage_since'] ? String(batch['current_stage_since']) : null
+      );
+
+      if (!stageKey) return reply.send({ blocked: false });
+
+      const override = db.prepare(`
+        SELECT reason FROM cv_input_phi_stage_overrides
+        WHERE input_id = ? AND batch_stage = ? AND allowed = 0
+        LIMIT 1
+      `).get(inputId, stageKey) as Record<string, unknown> | undefined;
+
+      if (override) {
+        return reply.send({
+          blocked: true,
+          reason: override['reason'] ?? `Not permitted during ${stageKey.replace(/_/g, ' ')}.`,
+        });
+      }
+
+      return reply.send({ blocked: false });
+    }
   );
 
   /**
