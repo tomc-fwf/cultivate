@@ -3228,3 +3228,26 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - IndoorCard and SubZoneRow have `onContextMenu={e => e.preventDefault()}` placeholders; long-press context menus are noted for the next task
 - The Sub-Zone picker in BatchNew shows all 8 sub-zones; if the preset location has a `sub_zone_id`, it is pre-selected but user can change it
 - `npx tsc --noEmit` and `npm run build` both pass clean
+
+## Task: Location section-level add button (top-level locations)
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `Plus` icon import from lucide-react to LocationView.jsx
+- Added modal state: `addLocationModal`, `addName`, `addMetrcName`, `addDescription`, `addNameError`, `addSaving`, `addError`
+- Added `closeAddModal()` and `handleAddLocation()` helpers; the latter calls `api.createLocation()` without `parent_location_id` (top-level creation), then calls `loadData()` to refresh the tree
+- Replaced each section's `<h2>` with a `<div className="flex items-center justify-between mb-3">` containing the heading and a green "+ Add" chip button that sets `addLocationModal({ category })`
+- Removed the early `if (!locations.length) return null` guard; empty sections now render with an italic "No locations yet." fallback so the Add button is always visible
+- Rendered a bottom-sheet modal (backdrop + sheet) when `addLocationModal` is set: category-prefixed title, Name (required), METRC Name (optional, defaults to name), Description (optional), inline error banner, Cancel + Save buttons with loading state
+
+### Key Decisions
+- Sections are always rendered even when empty so the "+ Add" button is accessible for every category from day one.
+- METRC name defaults to `name.trim()` if left blank (matches backend behavior expectation).
+- Modal uses same bottom-sheet z-50 pattern as LocationContextMenu for visual consistency.
+
+### Files Modified/Created
+- `client/src/pages/locations/LocationView.jsx`
+
+### Notes for Next Tasks
+- No backend changes; POST /api/admin/locations already handles parent_location_id omission for top-level creation.
+- `npx tsc --noEmit` and `npm run build` both pass clean.
