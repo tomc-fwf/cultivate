@@ -1,6 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api';
+
+const STATUS_CHIP = {
+  'germ':           'bg-gray-100 text-gray-700',
+  'seedling':       'bg-lime-100 text-lime-700',
+  'cult-hoop':      'bg-green-100 text-green-700',
+  'field-veg':      'bg-green-100 text-green-800',
+  'field-flower':   'bg-purple-100 text-purple-700',
+  'flush':          'bg-amber-100 text-amber-700',
+  'harvest_window': 'bg-orange-100 text-orange-700',
+  'harvesting':     'bg-red-100 text-red-700',
+};
+
+const STATUS_LABELS = {
+  'germ':           'Germ',
+  'seedling':       'Seedlings',
+  'cult-hoop':      'Cult-Hoop',
+  'field-veg':      'Veg',
+  'field-flower':   'Flower',
+  'flush':          'Flush',
+  'harvest_window': 'Harvest Window',
+  'harvesting':     'Harvesting',
+};
 
 const STATE_CELL = {
   active:          'bg-green-700 border-green-800 text-white',
@@ -150,6 +172,7 @@ export default function SubZoneFieldMap() {
   const navigate = useNavigate();
 
   const [data, setData] = useState(null);
+  const [activeBatch, setActiveBatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeSheet, setActiveSheet] = useState(null);
@@ -157,9 +180,20 @@ export default function SubZoneFieldMap() {
   useEffect(() => {
     if (!subZoneId) return;
     setLoading(true);
-    api.getContainers({ sub_zone_id: subZoneId })
-      .then(d => { setData(d); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
+    Promise.all([
+      api.getContainers({ sub_zone_id: subZoneId }),
+      api.getBatches({ status: 'active' }).catch(() => []),
+    ]).then(([containerData, batches]) => {
+      setData(containerData);
+      const found = Array.isArray(batches)
+        ? (batches.find(b => b.sub_zone_id === subZoneId) ?? null)
+        : null;
+      setActiveBatch(found);
+      setLoading(false);
+    }).catch(e => {
+      setError(e.message);
+      setLoading(false);
+    });
   }, [subZoneId]);
 
   if (loading) {
@@ -197,14 +231,14 @@ export default function SubZoneFieldMap() {
 
   return (
     <>
-      <div className="max-w-5xl mx-auto px-4 py-6 pb-28">
+      <div className="max-w-5xl mx-auto px-4 py-6 pb-40">
         {/* Back */}
-        <Link
-          to="/containers"
+        <button
+          onClick={() => navigate(-1)}
           className="text-sm text-green-700 font-medium mb-4 flex items-center gap-1 hover:text-green-900"
         >
-          ← All Zones
-        </Link>
+          ← Back
+        </button>
 
         {/* Header */}
         <div className="mb-5">
@@ -228,6 +262,33 @@ export default function SubZoneFieldMap() {
               )
             ))}
           </div>
+
+          {/* Active batch context */}
+          {activeBatch ? (
+            <div
+              className="mt-3 bg-white rounded-2xl border border-gray-200 px-4 py-3 mb-1 cursor-pointer hover:border-green-300 transition-colors"
+              onClick={() => navigate(`/batches/${activeBatch.batch_id}`)}
+            >
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="font-semibold text-gray-900">{activeBatch.strain_name}</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[activeBatch.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {STATUS_LABELS[activeBatch.status] ?? activeBatch.status}
+                </span>
+                <span className="text-sm text-gray-500">Day {activeBatch.days_in_stage ?? 0}</span>
+              </div>
+              <div className="text-sm text-gray-600 mb-1.5">
+                {activeBatch.plant_count_current ?? activeBatch.plant_count_initial} plants · {activeBatch.sub_zone_id}
+              </div>
+              <button
+                onClick={e => { e.stopPropagation(); navigate(`/batches/${activeBatch.batch_id}`); }}
+                className="text-sm text-green-700 font-semibold hover:text-green-900"
+              >
+                View Planting Group →
+              </button>
+            </div>
+          ) : (
+            <p className="mt-3 italic text-gray-400 text-sm mb-1">No active planting group — sub-zone is empty</p>
+          )}
 
           {/* REI / observation alerts */}
           {(totalRei > 0 || totalObs > 0) && (
@@ -306,6 +367,41 @@ export default function SubZoneFieldMap() {
           onClose={() => setActiveSheet(null)}
         />
       )}
+
+      {/* Sub-zone action bar — pinned above NavBar */}
+      <div className="fixed bottom-20 left-0 right-0 z-40 bg-white border-t border-gray-100 px-4 py-3">
+        <div className="max-w-5xl mx-auto flex gap-2 overflow-x-auto">
+          {activeBatch && (
+            <>
+              <button
+                onClick={() => navigate(`/applications/fertigation/new?batch_id=${activeBatch.batch_id}`)}
+                className="bg-green-700 text-white rounded-2xl px-4 py-3 font-semibold text-sm whitespace-nowrap shrink-0"
+                style={{ minHeight: '48px' }}
+              >
+                Apply Fertigation
+              </button>
+              <button
+                onClick={() => navigate(`/applications/foliar/new?batch_id=${activeBatch.batch_id}`)}
+                className="bg-gray-100 text-gray-800 rounded-2xl px-4 py-3 font-semibold text-sm whitespace-nowrap shrink-0"
+                style={{ minHeight: '48px' }}
+              >
+                Log Foliar
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => {
+              const zone = subZoneId.charAt(1);
+              const desig = subZoneId.charAt(2);
+              navigate(`/inspect/Z${zone}-${desig}-R1`);
+            }}
+            className="bg-gray-100 text-gray-800 rounded-2xl px-4 py-3 font-semibold text-sm whitespace-nowrap shrink-0"
+            style={{ minHeight: '48px' }}
+          >
+            Walk Row
+          </button>
+        </div>
+      </div>
     </>
   );
 }

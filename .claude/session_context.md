@@ -2924,3 +2924,217 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - ContainerDetail uses `.find()` to get a single assignment for its "Final Harvest" button; for multi-plant containers it will always pass the first active assignment_id (which triggers step 3 skip). If explicit selection from ContainerDetail is desired, ContainerDetail should navigate without assignment_id for multi-plant containers (pass container_id instead)
 - The `placed_at` field on plant_assignments (renamed from assigned_at in migration 014) is used in the selection card date display
+
+## Task: FoliarNew stage-blocking PHI banner
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `GET /api/applications/foliar/stage-check?input_id=X&batch_id=Y` endpoint to `foliar-applications.ts`
+  - Placed BEFORE `PATCH /:id` to avoid param conflict
+  - Reuses existing `getBatchStageKey` helper to map batch status → stage key
+  - Queries `cv_input_phi_stage_overrides` for `allowed=0` rows
+  - Returns `{ blocked: true, reason }` or `{ blocked: false }`
+- Updated POST handler stage-block response: 422 → 400, `stage_blocked` → `stage_block` for consistency
+- Added `foliarStageCheck(input_id, batch_id)` to `client/src/api.js`
+- In `FoliarNew.jsx`:
+  - Added `stageBlock` state and `stageCheckTimerRef` ref
+  - Added debounced (300ms) `useEffect` keyed on `[inputIdForCheck, batchId]`; fires only in single-product mode; clears on mode switch or product/batch change; silently ignores network errors
+  - Added full-width amber banner (`bg-amber-50 border-amber-300`) below the product picker button when `stageBlock?.blocked`
+  - Updated `canSave` to include `&& !stageBlock?.blocked`
+
+### Key Decisions
+- Banner is inline below product picker (not a modal) per task spec
+- Error from stage-check silently skipped so offline/unavailable scenario never blocks the form
+- Recipe mode is unaffected — check only runs when `mode === 'product'` and a product is selected
+
+### Files Modified
+- `src/api/routes/foliar-applications.ts`
+- `client/src/api.js`
+- `client/src/pages/applications/FoliarNew.jsx`
+
+### Notes for Next Tasks
+- `cv_input_phi_stage_overrides` seed data: there are no rows in this table by default (it's configured per-product by admin). The stage-check will always return `{ blocked: false }` until an operator adds overrides via the database or a future admin UI.
+- The same stage-check logic should eventually be surfaced in PesticideNew if stage overrides for pesticides are added (currently PesticideNew blocks at submit only)
+
+## Task: ContainerDetail multi-plant Final Harvest navigation fix
+**Completed:** 2026-05-23
+
+### What Was Done
+- Changed Final Harvest button in `ContainerDetail.jsx` to compute all active assignments for the container (not just the first via `.find()`)
+- For single-plant containers: URL includes both `assignment_id` and `container_id` (FinalHarvestForm uses assignment_id to skip selection step)
+- For multi-plant containers: URL includes only `container_id` (FinalHarvestForm detects multiple assignments and shows the plant selection step)
+
+### Key Decisions
+- Used a `filter` + `[0]` pattern to get both the full list (`containerAssignments`) and the first item (`containerAssignment`), keeping the existing "is there at least one active plant?" guard intact
+- The Partial Harvest button was left unchanged — it already has `assignment_id` in its URL and PartialHarvestForm doesn't have the same multi-plant selection issue
+
+### Files Modified/Created
+- `client/src/pages/containers/ContainerDetail.jsx` — two edits in the harvest IIFE (lines ~634–665)
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` and `npm run build` both pass clean
+
+## Task: Add expected_harvest_date to BatchNew form
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created migration `022_batch_expected_harvest_date.ts` to add nullable `expected_harvest_date` TEXT column to `cv_batches`
+- Added `expected_harvest_date` to `BatchCreateSchema` (Zod) in `src/api/routes/batches.ts`
+- Included field in the POST `/api/batches` INSERT statement
+- Added state variable, draft persistence, form field (after sow_date, before plant count), and submit payload in `client/src/pages/batches/BatchNew.jsx`
+
+### Key Decisions
+- Field is optional with no client-side validation — matches the schema doc (nullable, can be set later)
+- Positioned between sow_date and plant count so date fields are grouped visually
+- Draft persistence key (`cv_draft_batch_new`) already existed; just added `expectedHarvestDate` to the saved object
+- `BatchUpdateSchema` (PATCH) was intentionally left unchanged per task instructions
+
+### Files Modified/Created
+- `src/db/migrations/022_batch_expected_harvest_date.ts` — new migration
+- `src/api/routes/batches.ts` — schema + INSERT updated
+- `client/src/pages/batches/BatchNew.jsx` — form field added
+
+### Notes for Next Tasks
+- `expected_harvest_date` is not yet in `BatchUpdateSchema` — PesticideNew reads it from the batch detail response, so editing it later requires a separate PATCH form update if operators need to change it post-creation
+- `npx tsc --noEmit` and `npm run build` both pass clean
+
+## Task: StartupForm inline amendments UI
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `POST /api/containers/:id/amendments` endpoint in `src/api/routes/containers.ts`
+  - Accepts explicit `container_state` (falls back to DB-detected state if omitted)
+  - Accepts `startup_id`; increments `cv_startup_events.amendments_applied_count` when provided
+  - Auto-populates `batch_id` from `cv_container_state`
+  - `requireAuth` middleware
+- Added `createContainerAmendmentFromStartup(containerId, data)` to `client/src/api.js`
+- Rewrote `client/src/pages/containers/StartupForm.jsx`:
+  - Inline `AmendmentProductPicker` bottom sheet (fetches AMEND-category products from farmstock via `/api/catalog/inventory`)
+  - New "Amendments Applied" section between Notes and the fixed Begin Startup button
+  - Amendments queue in local state (not saved to server until Begin Startup is clicked)
+  - "Add" button appends to local list; "Remove" button deletes from list
+  - Product picker, quantity + unit chips (lb/oz/cup/gal/tsp), method chips (top_dress/mix_in/drench/side_dress), optional purpose field
+  - `handleSave` creates startup event first, then saves all queued amendments with the new `startup_id` and `container_state='startup'`
+  - Existing Begin Startup button and media replacement fields unchanged
+
+### Key Decisions
+- **Batch-save approach**: Amendments are saved after `startStartup()` succeeds, not on the inline Add button tap. This is technically necessary because `startup_id` only exists after the startup event is created. The UX is equivalent (Add button gives immediate feedback via local state).
+- **No migration needed**: `startup_id` is not stored in `cv_container_amendments` (no column); it's used only to update `cv_startup_events.amendments_applied_count`. Adding the column was deemed out of scope.
+- **Amendment type default**: All inline startup amendments use `amendment_type = 'amendment'` (not exposed in UI); `application_method` is the user-facing selector. Full AmendmentNew form still available for granular control.
+- **Individual amendment failures don't abort startup**: Each amendment POST is wrapped in try/catch. If one fails, startup still completes.
+- **No suggestions based on soil sample deficiencies**: Skipped (nice-to-have per task spec; requires a parameter→product mapping not yet defined).
+
+### Files Modified/Created
+- `src/api/routes/containers.ts` — new POST `/:id/amendments` endpoint
+- `client/src/api.js` — `createContainerAmendmentFromStartup` added
+- `client/src/pages/containers/StartupForm.jsx` — full rewrite with amendments section
+
+### Notes for Next Tasks
+- If a `startup_id` column is ever added to `cv_container_amendments`, update the POST endpoint to store it
+- The AmendmentProductPicker in StartupForm only fetches AMEND-category products; if operators want to add fertilizer/biological products during startup, they should use the full AmendmentNew form (accessible from ContainerDetail)
+- `npx tsc --noEmit` and `npm run build` both pass clean
+
+## Task: Redesign NavBar: Today|Locations|Tasks|More|Logout
+**Completed:** 2026-05-23
+
+### What Was Done
+- Replaced 6-tab NavBar (Today · Scan · Batches · Hub · Observe · More) with 5-item bar: Today · Locations · Tasks · More · Logout
+- Logout is a plain icon button in the primary nav bar that calls logout() directly — no confirmation dialog
+- MoreSheet updated to include all removed tabs: Scan, Batches, Hub, Observations, Containers, Locations, Compliance, Analytics, Planting Plans, Soil Samples
+- Logout removed from MoreSheet (now on primary bar)
+- SyncBadge remains on Today tab
+- Created new Tasks page at client/src/pages/tasks/Tasks.jsx — worker-facing action list
+- Tasks page loads in parallel: active REIs (getPesticideApplications rei_active=1), pending actions (getPendingActions), open observations (getObservations resolved=0)
+- Tasks page sections: Active REIs (overdue=red, active=amber), Pending Sync (METRC unsynced losses), Container Actions (teardown/startup/lab), Open Observations
+- All-clear empty state with green checkmark when all sections are empty
+- Added route /tasks → Tasks in App.jsx
+
+### Key Decisions
+- Logout in primary bar as a plain icon (no confirmation) per spec — fast access without sheet friction
+- Tasks page uses Promise.allSettled so a failing observations call doesn't block the whole page
+- Open observations section is conditional: only renders if getObservations supports resolved filter (it does; confirmed in api.js)
+- REIs split into overdue (red) vs active (amber) with overdue shown first
+
+### Files Modified/Created
+- client/src/components/NavBar.jsx — 5-item primary bar, updated MoreSheet
+- client/src/pages/tasks/Tasks.jsx — new page (created)
+- client/src/App.jsx — import + route /tasks
+
+### Notes for Next Tasks
+- /tasks route is now a first-class nav destination alongside /locations
+- The Tasks page is read-only; no draft persistence needed
+- Container actions section (teardown_pending, startup_pending, lab_samples_awaiting) driven by getPendingActions() shape — same as Today's PendingActionsSection
+
+
+## Task: Locations Home screen — spatial location grid
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created `src/api/routes/locations.ts` with `GET /home-summary` endpoint:
+  - Queries active batches with their current location (via cv_batch_location_history + cv_locations)
+  - Queries container state counts per sub-zone (pivoted from cv_container_state)
+  - Queries active REIs per sub-zone (cv_applications_pesticide where rei_expires_at > now)
+  - Queries open observation counts per sub-zone and location name
+  - Queries global alerts (teardown_pending, startup_pending, lab_samples_awaiting, losses_unsynced)
+  - All queries wrapped in try/catch to return 0 for missing columns/tables
+  - Returns structured { indoor, zones, global_alerts } response
+- Registered locationsRoutes in `src/api/app.ts` under `/api/locations`
+- Added `getLocationsSummary()` to `client/src/api.js`
+- Rewrote `client/src/pages/locations/LocationView.jsx` entirely:
+  - Skeleton loading state (animate-pulse cards) during initial load
+  - Global alerts amber strip (navigates to /tasks if clicked)
+  - Pre-Field section: 3-column grid of IndoorCard components (Germ-01, Seedlings, Cult-Hoop)
+  - Field section: 2-col mobile / 4-col tablet grid of ZoneCard components (Zone 1–4)
+  - Each ZoneCard shows A and B sub-zones as SubZoneRow components with:
+    - State bar (h-1.5 thin version), batch info, REI badge, observation count
+    - Sub-zone row click navigates to /containers/map/{sub_zone_id}
+  - Quick Actions bar fixed at bottom-20 (above NavBar): Scan / Mix Today / My Groups
+  - Manual refresh button (↻) in page header with spin animation while loading
+  - Named export remains `LocationView` (default export) — no App.jsx changes needed
+  - Reused STATUS_CHIP, STATUS_LABELS, STATE_BAR_COLOR, STATE_LABELS, StateBar, StateCountRow constants
+
+### Key Decisions
+- Used try/catch on every backend query (not a single error blocks the whole response)
+- Field batches matched by sub_zone_id from the batch record, cross-referenced with location_type='field'
+- Indoor batches grouped by current_location_name, pre-field location types = ['germination','seedling','veg']
+- Default export kept as `LocationView` (not renamed) to avoid App.jsx changes
+- StateBar height is h-1.5 (thin) in sub-zone rows vs the old h-3 for better compactness in zone cards
+- ObsBadge shown as absolute-positioned amber circle in IndoorCard (top-right corner)
+
+### Files Modified/Created
+- `src/api/routes/locations.ts` — new file
+- `src/api/app.ts` — added import + register for locationsRoutes
+- `client/src/api.js` — added getLocationsSummary()
+- `client/src/pages/locations/LocationView.jsx` — full rewrite (retained filename/export name)
+
+### Notes for Next Tasks
+- The /containers/map/:sub_zone_id route must exist for sub-zone row clicks to land correctly
+- The /tasks route must exist for the global alerts bar to navigate correctly
+- Backend gracefully handles missing cv_observations.resolved_at (try/catch)
+- No App.jsx route changes were needed — the file path and export name are unchanged
+
+## Task: SubZoneFieldMap batch context + action bar + back nav
+**Completed:** 2026-05-23
+
+### What Was Done
+- Fixed back navigation: replaced `<Link to="/containers">← All Zones</Link>` with `<button onClick={() => navigate(-1)}>← Back</button>` — preserves correct back destination regardless of entry path
+- Added parallel batch fetch via Promise.all([getContainers, getBatches({status:'active'})]); getBatches failure is caught and falls back to [] so field map still loads
+- Added `activeBatch` state: finds first batch in the active list where `sub_zone_id === subZoneId`
+- Added batch context card in header (between state count summary and REI alerts): shows strain name, status chip, day count, plant count, and "View Planting Group →" link; tapping card navigates to /batches/:batch_id; empty state shows italic gray text
+- Added STATUS_CHIP and STATUS_LABELS constants (matching LocationView.jsx values)
+- Added fixed action bar pinned at bottom-20 (above NavBar): "Apply Fertigation" and "Log Foliar" shown when activeBatch is not null; "Walk Row" always shown, navigates to /inspect/Z{zone}-{desig}-R1
+- Increased bottom padding on content div from pb-28 to pb-40 to clear the action bar
+
+### Key Decisions
+- getBatches catch(() => []) wraps only the batches call, not containers — if containers fails the page shows an error, if only batches fails activeBatch is null and the field map still works
+- STATUS_CHIP/STATUS_LABELS are local constants (not imported) since there is no shared constants module; this is consistent with every other page in the codebase
+- shrink-0 added to action bar buttons to prevent flex compression when all three show
+- No Pesticide quick action — per spec, that's a supervised action logged from ContainerDetail or the Hub
+
+### Files Modified/Created
+- `client/src/pages/containers/SubZoneFieldMap.jsx` — all three fixes in this one file; no backend changes
+
+### Notes for Next Tasks
+- npx tsc --noEmit passes clean; npm run build passes clean
+- Action bar z-index is z-40; QuickActionSheet is z-50 — sheet correctly appears above action bar
+- Walk Row navigates to /inspect/Z{zone}-{desig}-R1 (first row always); could be enhanced to detect which row has the most recent activity
