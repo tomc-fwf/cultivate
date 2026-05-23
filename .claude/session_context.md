@@ -2581,3 +2581,283 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - `GET /plant-loss` and `GET /harvest/waste-trim` are still unbounded from a row-count perspective (no LIMIT on plant-loss yet); similar LIMIT treatment could be applied if needed
 - The deprecated `POST /containers/admin/bulk-reset-ready` backend route still exists in `containers.ts` — it could be removed in a future cleanup pass if no external callers exist
+
+---
+
+## Task: Waste trim held/reported lifecycle transitions
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `PATCH /waste-trim/:id/hold` to `src/api/routes/harvest.ts`. Transitions `waste_status` from `collected` → `held`. Validates current status is `collected` (400 if not). Updates `waste_status`, `waste_status_updated_at`, `updated_at`; optionally updates `notes`.
+- Added `PATCH /waste-trim/:id/report` to `src/api/routes/harvest.ts`. Transitions `waste_status` from `disposed` → `reported`. Validates current status is `disposed` (400 if not). Updates `waste_status`, `waste_status_updated_at`, `metrc_sync_status`, `metrc_synced_at` (defaults to now if not provided), `updated_at`.
+- Added `holdWasteTrim(id, data)` and `reportWasteTrim(id, data)` to `client/src/api.js`.
+- Updated `client/src/pages/harvest/WasteTrimList.jsx`:
+  - Added `actionLoading` state to track per-record loading
+  - Added `handleHold(rec)` async handler — calls `api.holdWasteTrim`, shows success toast, reloads list
+  - Added `handleReport(rec)` async handler — calls `api.reportWasteTrim` with `metrc_sync_status: 'synced'`, shows success toast, reloads list
+  - "Mark Held" button (blue) shown for `collected` records
+  - "Mark Disposed" button (green) still shown for `collected` and `held` records
+  - "Mark Reported" button (purple) shown for `disposed` records
+  - All buttons disabled while `actionLoading` matches the record's ID
+
+### Key Decisions
+- Separate schemas for each endpoint (`WasteTrimHoldSchema`, `WasteTrimReportSchema`) — the two transitions have completely different required fields.
+- `metrc_synced_at` defaults to `now` in the report handler if the client doesn't supply it — avoids null when callers just want to mark as synced immediately.
+- `reason` field in `WasteTrimHoldSchema` is accepted but not stored (no `reason` column on the table) — parsed to satisfy the schema but silently ignored; only `notes` is persisted if provided.
+- Action buttons rendered in a flex column `div` per record card, replacing the previous single-button inline pattern.
+
+### Files Modified/Created
+- `src/api/routes/harvest.ts` — two new Zod schemas + two new PATCH route handlers
+- `client/src/api.js` — `holdWasteTrim` and `reportWasteTrim` added
+- `client/src/pages/harvest/WasteTrimList.jsx` — `actionLoading` state, `handleHold`, `handleReport`, button layout update
+
+### Notes for Next Tasks
+- 321 tests pass; `npx tsc --noEmit` clean; committed 329b55a and pushed to origin/master
+- The `reason` field is accepted by `WasteTrimHoldSchema` but not stored — if a hold-reason column is ever added to the table, wiring it up in the handler is a one-liner
+- `handleReport` always sets `metrc_sync_status: 'synced'`; if "not required" disposition tracking is needed in the UI, add a radio button before calling `reportWasteTrim`
+- The full 4-state lifecycle is now UI-complete: collected → (Mark Held) → held → (Mark Disposed) → disposed → (Mark Reported) → reported
+
+## Task: FoliarNew sensor auto-fill (P1 gap)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `useCurrentConditions` and `SensorBadge` import to FoliarNew.jsx
+- Added sensor state variables: `sensorReadingUsed`, `tempEdited`, `rhEdited`
+- Called `useCurrentConditions(null, (lockedBatch ?? selectedBatch)?.sub_zone_id ?? null)` to subscribe to the active batch's sub-zone sensor
+- Added `useEffect` that auto-fills `ambientTempF` and `ambientRh` when the sensor reading arrives and both fields are currently empty
+- Updated `onChange` handlers for both fields to set `tempEdited`/`rhEdited = true` on manual edit
+- Rendered `<SensorBadge>` below each field inside the optional-fields section (2-col grid, temp left / RH right)
+
+### Key Decisions
+- Followed FertigationNew.jsx pattern exactly — same hook signature, same useEffect guard, same badge placement
+- Used `(lockedBatch ?? selectedBatch)?.sub_zone_id` inline in the hook call (same as FertigationNew uses `(lockedBatch || selectedBatch)`) so sensor tracking works in both locked-batch and pick-batch modes
+
+### Files Modified/Created
+- `client/src/pages/applications/FoliarNew.jsx` — sensor auto-fill added
+
+### Notes for Next Tasks
+- Build passes; committed b249229 and pushed to origin/master
+- FoliarNew is now the last application entry form to receive sensor auto-fill — all three forms (FertigationNew, PesticideNew, FoliarNew) are now consistent
+
+---
+
+## Task: Three-tap fertigation and NavBar overflow menu
+**Completed:** 2026-05-22
+
+### What Was Done
+- **BatchDetail inline fertigation panel**: Replaced the `Link` to `/applications/fertigation/new` with an expandable panel. Tapping "Log Fertigation" toggles the panel open inline — no navigation. Panel shows: recipe chip (from batch.active_recipe_name/version), volume input (pre-filled from `cv_last_fertigation_volume` localStorage), EC and pH inputs with green/amber range indicators against the active recipe's targets. Save calls `api.createFertigationApplication({ batch_ids, recipe_id, applied_at, volume_gallons, ec_measured, ph_measured })`, persists volume to localStorage on success, shows toast, collapses panel, and reloads batch data.
+- **NavBar overflow menu**: Reduced visible nav items from 8 to 6. Kept: Today, Scan, Batches, Apply, Observe + new More button. Removed: Containers, Locations, Logout from main bar. More button opens a slide-up bottom sheet (z-50, backdrop z-40) listing Containers, Locations, Compliance (/compliance), Analytics (/analytics/applicators), and Logout. Sheet dismisses on backdrop tap or item selection. Logout moved to More sheet to stay within 6 nav slots.
+
+### Key Decisions
+- Used `batch_ids: [batch.batch_id]` (array) matching the backend schema — the task instructions said `batch_id` (singular) but the actual API requires `batch_ids`. Did not send `applicator` from the frontend since the backend infers it from the JWT token.
+- Range indicators (green/amber border) are computed as derived values in the render body, not state — they update live as the user types.
+- Logout moved to the More sheet (not kept in main nav) to keep the main bar at exactly 5 items + More = 6 slots. Keeps the nav clean on small-screen mobile.
+
+### Files Modified/Created
+- `client/src/pages/batches/BatchDetail.jsx` — added inline fertigation panel (6 state vars, 1 handler, 2 computed vars, replaced Link with expandable div)
+- `client/src/components/NavBar.jsx` — replaced Containers/Locations/Logout with MoreHorizontal button + MoreSheet component
+
+### Notes for Next Tasks
+- The full FertigationNew form at `/applications/fertigation/new` is still reachable from ApplicationsHub and the quick-log on Today screen — it handles bulk entry, timestamps, optional fields. The inline panel on BatchDetail is for the common single-batch case only.
+- If a batch has no active recipe assigned, the panel shows an amber warning and disables Save — user must assign a recipe via the "Fertigation Recipe" card first.
+
+---
+
+## Task: EC/pH Trend Charts (P3-02)
+**Completed:** 2026-05-22
+
+### What Was Done
+- Added `GET /api/analytics/batch/:batchId/ec-ph` to `src/api/routes/analytics.ts`. Queries `cv_applications_fertigation` LEFT JOIN `cv_fertigation_recipes` filtered by `batch_id`, ordered by `applied_at ASC`. Returns array of rows with measured values and recipe target ranges.
+- Added `api.getEcPhTrends(batchId)` to `client/src/api.js`.
+- Created `client/src/pages/analytics/EcPhTrends.jsx` at `/analytics/batch/:batchId/trends`:
+  - Two stacked recharts charts: EC (blue line, light-blue ReferenceArea bands) and pH (green line, emerald ReferenceArea bands)
+  - `computeTargetSegments()` groups adjacent rows with the same target range into one ReferenceArea per segment — handles recipe changes mid-batch correctly
+  - `computeRecipeChanges()` detects where `recipe_name` or `recipe_version` changes and adds a dashed `ReferenceLine` with the new recipe name
+  - Custom tooltip shows date, measured value, target range, and deviation from target midpoint
+  - X-axis tick density adapts to data count (all ticks ≤14 points, thinned above that)
+  - Empty state shown when no applications logged yet
+- Route registered in `client/src/App.jsx`; `EcPhTrends` import added
+- "EC / pH Trends" button added to `BatchDetail.jsx` for batches in field stages (`field-veg`, `field-flower`, `flush`, `harvest_window`, `harvesting`) with `sub_zone_id` set
+- "EC / pH Trends" entry added to the Analytics section of `ApplicationsHub.jsx` (navigates to `/batches` to pick a batch — the trend page is reached from BatchDetail)
+
+### Key Decisions
+- `ReferenceArea` uses per-segment `x1`/`x2` (ISO string `applied_at` values matching XAxis `dataKey`) rather than a single full-width band — this handles mid-batch recipe changes where target EC/pH differs between recipe versions
+- `computeTargetSegments()` skips segments where targets are null (no recipe joined) — prevents phantom bands for unapplied recipes
+- Same `CustomTooltip` component handles both charts: `payload[0].dataKey === 'ec_measured'` branches the display between EC and pH fields
+- `tickInterval = data.length <= 14 ? 0 : Math.floor(data.length / 10)` scales tick density to dataset size
+
+### Files Modified/Created
+- `src/api/routes/analytics.ts` — `GET /batch/:batchId/ec-ph` endpoint added
+- `client/src/api.js` — `getEcPhTrends` added
+- `client/src/pages/analytics/EcPhTrends.jsx` — new file
+- `client/src/App.jsx` — import + route added
+- `client/src/pages/batches/BatchDetail.jsx` — EC/pH Trends link added for field stages
+- `client/src/pages/applications/ApplicationsHub.jsx` — link added to Analytics section
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes; committed e8f867a and pushed
+- The ApplicationsHub link navigates to `/batches` (pick a batch), not a direct trend URL — the trend page is batch-specific and accessed from BatchDetail
+- `recharts` was already in `client/package.json`; no install needed
+- If the batch has many recipe transitions, the ReferenceLine labels may overlap at the top of the chart — acceptable for now, can be mitigated with `angle` or `offset` if needed
+
+---
+
+## Task: Build and test verification sweep
+**Completed:** 2026-05-22
+
+### What Was Done
+- Ran `npx tsc --noEmit` — passed with no errors
+- Ran `npm test` — 321/321 tests passing (12 test files)
+- Ran `cd client && npm run build` — passed; 1,440KB chunk (367KB gzipped); pre-existing chunk size warning, no new errors
+
+### Key Decisions
+- No fixes required; all three checks passed clean on the first run
+
+### Files Modified/Created
+- `.claude/session_context.md` — appended this entry
+
+### Notes for Next Tasks
+- TypeScript: PASS — no errors
+- Tests: 321/321 passing across 12 test files
+- Build: PASS — chunk size warning (1,440KB / 367KB gzip) is pre-existing and acceptable per task instructions
+- No patterns of problems found; codebase is in a clean state
+
+---
+
+## Task: Integration tests for Phase 2/3 new backend routes
+**Completed:** 2026-05-22
+
+### What Was Done
+- Wrote 3 new integration test files covering Phase 2/3 analytics, export, and lifecycle endpoints
+- Fixed a bug in `exports.ts` where `GET /api/exports/metrc-waste` returned 500 due to referencing `wt.metrc_plant_tag` — a column that does not exist on `cv_plant_waste_trim_events`; fixed to use `pa.metrc_plant_tag` (from the LEFT JOIN with `cv_plant_assignments`)
+- Total tests: 385 passing (98 new; up from 287)
+
+### Key Decisions
+- `createWasteTrim()` helper is inlined in `lifecycle-new.test.ts` (not added to fixtures.ts) since it's only needed for that file's tests
+- `bulk-teardown` not re-tested in `lifecycle-new.test.ts` since it's already extensively covered in `batches.test.ts`
+
+### Files Modified/Created
+- `src/tests/integration/analytics.test.ts` (new — 6 describe blocks, 23 tests covering all /api/analytics/* endpoints)
+- `src/tests/integration/exports-new.test.ts` (new — 4 describe blocks, 16 tests covering metrc-phases, metrc-tag-assignments, metrc-harvest, metrc-waste)
+- `src/tests/integration/lifecycle-new.test.ts` (new — 3 describe blocks, 19 tests covering tag-assignment move, waste-trim hold, waste-trim report)
+- `src/api/routes/exports.ts` (bug fix: `wt.metrc_plant_tag` → `pa.metrc_plant_tag` in metrc-waste trim query)
+
+### Notes for Next Tasks
+- `cv_plant_waste_trim_events` does NOT have a `metrc_plant_tag` column; the tag is retrieved through the `cv_plant_assignments` JOIN
+- `cv_plant_loss_events` DOES have a `metrc_plant_tag` column (denormalized at loss time)
+- All 385 tests pass; commit a32cd3e pushed to master
+
+---
+
+## Task: OCM compliance reports 4/6/7 — Rule 4770 crop input log, plant loss log, harvest records
+**Completed:** 2026-05-23
+
+### What Was Done
+- **GET /api/exports/crop-inputs** (Rule 4770 unified crop input log): Queries all four application tables separately, expands fertigation recipes to ingredient-level rows (one row per ingredient × volume_gallons), resolves product names via `product_name_snapshot` then farmstock bulk fetch. Returns `{ generated_at, total_rows, rows }` with optional `?batch_id`, `?date_from`, `?date_to`, `?input_class` filters. CSV columns: applied_at, input_class, batch_name, location, product_name, epa_reg_no, quantity_display, lot_number, applicator_name, notes.
+- **GET /api/exports/plant-losses** (plant loss and destruction log): Queries `cv_plant_loss_events` joined with cv_batches/cv_strains/cv_users. Adds `pending_metrc` boolean per record and `pending_metrc_count` summary. LIMIT 1000. Filters: batch_id, date_from, date_to, metrc_sync_status.
+- **GET /api/exports/harvest-records** (harvest records with batch totals): Queries `cv_plant_harvest_events` with full joins (cv_harvest_batches, cv_batches, cv_strains, cv_plant_assignments, cv_users). Per-harvest-batch weight totals computed in TypeScript. `missing_uid: !r['metrc_harvest_batch_uid']` flag per event and per batch summary. LIMIT 2000. Response: `{ generated_at, total_events, harvest_batch_totals[], events[] }`.
+- All three endpoints support `?format=csv` and are registered in `exportsRoutes` in `src/api/routes/exports.ts`.
+- Added 6 API client methods to `client/src/api.js`: `getCropInputsReport`, `downloadCropInputsCsv`, `getPlantLossesReport`, `downloadPlantLossesCsv`, `getHarvestRecordsReport`, `downloadHarvestRecordsCsv`.
+- Created `client/src/pages/exports/CropInputsReport.jsx` at `/exports/crop-inputs`: date range + batch + class filter, preview table with color-coded class chips, CSV download.
+- Created `client/src/pages/exports/PlantLossReport.jsx` at `/exports/plant-losses`: date range + batch + METRC status filter, red-highlighted rows for pending METRC sync, amber warning banner if `pending_metrc_count > 0`, CSV download.
+- Created `client/src/pages/exports/HarvestReport.jsx` at `/exports/harvest-records`: batch + date + event_type filter, collapsible harvest batch cards with weight totals (amber flag for missing METRC UID), all-events flat table, CSV download.
+- Updated `client/src/App.jsx`: 3 imports + 3 route registrations.
+- Updated `client/src/pages/applications/ApplicationsHub.jsx`: 3 new buttons in Compliance & Reports section (Rule 4770 Crop Input Log, Plant Loss & Destruction Log, Harvest Records Report).
+
+### Key Decisions
+- Queried each application table separately (not UNION ALL in SQL) because fertigation ingredient expansion requires a JOIN that can't be done in UNION ALL without sacrificing row identity.
+- `_input_id` used as a temporary internal field on rows to track farmstock resolution candidates; deleted before response (no leakage to client).
+- Harvest batch totals grouped by `(harvest_batch_id, product_type, weight_unit)` in TypeScript code to avoid a second SQL aggregation query.
+- `pending_metrc` boolean added per record in the plant losses handler using JavaScript `r['metrc_sync_status'] === 'pending' || r['metrc_sync_status'] === 'failed'`.
+- Pesticide rows join `cv_input_lots il ON il.lot_id = ap.input_lot_id` for lot_number in the crop inputs report.
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — 3 new Zod schemas + 3 new route handlers (~280 lines added)
+- `client/src/api.js` — 6 new methods added
+- `client/src/pages/exports/CropInputsReport.jsx` (new — 195 lines)
+- `client/src/pages/exports/PlantLossReport.jsx` (new — 213 lines)
+- `client/src/pages/exports/HarvestReport.jsx` (new — 325 lines)
+- `client/src/App.jsx` — 3 imports + 3 routes
+- `client/src/pages/applications/ApplicationsHub.jsx` — 3 new compliance report buttons
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean; `npm run build` passes; committed 099c03a and pushed to master
+- The crop inputs report ingredient expansion uses `rate_value * volume_gallons` for computed quantity — works for standard rate_units; unusual units (g_per_gal etc.) will show the raw computed value which may need formatting improvement
+- The harvest report collapsible batch cards show per-batch individual events when expanded — useful for auditor row-by-row review
+- All three reports are accessible from ApplicationsHub Compliance & Reports section and are registered in App.jsx
+
+---
+
+## Task: OCM compliance reports — Reports 10, 11 (PHI Compliance, Annual Summary)
+**Completed:** 2026-05-23
+
+### What Was Done
+- Added `GET /api/exports/phi-compliance` to `src/api/routes/exports.ts`
+  - Default 90-day lookback, optional batch_id filter
+  - Joins cv_applications_pesticide + cv_batches + cv_strains
+  - Computes `phi_risk_flag` per application: true when batch is in flush/harvest_window/harvesting AND (phi_compliant=false OR harvest is within 14 days)
+  - Returns per-application detail plus summary `{ total_applications, phi_violations, phi_risk_batches }`
+- Added `GET /api/exports/annual-summary` to `src/api/routes/exports.ts`
+  - year param (default current year), filters batches by strftime('%Y', sow_date)
+  - Aggregates: total_batches, by_strain_type, plants_placed/lost/harvested, wet weight by product type (g/oz/lb normalized to grams), waste_trim_g, pesticide apps, phi_violations, metrc_pending by type
+  - Uses existing getSyncCounts() helper for METRC pending counts
+- Added `api.getPhiComplianceReport(params)` and `api.getAnnualSummary(params)` to `client/src/api.js`
+- Created `client/src/pages/exports/PhiComplianceReport.jsx` at route `/exports/phi-compliance`
+  - Auto-loads on mount with 90-day default
+  - Red/amber/green summary bar (violations / at-risk batches / total)
+  - Table with phi_risk_flag rows highlighted red, violations highlighted amber
+  - Explanatory note about phi_compliant=false meaning
+- Created `client/src/pages/exports/AnnualSummary.jsx` at route `/exports/annual-summary`
+  - Year picker (dropdown, 5 years back)
+  - Summary cards: batches by type, plants placed/lost/harvested, yield by product type
+  - Compliance stats: PHI violations, METRC pending with by-type detail
+  - Print button using window.print() with @media print CSS (earthy palette)
+- Wired both routes in `client/src/App.jsx`
+- Added both to ApplicationsHub "Compliance & Reports" section
+
+### Key Decisions
+- phi_risk_flag uses 14-day lookahead (from OCM requirements doc section 3.10) plus phi_compliant=false check
+- Annual summary filters by `sow_date` year for batches; loss/harvest/waste events are filtered via batch_id IN (...) — avoids missing events recorded after year boundary
+- Weight normalization (toGrams) added as a private function in exports.ts — not exported; only used by annual-summary route
+- Annual summary LIMIT 500 on phi-compliance applications to avoid unbounded query; annual summary uses batchIds IN clause which is bounded by batch count
+
+### Files Modified/Created
+- `src/api/routes/exports.ts` — two new routes appended before closing brace
+- `client/src/api.js` — two new API methods
+- `client/src/App.jsx` — two new imports + two new routes
+- `client/src/pages/applications/ApplicationsHub.jsx` — two new entries in Compliance & Reports section
+- `client/src/pages/exports/PhiComplianceReport.jsx` (new)
+- `client/src/pages/exports/AnnualSummary.jsx` (new)
+
+### Notes for Next Tasks
+- npx tsc --noEmit passes clean; npm run build passes (chunk size warning is pre-existing)
+- phi-compliance route uses `product_name_snapshot` from migration 018 — will be null for older records if snapshot wasn't captured at save time
+- Annual summary by_product_type_g includes 'popcorn' as a product type (consistent with the harvest events schema) even though the task spec listed flower/larf/trim_product/other — the schema has popcorn so it's included
+- Both routes live under /api/exports prefix (not /api/reports) consistent with existing exports route structure
+
+---
+
+## Task: NavBar Hub + ApplicationsHub navigation fixes
+**Completed:** 2026-05-23
+
+### What Was Done
+- **NavBar**: Changed the `/applications` nav item from label 'Apply' / FlaskConical icon to 'Hub' / LayoutGrid icon. Added LayoutGrid to lucide-react imports.
+- **MoreSheet**: Added Planting Plans (→ /planting-plans) and Soil Samples (→ /soil-samples) to the MoreSheet items list, before the Logout button.
+- **ApplicationsHub — Field & Containers section**: New section inserted after the 4-app type grid, before the Compliance section. Contains: Container Dashboard (→ /containers, Grid2x2 icon), Locations (→ /locations, MapPin icon), Soil Sample Tracker (→ /soil-samples, FlaskConical icon).
+- **ApplicationsHub — Planning section**: New section inserted after Compliance & Reports, before Analytics. Contains: Planting Plans (→ /planting-plans, ClipboardList icon) with a 'Supervisor' gray pill badge.
+- **ApplicationsHub — Admin section**: Added Strains (→ /strains, Sprout icon, 'Supervisor' badge) and Environmental History (→ /admin/environmental-history, BarChart2 icon, 'Admin' badge) to the existing Admin section.
+- **EC/pH Trends fix**: Changed label from 'EC / pH Trends' to 'EC / pH Charts' and updated sub-text to 'Select a batch from the Batches list · per-batch EC and pH charts'. Route stays as navigate('/batches').
+- Added lucide-react import to ApplicationsHub.jsx (Grid2x2, MapPin, FlaskConical, ClipboardList, Sprout, BarChart2).
+
+### Key Decisions
+- Used lucide-react icon components (not emoji) for new ApplicationsHub entries, consistent with the icons spec in the task.
+- Supervisor/Admin badges are small gray pill spans (`bg-gray-100 text-gray-500 rounded-full px-1.5 py-0.5`) placed inline next to the label text.
+- MoreSheet uses ClipboardList icon for Planting Plans (reusing already-imported icon) and FlaskConical for Soil Samples (already imported).
+
+### Files Modified/Created
+- `client/src/components/NavBar.jsx` — LayoutGrid import, Hub label/icon, MoreSheet additions
+- `client/src/pages/applications/ApplicationsHub.jsx` — lucide-react import, Field & Containers section, Planning section, Admin additions, EC/pH fix
+
+### Notes for Next Tasks
+- npx tsc --noEmit passes clean; npm run build passes (chunk size warning is pre-existing)
+- The six newly linked pages (/containers, /locations, /soil-samples, /planting-plans, /strains, /admin/environmental-history) already exist — this task only added entry points in the hub nav

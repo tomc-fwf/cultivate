@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { Grid2x2, MapPin, FlaskConical, ClipboardList, Sprout, BarChart2 } from 'lucide-react';
 
 const APP_TYPES = [
   {
@@ -74,6 +75,47 @@ export default function ApplicationsHub() {
             </button>
           </div>
         ))}
+      </div>
+
+      {/* ── Field & Containers ─────────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Field & Containers</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
+        <button
+          onClick={() => navigate('/containers')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><Grid2x2 size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Container Dashboard</div>
+            <div className="text-xs text-gray-500">All 1,180 containers · state overview · filter by zone</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/locations')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><MapPin size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Locations</div>
+            <div className="text-xs text-gray-500">Pre-field + field zones · batch placement overview</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/soil-samples')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><FlaskConical size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Soil Sample Tracker</div>
+            <div className="text-xs text-gray-500">Lab tracking · per-parameter results · pending samples</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
       </div>
 
       {/* ── Compliance ────────────────────────────────────────────────── */}
@@ -372,6 +414,26 @@ export default function ApplicationsHub() {
         </button>
       </div>
 
+      {/* ── Planning ──────────────────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 mt-6">Planning</h2>
+      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
+        <button
+          onClick={() => navigate('/planting-plans')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><ClipboardList size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              Planting Plans
+              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Supervisor</span>
+            </div>
+            <div className="text-xs text-gray-500">Container assignment planning · supervisor sign-off</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+      </div>
+
       {/* ── Analytics ─────────────────────────────────────────────────── */}
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2 mt-6">Analytics</h2>
       <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
@@ -442,8 +504,8 @@ export default function ApplicationsHub() {
         >
           <span className="text-lg flex-shrink-0">📈</span>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-800">EC / pH Trends</div>
-            <div className="text-xs text-gray-500">Per-batch EC and pH over time · target range bands · recipe transitions</div>
+            <div className="text-sm font-semibold text-gray-800">EC / pH Charts</div>
+            <div className="text-xs text-gray-500">Select a batch from the Batches list · per-batch EC and pH charts</div>
           </div>
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
@@ -473,6 +535,36 @@ export default function ApplicationsHub() {
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold text-gray-800">Sensor Management</div>
             <div className="text-xs text-gray-500">SensorPush monitors · assign to locations · test poll</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/strains')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><Sprout size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              Strains
+              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Supervisor</span>
+            </div>
+            <div className="text-xs text-gray-500">Strain catalog · auto / photo type · genetics</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/admin/environmental-history')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-gray-400 flex-shrink-0"><BarChart2 size={20} /></span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+              Environmental History
+              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Admin</span>
+            </div>
+            <div className="text-xs text-gray-500">Historical temp/RH charts · per sensor / location</div>
           </div>
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>

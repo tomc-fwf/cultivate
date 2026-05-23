@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X } from 'lucide-react';
+import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../App';
 import { useSyncStatus } from '../lib/offlineQueue';
 
@@ -34,6 +34,8 @@ function MoreSheet({ onClose, logout }) {
     { icon: <MapPin size={20} />, label: 'Locations', path: '/locations' },
     { icon: <ClipboardList size={20} />, label: 'Compliance', path: '/compliance' },
     { icon: <BarChart2 size={20} />, label: 'Analytics', path: '/analytics/applicators' },
+    { icon: <ClipboardList size={20} />, label: 'Planting Plans', path: '/planting-plans' },
+    { icon: <FlaskConical size={20} />, label: 'Soil Samples', path: '/soil-samples' },
   ];
 
   return (
@@ -86,7 +88,7 @@ export default function NavBar() {
         </div>
         <NavLink to="/scan" className={cls}><ScanLine size={22} /><span>Scan</span></NavLink>
         <NavLink to="/batches" className={cls}><Layers size={22} /><span>Batches</span></NavLink>
-        <NavLink to="/applications" className={cls}><FlaskConical size={22} /><span>Apply</span></NavLink>
+        <NavLink to="/applications" className={cls}><LayoutGrid size={22} /><span>Hub</span></NavLink>
         <NavLink to="/observations" className={cls}><Eye size={22} /><span>Observe</span></NavLink>
         <button
           onClick={() => setShowMore(true)}
