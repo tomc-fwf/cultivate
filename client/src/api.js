@@ -200,6 +200,7 @@ export const api = {
 
   // Analytics
   getApplicatorMetrics: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/applicators${q ? '?' + q : ''}`); },
+  getPesticideSummary: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/pesticide-summary${q ? '?' + q : ''}`); },
 
   // Skills (UEM skill schema proof-of-concept)
   listSkills: () => req('GET', '/skills'),

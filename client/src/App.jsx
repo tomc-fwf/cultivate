@@ -66,6 +66,7 @@ import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 import ApplicatorMetrics from './pages/analytics/ApplicatorMetrics';
+import PesticideSummary from './pages/analytics/PesticideSummary';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -192,6 +193,7 @@ export default function App() {
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />
               <Route path="/admin/environmental-history" element={<Protected minRole="admin"><EnvironmentalHistory /></Protected>} />
               <Route path="/analytics/applicators" element={<Protected><ApplicatorMetrics /></Protected>} />
+              <Route path="/analytics/pesticide-summary" element={<Protected><PesticideSummary /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

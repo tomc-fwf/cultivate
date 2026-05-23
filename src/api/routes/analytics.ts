@@ -97,6 +97,67 @@ const analyticsRoutes: FastifyPluginAsync = async (app) => {
 
     return reply.send(result);
   });
+  /**
+   * GET /pesticide-summary — annual pesticide use summary for license renewal.
+   * Query params:
+   *   ?year=YYYY  — 4-digit year (defaults to current year)
+   *
+   * Groups by input_id and returns per-product aggregates.
+   */
+  app.get('/pesticide-summary', { preHandler: requireAuth }, async (request, reply) => {
+    const { year } = request.query as { year?: string };
+    const db = getDB();
+
+    // Default to current calendar year; validate format.
+    const yearFilter = year && /^\d{4}$/.test(year) ? year : new Date().getFullYear().toString();
+
+    const rows = db.prepare(`
+      SELECT
+        ap.input_id,
+        -- Use snapshotted name (guaranteed 5-year retention); fall back to generic label.
+        COALESCE(MAX(ap.product_name_snapshot), 'Product #' || ap.input_id)   AS product_name,
+        MAX(ap.epa_reg_no_snapshot)                                            AS epa_reg_no,
+        COUNT(*)                                                               AS application_count,
+        SUM(ap.volume_applied)                                                 AS total_volume_applied,
+        MAX(ap.volume_unit)                                                    AS volume_unit,
+        MIN(ap.applied_at)                                                     AS first_applied_at,
+        MAX(ap.applied_at)                                                     AS last_applied_at,
+        COUNT(DISTINCT ap.batch_id)                                            AS unique_batches_count,
+        GROUP_CONCAT(DISTINCT ap.target_pest)                                  AS target_pests_raw
+      FROM cv_applications_pesticide ap
+      WHERE strftime('%Y', ap.applied_at) = ?
+      GROUP BY ap.input_id
+      ORDER BY COUNT(*) DESC
+    `).all(yearFilter) as Array<Record<string, unknown>>;
+
+    const result = rows.map(row => ({
+      input_id:             row['input_id'],
+      product_name:         row['product_name'],
+      epa_reg_no:           row['epa_reg_no'] ?? null,
+      application_count:    Number(row['application_count']),
+      total_volume_applied: row['total_volume_applied'] != null
+        ? Number(Number(row['total_volume_applied']).toFixed(2))
+        : null,
+      volume_unit:          row['volume_unit'] ?? null,
+      date_range: {
+        first: row['first_applied_at'],
+        last:  row['last_applied_at'],
+      },
+      unique_batches_count: Number(row['unique_batches_count']),
+      // Deduplicate pests in JS (GROUP_CONCAT DISTINCT may retain duplicates with whitespace).
+      target_pests: row['target_pests_raw']
+        ? [...new Set(
+            (row['target_pests_raw'] as string)
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean),
+          )]
+        : [],
+    }));
+
+    return reply.send({ year: yearFilter, products: result });
+  });
+
 };
 
 export default analyticsRoutes;
