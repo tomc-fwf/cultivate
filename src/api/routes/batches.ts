@@ -76,6 +76,12 @@ const BatchCreateSchema = z.object({
   expected_harvest_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
   notes: z.string().nullable().optional(),
+  source_type: z.enum(['seed', 'clone']).nullable().optional(),
+  seed_package_id: z.number().int().positive().nullable().optional(),
+  seed_count_used: z.number().int().positive().nullable().optional(),
+  seed_weight_g: z.number().positive().nullable().optional(),
+  initial_phase: z.enum(['immature', 'veg', 'flower']).nullable().optional(),
+  initial_status: z.enum(['germ', 'seedling', 'cult-hoop', 'field-veg', 'field-flower']).nullable().optional(),
 });
 type BatchCreateBody = z.infer<typeof BatchCreateSchema>;
 
@@ -307,7 +313,12 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
         throw e;
       }
-      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date, metrc_plant_batch_uid, notes } = body;
+      const {
+        strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date,
+        expected_harvest_date, metrc_plant_batch_uid, notes,
+        source_type, seed_package_id, seed_count_used, seed_weight_g, initial_phase,
+        initial_status,
+      } = body;
 
       const db = getDB();
 
@@ -319,15 +330,34 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (!subZone) return reply.code(400).send({ error: `sub_zone_id "${sub_zone_id}" does not exist` });
       }
 
+      if (seed_package_id != null) {
+        const pkg = db.prepare('SELECT * FROM cv_seed_packages WHERE package_id = ? AND active = 1').get(Number(seed_package_id)) as Record<string, unknown> | undefined;
+        if (!pkg) return reply.code(400).send({ error: 'seed_package_id does not exist or is not active' });
+        if (seed_count_used != null && Number(pkg['seed_count_remaining']) < seed_count_used) {
+          return reply.code(400).send({ error: `Seed package only has ${pkg['seed_count_remaining']} seeds remaining; requested ${seed_count_used}` });
+        }
+      }
+
       const now = new Date().toISOString();
       const userId = request.user.id;
+
+      const effective_status = initial_status ?? 'germ';
+      const stage_since = effective_status === 'germ' ? sow_date : now;
+      // Map pre-field statuses to their implied locations; field statuses keep GERM until plan commit
+      const INITIAL_LOCATION_MAP: Partial<Record<string, number>> = {
+        'seedling':  LOCATION.SEEDLINGS,
+        'cult-hoop': LOCATION.CULT_HOOP,
+      };
+      const initial_location_id = INITIAL_LOCATION_MAP[effective_status] ?? LOCATION.GERM;
 
       const batchId = db.transaction(() => {
         const r = db.prepare(`
           INSERT INTO cv_batches
-            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date, status, current_stage_since,
-             current_location_id, metrc_plant_batch_uid, notes, supervisor, created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
+            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date,
+             status, current_stage_since, current_location_id, metrc_plant_batch_uid,
+             source_type, seed_package_id, seed_count_used, seed_weight_g, initial_phase,
+             notes, supervisor, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(strain_id),
           sub_zone_id ?? null,
@@ -335,22 +365,29 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           plants_per_container ? Number(plants_per_container) : 1,
           sow_date,
           expected_harvest_date ?? null,
-          sow_date,
-          LOCATION.GERM,
+          effective_status,
+          stage_since,
+          initial_location_id,
           metrc_plant_batch_uid ?? null,
+          source_type ?? null,
+          seed_package_id ?? null,
+          seed_count_used ?? null,
+          seed_weight_g ?? null,
+          initial_phase ?? null,
           notes ?? null,
           userId, userId, now, now,
         );
 
         const newBatchId = Number(r.lastInsertRowid);
 
-        // Initial phase record — from_status null = batch created in this state
+        // Phase history — from_status null = batch created in this state
+        const phaseMetrcStatus = METRC_PHASE_EVENT[effective_status] ? 'pending' : 'not_required';
         db.prepare(`
           INSERT INTO cv_batch_phase_history
             (batch_id, from_status, to_status, transitioned_at, transitioned_by,
              notes, metrc_sync_status, created_at)
-          VALUES (?, NULL, 'germ', ?, ?, ?, 'not_required', ?)
-        `).run(newBatchId, now, userId, notes ?? null, now);
+          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+        `).run(newBatchId, effective_status, now, userId, notes ?? null, phaseMetrcStatus, now);
 
         // Initial location record — from_location_id null = initial placement
         db.prepare(`
@@ -358,7 +395,16 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
             (batch_id, from_location_id, to_location_id, moved_at, moved_by,
              trigger, metrc_sync_status, created_at)
           VALUES (?, NULL, ?, ?, ?, 'manual', 'not_required', ?)
-        `).run(newBatchId, LOCATION.GERM, now, userId, now);
+        `).run(newBatchId, initial_location_id, now, userId, now);
+
+        // Decrement seed package remaining count if seeds were used
+        if (seed_package_id != null && seed_count_used != null) {
+          db.prepare(`
+            UPDATE cv_seed_packages
+            SET seed_count_remaining = seed_count_remaining - ?
+            WHERE package_id = ?
+          `).run(Number(seed_count_used), Number(seed_package_id));
+        }
 
         return newBatchId;
       })();

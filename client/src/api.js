@@ -241,11 +241,6 @@ export const api = {
   supersedePlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/supersede`, body),
   cancelPlantingPlan: (planId) => req('PATCH', `/planting-plans/${planId}/cancel`),
 
-  // Seed packages
-  getSeedPackages: (params) => req('GET', '/seed-packages', null, params),
-  createSeedPackage: (data) => req('POST', '/seed-packages', data),
-  updateSeedPackage: (id, data) => req('PATCH', `/seed-packages/${id}`, data),
-
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();
@@ -259,10 +254,7 @@ export const api = {
   bulkTeardown: (batchId) => req('POST', `/batches/${batchId}/bulk-teardown`, {}),
 
   // Seed packages
-  getSeedPackages: (params = {}) => {
-    const q = new URLSearchParams(params).toString();
-    return req('GET', `/seed-packages${q ? '?' + q : ''}`);
-  },
+  getSeedPackages: (params) => req('GET', '/seed-packages', null, params),
   getSeedPackage: (id) => req('GET', `/seed-packages/${id}`),
   createSeedPackage: (data) => req('POST', '/seed-packages', data),
   updateSeedPackage: (id, data) => req('PATCH', `/seed-packages/${id}`, data),
