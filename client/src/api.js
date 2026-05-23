@@ -203,6 +203,7 @@ export const api = {
   getPesticideSummary: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/pesticide-summary${q ? '?' + q : ''}`); },
   getAnnualTracker: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/annual-tracker${q ? '?' + q : ''}`); },
   getRecipePerformance: () => req('GET', '/analytics/recipe-performance'),
+  getCrossBatchCompare: (batchIds) => req('GET', `/analytics/compare?batch_ids=${batchIds.join(',')}`),
 
   // Skills (UEM skill schema proof-of-concept)
   listSkills: () => req('GET', '/skills'),

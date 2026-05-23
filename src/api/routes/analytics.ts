@@ -289,6 +289,134 @@ const analyticsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(result);
   });
 
+  /**
+   * GET /compare — cross-batch comparison metrics.
+   * Query params:
+   *   ?batch_ids=1,2,3,4  — comma-separated batch IDs (max 6)
+   */
+  app.get('/compare', { preHandler: requireAuth }, async (request, reply) => {
+    const { batch_ids } = request.query as { batch_ids?: string };
+    const db = getDB();
+
+    if (!batch_ids || !batch_ids.trim()) {
+      return reply.status(400).send({ error: 'batch_ids query param is required' });
+    }
+
+    const ids = batch_ids
+      .split(',')
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => Number.isInteger(n) && n > 0);
+
+    if (ids.length === 0) {
+      return reply.status(400).send({ error: 'No valid batch IDs provided' });
+    }
+    if (ids.length > 6) {
+      return reply.status(400).send({ error: 'Maximum 6 batches can be compared at once' });
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+
+    // Batch core info + basic metrics in one query
+    const batchRows = db.prepare(`
+      SELECT
+        b.batch_id,
+        s.name                                  AS strain_name,
+        b.sub_zone_id,
+        b.sow_date,
+        b.closed_date,
+        b.status,
+        b.plant_count_initial,
+        -- days_to_harvest: NULL when not yet closed
+        CASE
+          WHEN b.closed_date IS NOT NULL AND b.sow_date IS NOT NULL
+          THEN CAST(julianday(b.closed_date) - julianday(b.sow_date) AS INTEGER)
+          ELSE NULL
+        END AS days_to_harvest,
+        -- total_yield_g: sum of final_harvest wet weights, normalized to grams
+        (
+          SELECT COALESCE(SUM(
+            CASE he.weight_unit
+              WHEN 'g'  THEN he.wet_weight
+              WHEN 'oz' THEN he.wet_weight * 28.3495
+              WHEN 'lb' THEN he.wet_weight * 453.592
+              ELSE           he.wet_weight
+            END
+          ), 0)
+          FROM cv_plant_harvest_events he
+          WHERE he.batch_id = b.batch_id
+            AND he.event_type = 'final_harvest'
+        ) AS total_yield_g,
+        -- plant_loss_count
+        (
+          SELECT COUNT(*)
+          FROM cv_plant_loss_events pl
+          WHERE pl.batch_id = b.batch_id
+        ) AS plant_loss_count,
+        -- pesticide_application_count
+        (
+          SELECT COUNT(*)
+          FROM cv_applications_pesticide ap
+          WHERE ap.batch_id = b.batch_id
+        ) AS pesticide_application_count,
+        -- fertigation_count
+        (
+          SELECT COUNT(*)
+          FROM cv_applications_fertigation af
+          WHERE af.batch_id = b.batch_id
+        ) AS fertigation_count
+      FROM cv_batches b
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      WHERE b.batch_id IN (${placeholders})
+    `).all(...ids) as Array<Record<string, unknown>>;
+
+    // EC deviation per batch: mean absolute deviation of measured EC from recipe midpoint
+    const ecRows = db.prepare(`
+      SELECT
+        f.batch_id,
+        AVG(ABS(f.ec_measured - (r.ec_target_low + r.ec_target_high) / 2.0)) AS avg_ec_deviation
+      FROM cv_applications_fertigation f
+      LEFT JOIN cv_fertigation_recipes r ON r.recipe_id = f.recipe_id
+      WHERE f.batch_id IN (${placeholders})
+        AND f.ec_measured IS NOT NULL
+        AND r.ec_target_low IS NOT NULL
+        AND r.ec_target_high IS NOT NULL
+      GROUP BY f.batch_id
+    `).all(...ids) as Array<Record<string, unknown>>;
+
+    const ecByBatch: Record<number, number | null> = {};
+    for (const row of ecRows) {
+      ecByBatch[row['batch_id'] as number] =
+        row['avg_ec_deviation'] != null ? Number((row['avg_ec_deviation'] as number).toFixed(3)) : null;
+    }
+
+    const result = batchRows.map(row => {
+      const batchId        = row['batch_id'] as number;
+      const plantCount     = Number(row['plant_count_initial']) || 0;
+      const totalYieldG    = Number(row['total_yield_g']) || 0;
+      const lossCount      = Number(row['plant_loss_count']) || 0;
+
+      return {
+        batch_id:                    batchId,
+        strain_name:                 row['strain_name'],
+        sub_zone_id:                 row['sub_zone_id'],
+        sow_date:                    row['sow_date'],
+        status:                      row['status'],
+        days_to_harvest:             row['days_to_harvest'] != null ? Number(row['days_to_harvest']) : null,
+        total_yield_g:               Number(totalYieldG.toFixed(1)),
+        avg_yield_per_plant_g:       plantCount > 0 ? Number((totalYieldG / plantCount).toFixed(1)) : null,
+        plant_loss_rate:             plantCount > 0 ? Number((lossCount / plantCount).toFixed(4)) : null,
+        pesticide_application_count: Number(row['pesticide_application_count']),
+        avg_ec_deviation:            ecByBatch[batchId] ?? null,
+        fertigation_count:           Number(row['fertigation_count']),
+      };
+    });
+
+    // Preserve input order
+    result.sort((a, b) => ids.indexOf(a.batch_id) - ids.indexOf(b.batch_id));
+
+    return reply.send(result);
+  });
+
 };
 
 export default analyticsRoutes;
