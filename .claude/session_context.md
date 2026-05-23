@@ -3412,3 +3412,96 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - seed_count_remaining is not decremented when a batch is created referencing a seed package — still needs wiring in batches.ts POST handler
 - "Use in New Batch →" button navigates to /batches/new?seed_package_id=X; BatchNew pre-selects the strain but doesn't pre-fill seed_count_used or other batch fields from the package yet
+
+---
+
+## Task: Seed packages API + batch create source fields
+**Completed:** 2026-05-23
+
+### What Was Done
+- Felix had already committed: migration 025 (cv_seed_packages table + batch source columns), migration 026 (extra fields: feminized, package_name, metrc_package_id, season_year, source_detail), the seed-packages route, and api.js seed package methods.
+- Deleted a conflicting `025_seed_packages.ts` I created (real one is `025_seed_packages_and_batch_source.ts`).
+- Updated `src/api/routes/seed-packages.ts`: replaced GET to use Zod `SeedPackageQuerySchema` with `strain_id` + `active` filters; kept POST/PATCH with requireAuth; POST inserts basic fields (seed_count_remaining = seed_count_initial); PATCH updates seed_count_remaining, notes, active only.
+- Updated `src/api/routes/batches.ts` `BatchCreateSchema`: added `source_type`, `seed_package_id`, `seed_count_used`, `seed_weight_g`, `initial_phase`, `initial_status`; POST handler validates seed package exists and has enough remaining; decrements `seed_count_remaining` in the transaction; supports `initial_status` to create batch at non-germ stage (maps seedling→SEEDLINGS, cult-hoop→CULT_HOOP locations).
+- Updated `client/src/api.js`: updated `getSeedPackages` to use `req('GET', '/seed-packages', null, params)` 4th-arg pattern; removed duplicate seed-package block I had added.
+
+### Key Decisions
+- Felix's 026 migration added extra fields (feminized, package_name, etc.) to cv_seed_packages. The seed-packages route schema includes those extra fields in its Zod schema (for linter compatibility) but the POST INSERT only writes the core fields specified by the task. Extra fields default to null/0.
+- `initial_status` with value 'germ' (the default) behaves identically to the original create flow. Non-germ status sets `current_stage_since = now` (not sow_date).
+- Field statuses (field-veg, field-flower) in initial_status still get LOCATION.GERM as starting location — field location is set when the planting plan is committed (same as the existing transition flow).
+- `updated_at` does not exist on `cv_seed_packages` (not added by migrations 025/026), so PATCH does not set it.
+
+### Files Modified/Created
+- `src/api/routes/batches.ts` — BatchCreateSchema + POST handler updated
+- `src/api/routes/seed-packages.ts` — GET query schema updated to Zod
+- `client/src/api.js` — getSeedPackages signature updated
+- `src/db/migrations/025_seed_packages_and_batch_source.ts` — pre-existing (unchanged)
+- `src/db/migrations/026_seed_packages_enrich.ts` — pre-existing (unchanged)
+
+### Notes for Next Tasks
+- `cv_seed_packages` has no `updated_at` column — if needed, add it in a new migration.
+- The seed-packages route allows any authenticated user to create/update packages (requireAuth not requireRole). If supervisor-only is needed, change to requireRole('supervisor').
+- `initial_status` in batch create supports germ/seedling/cult-hoop/field-veg/field-flower. If `field-veg` or `field-flower` is used with initial_status, the location stays at GERM until a planting plan is committed.
+
+---
+
+## Task: BatchNew form rewrite — germination-first with growth phase
+**Completed:** 2026-05-23
+
+### What Was Done
+- Rewrote `client/src/pages/batches/BatchNew.jsx` to be germination-first per spec:
+  - Back button now uses `navigate(-1)` with label `← Back`
+  - Title changed to `New Plant Group`; subtitle is conditional on selected phase
+  - Added Growth Phase chip picker (Immature / Veg / Flower) — default: Immature
+  - Added Source Type chip picker (Seed / Clone) — shown only when phase=immature
+  - Added Seed Package section (strain_id-filtered select + seeds-to-start + seed-weight fields + inline "Add seed package" form) — shown only when phase=immature AND sourceType=seed
+  - Renamed `sowDate` state to `startDate`; label is "Start Date"
+  - Expected Harvest Date hidden for immature phase
+  - Sub-zone chip picker removed entirely
+  - METRC UID field removed; replaced by amber callout for veg/flower phases
+  - METRC batch name preview updated to show phase-appropriate subtitle; shown for all phases
+  - Draft persistence updated to include phase, sourceType, selectedPackageId, seedCountUsed, seedWeightG; selectedPackageId not restored if strain changed
+  - `handleSave` sends: source_type, seed_package_id, seed_count_used, seed_weight_g, initial_phase, initial_status, sub_zone_id=null, metrc_plant_batch_uid=null
+
+### Key Decisions
+- All backend changes (migration 025, seed-packages route, batches.ts schema+handler, api.js methods) were already committed by Felix in a prior session (commit 0de1c27). Only BatchNew.jsx was changed in this task.
+- The `cv_seed_packages` GET endpoint supports `?strain_id=&active=` filters which BatchNew uses.
+
+### Files Modified/Created
+- `client/src/pages/batches/BatchNew.jsx` — full rewrite (363 insertions, 143 deletions)
+
+### Notes for Next Tasks
+- BatchDetail page still shows "Plant Batch" in some places — may want to update to "Plant Group" for consistency
+- The Batches list page title/button still says "New Plant Batch" — update when addressing the list page
+- seed_count_remaining is decremented at batch creation when seed_package_id + seed_count_used are both provided
+
+## Task: Context menu actions vary by location phase and batch presence
+**Completed:** 2026-05-23
+
+### What Was Done
+- Replaced hardcoded actions array in `LocationContextMenu.jsx` with a conditional builder based on location context
+- Added `isSeedVault()` helper and `ICON_MAP` lookup (icons are now stored as strings, resolved at render time)
+- Action matrix by location type:
+  - **Seed Vault**: Edit Location → View Seed Packages → Add Seed Package (no fertigation, no plant group)
+  - **Outdoor sub-location (active batch)**: Edit → Apply Fertigation → Log Foliar → Walk Row → View Planting Group → View Zone Map → View History
+  - **Outdoor sub-location (empty)**: Edit → Add Plant Group → View Zone Map → View History
+  - **Outdoor top-level zone**: Edit → View Zone Map (first sub-zone) → Add Sub-location → View History
+  - **Indoor / Hoop-House (active batch)**: Edit → Add Plant Group → Apply Fertigation → View Planting Group → [Add Sub-location if top-level] → View History
+  - **Indoor / Hoop-House (no batch)**: Edit → Add Plant Group → [Add Sub-location if top-level] → View History
+- Added new icon imports: `Package`, `Plus`, `Leaf`, `Map`, `Footprints` (all confirmed available in installed lucide-react)
+- `SeedVault.jsx`: added `useSearchParams` hook; `useEffect` opens add form when `?add=1` query param is present
+- Both `npx tsc --noEmit` and `npm run build` pass
+
+### Key Decisions
+- `isSubLocation` is derived from `level === 'sub_location'` (the value passed by `SubZoneRow` → `onOpenMenu`)
+- `isSeedVault()` uses same name-matching logic already present in `LocationView.jsx`'s `isSeedVaultLocation()` — kept consistent but not deduplicated (different files, different scopes)
+- Walk Row derives zone/designation from `sub_zone_id` (e.g. `Z1A` → `/inspect/Z1-A-R1`)
+- `ICON_MAP` pattern adopted so actions array items use plain strings rather than component references, enabling clean conditional array building
+
+### Files Modified
+- `client/src/components/LocationContextMenu.jsx` — full context menu rewrite
+- `client/src/pages/seed-vault/SeedVault.jsx` — added `?add=1` auto-open behavior
+
+### Notes for Next Tasks
+- Walk Row navigates to `/inspect/Z${zone}-${desig}-R1` — verify this route exists and accepts this format
+- The `/seed-vault?add=1` deep-link is now functional from the context menu
