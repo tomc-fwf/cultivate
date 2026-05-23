@@ -627,7 +627,6 @@ export const adminLocationsRoutes: FastifyPluginAsync = async (app) => {
 
     if (Object.keys(updates).length === 0) return reply.send(existing);
 
-    updates['updated_at'] = new Date().toISOString();
     const setClause = Object.keys(updates).map(k => `${k} = ?`).join(', ');
     const values = [...Object.values(updates), locationId];
     db.prepare(`UPDATE cv_locations SET ${setClause} WHERE location_id = ?`).run(...values);
