@@ -47,6 +47,10 @@ import SoilSampleForm from './pages/containers/SoilSampleForm';
 import StartupForm from './pages/containers/StartupForm';
 import StartupReadyForm from './pages/containers/StartupReadyForm';
 import MetrcExport from './pages/exports/MetrcExport';
+import MetrcHarvestExport from './pages/exports/MetrcHarvestExport';
+import MetrcWasteExport from './pages/exports/MetrcWasteExport';
+import MetrcTagAssignmentExport from './pages/exports/MetrcTagAssignmentExport';
+import MetrcPhaseChangeExport from './pages/exports/MetrcPhaseChangeExport';
 import MdaReport from './pages/exports/MdaReport';
 import CultivationRecord from './pages/exports/CultivationRecord';
 import CropInputsReport from './pages/exports/CropInputsReport';
@@ -186,6 +190,10 @@ export default function App() {
               <Route path="/harvest/:batchId/partial" element={<Protected><PartialHarvestForm /></Protected>} />
               <Route path="/harvest/:batchId/final" element={<Protected><FinalHarvestForm /></Protected>} />
               <Route path="/exports/metrc" element={<Protected><MetrcExport /></Protected>} />
+              <Route path="/exports/metrc-harvest" element={<Protected><MetrcHarvestExport /></Protected>} />
+              <Route path="/exports/metrc-waste" element={<Protected><MetrcWasteExport /></Protected>} />
+              <Route path="/exports/metrc-tag-assignments" element={<Protected><MetrcTagAssignmentExport /></Protected>} />
+              <Route path="/exports/metrc-phase-changes" element={<Protected><MetrcPhaseChangeExport /></Protected>} />
               <Route path="/exports/mda-pesticide" element={<Protected><MdaReport /></Protected>} />
               <Route path="/exports/cultivation-record" element={<Protected><CultivationRecord /></Protected>} />
               <Route path="/exports/crop-inputs" element={<Protected><CropInputsReport /></Protected>} />

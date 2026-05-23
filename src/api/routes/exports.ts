@@ -2185,6 +2185,85 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // ─── METRC Phase Changes (cross-batch) ────────────────────────────────────
+
+  const MetrcPhaseChangesQuerySchema = z.object({
+    batch_id:  z.string().optional(),
+    date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    date_to:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    format:    z.enum(['json', 'csv']).default('json'),
+  });
+
+  /**
+   * GET /metrc-phase-changes — unified cross-batch phase and location transition log.
+   * Combines cv_batch_phase_history and cv_batch_location_history.
+   * Supports optional ?batch_id, ?date_from, ?date_to, ?format=csv.
+   */
+  app.get('/metrc-phase-changes', { preHandler: requireAuth }, async (request, reply) => {
+    const parsed = MetrcPhaseChangesQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parsed.error.issues });
+    }
+    const { batch_id, date_from, date_to, format: fmt } = parsed.data;
+    const db = getDB();
+
+    const phaseWhere = buildDateBatchWhere('ph.transitioned_at', 'ph.batch_id', date_from, date_to, batch_id);
+    const locWhere   = buildDateBatchWhere('lh.moved_at',        'lh.batch_id', date_from, date_to, batch_id);
+
+    const phaseRows = db.prepare(`
+      SELECT ph.phase_history_id AS change_id, 'phase' AS change_type,
+             ph.from_status AS from_value, ph.to_status AS to_value,
+             ph.transitioned_at AS changed_at, ph.metrc_sync_status,
+             b.batch_id, b.metrc_plant_batch_uid, b.sow_date,
+             s.name AS strain_name, s.type AS strain_type,
+             u.name AS changed_by_name
+      FROM cv_batch_phase_history ph
+      JOIN cv_batches b ON b.batch_id = ph.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_users u ON u.id = ph.transitioned_by
+      ${phaseWhere.sql}
+      ORDER BY ph.transitioned_at DESC LIMIT 2000
+    `).all(...phaseWhere.params) as Array<Record<string, unknown>>;
+
+    const locRows = db.prepare(`
+      SELECT lh.move_id AS change_id, 'location' AS change_type,
+             fl.name AS from_value, tl.name AS to_value,
+             lh.moved_at AS changed_at, lh.metrc_sync_status,
+             b.batch_id, b.metrc_plant_batch_uid, b.sow_date,
+             s.name AS strain_name, s.type AS strain_type,
+             u.name AS changed_by_name
+      FROM cv_batch_location_history lh
+      JOIN cv_batches b ON b.batch_id = lh.batch_id
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      LEFT JOIN cv_locations fl ON fl.location_id = lh.from_location_id
+      LEFT JOIN cv_locations tl ON tl.location_id = lh.to_location_id
+      LEFT JOIN cv_users u ON u.id = lh.moved_by
+      ${locWhere.sql}
+      ORDER BY lh.moved_at DESC LIMIT 2000
+    `).all(...locWhere.params) as Array<Record<string, unknown>>;
+
+    const rows = [...phaseRows, ...locRows]
+      .sort((a, b) => String(b['changed_at']).localeCompare(String(a['changed_at'])))
+      .map(r => ({ ...r, batch_name: batchDisplayName(r) }));
+
+    if (fmt === 'csv') {
+      const cols = [
+        'changed_at', 'change_type', 'batch_name', 'metrc_plant_batch_uid',
+        'from_value', 'to_value', 'changed_by_name', 'metrc_sync_status',
+      ];
+      const dateStr = new Date().toISOString().slice(0, 10);
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('Content-Disposition', `attachment; filename="metrc-phase-changes-${dateStr}.csv"`);
+      return reply.send(toCsv(rows, cols));
+    }
+
+    return reply.send({
+      generated_at: new Date().toISOString(),
+      total: rows.length,
+      rows,
+    });
+  });
+
 };
 
 export default exportsRoutes;

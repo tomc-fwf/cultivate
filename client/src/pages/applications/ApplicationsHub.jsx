@@ -329,6 +329,54 @@ export default function ApplicationsHub() {
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
         <button
+          onClick={() => navigate('/exports/metrc-harvest')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🌿</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Harvest Export</div>
+            <div className="text-xs text-gray-500">Harvest events · per-batch weight totals · METRC UID flag</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/metrc-waste')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🗑️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Waste Export</div>
+            <div className="text-xs text-gray-500">Waste trim + plant loss · unified · METRC sync status</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/metrc-tag-assignments')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🏷️</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Tag Assignments</div>
+            <div className="text-xs text-gray-500">Active plant-to-container tag map · grouped by batch · CSV</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/exports/metrc-phase-changes')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🔄</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">METRC Phase Changes</div>
+            <div className="text-xs text-gray-500">Phase transitions + location moves · Change Growth Phase</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
+        <button
           onClick={() => navigate('/exports/mda-pesticide')}
           className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
           style={{ minHeight: '56px' }}
