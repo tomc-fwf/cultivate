@@ -73,6 +73,7 @@ const BatchCreateSchema = z.object({
   plant_count_initial: z.number().int().positive(),
   plants_per_container: z.number().int().min(1).default(1),
   sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sow_date must be YYYY-MM-DD'),
+  expected_harvest_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
   notes: z.string().nullable().optional(),
 });
@@ -281,7 +282,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
         throw e;
       }
-      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, metrc_plant_batch_uid, notes } = body;
+      const { strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date, metrc_plant_batch_uid, notes } = body;
 
       const db = getDB();
 
@@ -299,15 +300,16 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const batchId = db.transaction(() => {
         const r = db.prepare(`
           INSERT INTO cv_batches
-            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, status, current_stage_since,
+            (strain_id, sub_zone_id, plant_count_initial, plants_per_container, sow_date, expected_harvest_date, status, current_stage_since,
              current_location_id, metrc_plant_batch_uid, notes, supervisor, created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, 'germ', ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           Number(strain_id),
           sub_zone_id ?? null,
           Number(plant_count_initial),
           plants_per_container ? Number(plants_per_container) : 1,
           sow_date,
+          expected_harvest_date ?? null,
           sow_date,
           LOCATION.GERM,
           metrc_plant_batch_uid ?? null,

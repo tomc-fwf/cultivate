@@ -37,6 +37,7 @@ export default function BatchNew() {
   const [plantCount, setPlantCount] = useState('');
   const [plantsPerContainer, setPlantsPerContainer] = useState('1');
   const [sowDate, setSowDate] = useState(todayISO());
+  const [expectedHarvestDate, setExpectedHarvestDate] = useState('');
   const [metrcUid, setMetrcUid] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -65,6 +66,7 @@ export default function BatchNew() {
         if (draft.plantCount) setPlantCount(draft.plantCount);
         if (draft.plantsPerContainer) setPlantsPerContainer(draft.plantsPerContainer);
         if (draft.sowDate) setSowDate(draft.sowDate);
+        if (draft.expectedHarvestDate) setExpectedHarvestDate(draft.expectedHarvestDate);
         if (draft.metrcUid) setMetrcUid(draft.metrcUid);
         if (draft.notes) setNotes(draft.notes);
       }
@@ -73,9 +75,9 @@ export default function BatchNew() {
 
   const saveDraft = useCallback(() => {
     try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ strainId, plantCount, plantsPerContainer, sowDate, metrcUid, notes, savedAt: Date.now() }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ strainId, plantCount, plantsPerContainer, sowDate, expectedHarvestDate, metrcUid, notes, savedAt: Date.now() }));
     } catch { /* ignore */ }
-  }, [strainId, plantCount, plantsPerContainer, sowDate, metrcUid, notes]);
+  }, [strainId, plantCount, plantsPerContainer, sowDate, expectedHarvestDate, metrcUid, notes]);
 
   useEffect(() => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -113,6 +115,7 @@ export default function BatchNew() {
         plant_count_initial: Number(plantCount),
         plants_per_container: Number(plantsPerContainer),
         sow_date: sowDate,
+        expected_harvest_date: expectedHarvestDate || null,
         metrc_plant_batch_uid: metrcUid || null,
         notes: notes || null,
       });
@@ -267,6 +270,21 @@ export default function BatchNew() {
           style={{ minHeight: '56px' }}
         />
         {fieldErrors.sowDate && <p className="text-red-500 text-xs mt-1">{fieldErrors.sowDate}</p>}
+      </div>
+
+      {/* Expected Harvest Date */}
+      <div className="mb-5">
+        <label className="block text-sm font-semibold text-gray-800 mb-1">Expected Harvest Date</label>
+        <p className="text-xs text-gray-500 mb-2">
+          Optional — used for PHI calculations. Can be updated later.
+        </p>
+        <input
+          type="date"
+          value={expectedHarvestDate}
+          onChange={e => setExpectedHarvestDate(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+          style={{ minHeight: '56px' }}
+        />
       </div>
 
       {/* Plant count + plants per container */}
