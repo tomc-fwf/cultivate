@@ -75,6 +75,7 @@ import InspectionMode from './pages/containers/InspectionMode';
 import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
+import Tasks from './pages/tasks/Tasks';
 import ApplicatorMetrics from './pages/analytics/ApplicatorMetrics';
 import PesticideSummary from './pages/analytics/PesticideSummary';
 import AnnualTracker from './pages/analytics/AnnualTracker';
@@ -208,6 +209,7 @@ export default function App() {
               <Route path="/planting-plans" element={<Protected minRole="supervisor"><PlantingPlanList /></Protected>} />
               <Route path="/planting-plans/new" element={<Protected minRole="supervisor"><PlantingPlanNew /></Protected>} />
               <Route path="/planting-plans/:id" element={<Protected minRole="supervisor"><PlantingPlanDetail /></Protected>} />
+              <Route path="/tasks" element={<Protected><Tasks /></Protected>} />
               <Route path="/locations" element={<Protected><LocationView /></Protected>} />
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/tag-assignments" element={<Protected><TagAssignmentWalkthrough /></Protected>} />

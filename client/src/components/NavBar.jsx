@@ -25,11 +25,15 @@ function SyncBadge() {
   );
 }
 
-function MoreSheet({ onClose, logout }) {
+function MoreSheet({ onClose }) {
   const navigate = useNavigate();
   const go = (path) => { navigate(path); onClose(); };
 
   const items = [
+    { icon: <ScanLine size={20} />, label: 'Scan', path: '/scan' },
+    { icon: <Layers size={20} />, label: 'Batches', path: '/batches' },
+    { icon: <LayoutGrid size={20} />, label: 'Hub', path: '/applications' },
+    { icon: <Eye size={20} />, label: 'Observations', path: '/observations' },
     { icon: <Grid2x2 size={20} />, label: 'Containers', path: '/containers' },
     { icon: <MapPin size={20} />, label: 'Locations', path: '/locations' },
     { icon: <ClipboardList size={20} />, label: 'Compliance', path: '/compliance' },
@@ -60,14 +64,6 @@ function MoreSheet({ onClose, logout }) {
               <span>{item.label}</span>
             </button>
           ))}
-          <button
-            onClick={() => { logout(); onClose(); }}
-            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition-colors"
-            style={{ minHeight: '56px' }}
-          >
-            <span className="text-red-400"><LogOut size={20} /></span>
-            <span>Logout</span>
-          </button>
         </div>
       </div>
     </>
@@ -86,18 +82,22 @@ export default function NavBar() {
           <NavLink to="/" end className={cls}><Sprout size={22} /><span>Today</span></NavLink>
           <SyncBadge />
         </div>
-        <NavLink to="/scan" className={cls}><ScanLine size={22} /><span>Scan</span></NavLink>
-        <NavLink to="/batches" className={cls}><Layers size={22} /><span>Batches</span></NavLink>
-        <NavLink to="/applications" className={cls}><LayoutGrid size={22} /><span>Hub</span></NavLink>
-        <NavLink to="/observations" className={cls}><Eye size={22} /><span>Observe</span></NavLink>
+        <NavLink to="/locations" className={cls}><MapPin size={22} /><span>Locations</span></NavLink>
+        <NavLink to="/tasks" className={cls}><ClipboardList size={22} /><span>Tasks</span></NavLink>
         <button
           onClick={() => setShowMore(true)}
           className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-green-800 transition-colors"
         >
           <MoreHorizontal size={22} /><span>More</span>
         </button>
+        <button
+          onClick={logout}
+          className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-red-600 transition-colors"
+        >
+          <LogOut size={22} /><span>Logout</span>
+        </button>
       </nav>
-      {showMore && <MoreSheet onClose={() => setShowMore(false)} logout={logout} />}
+      {showMore && <MoreSheet onClose={() => setShowMore(false)} />}
     </>
   );
 }
