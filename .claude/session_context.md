@@ -3189,3 +3189,42 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - The tree endpoint is now available for the Locations Home screen to consume instead of /home-summary if desired
 - Zone 1–4 records (location_id 12–15) exist in cv_locations after migration 023 runs; the frontend can use them as display groupings
 - /api/admin prefix is now established in app.ts for future admin-only endpoints
+
+## Task: Commit pending route changes from migration 023 work
+**Completed:** 2026-05-23
+
+### What Was Done
+- Found two modified-but-uncommitted files from the prior Felix run (migration 023 task)
+- `src/api/routes/locations.ts`: `/tree` endpoint was missing `global_alerts` block (same data as `/home-summary`); added teardown_pending, startup_pending, lab_samples_awaiting, losses_unsynced to the response
+- `src/api/routes/batches.ts`: `GET /api/batches` gained optional `?location_id` query param that filters to batches whose most-recent location history entry matches the given location_id; uses BatchListQuerySchema (Zod) for validation
+- `npx tsc --noEmit` and `npm run build` both pass clean
+- Committed as `feat(locations): add global_alerts to /tree endpoint; add location_id filter to batches list` and pushed
+
+### Files Modified/Created
+- `src/api/routes/locations.ts` (global_alerts in /tree response)
+- `src/api/routes/batches.ts` (location_id query filter + Zod schema for batch list query)
+
+---
+
+## Task: LocationsHome tree rendering + BatchNew location pre-fill
+**Completed:** 2026-05-23
+
+### What Was Done
+- **LocationView.jsx**: Replaced `getLocationsSummary()` with `getLocationsTree()`. Removed all hardcoded location arrays. Now renders three dynamic sections (Indoor, Hoop-House, Outdoors) from `tree.indoor`, `tree.hoop_house`, `tree.outdoor`. IndoorCard navigates to `/batches?location_id=X&location_name=Y`. ZoneCard and SubZoneRow updated to use tree location node shape. Outdoor section renders ZoneCard for locations with sub_locations, plain NoSubZonesCard otherwise. global_alerts from tree response drives the alerts strip.
+- **Batches.jsx**: Added `useSearchParams` to read `?location_id` and `?location_name` from URL. Added `locationFilter` state. Shows a green banner "Showing batches for [name]" with ✕ to clear when a location filter is active. Passes `location_id` to `api.getBatches()` when set.
+- **BatchNew.jsx**: Added `useSearchParams` to read `?location_id`. Calls `api.getLocationsTree()` to resolve the location name and sub_zone_id from the preset location. Shows a "Starting From [location]" callout when pre-set. Added Sub-Zone chip picker (8 chips: Z1A–Z4B, toggle to clear). sub_zone_id included in draft persistence and in `api.createBatch()` payload.
+
+### Key Decisions
+- `location_name` passed as URL param from LocationsHome → Batches to avoid an extra API call just for the banner label.
+- `getLocationsTree()` called in BatchNew for location resolution rather than adding a new single-location endpoint — acceptable extra call, only fires when `?location_id` is present.
+- Sub-zone chip picker uses toggle behavior (click selected chip again to deselect).
+
+### Files Modified/Created
+- `client/src/pages/locations/LocationView.jsx` (full restructure to tree-based rendering)
+- `client/src/pages/batches/Batches.jsx` (location_id URL param + filter banner)
+- `client/src/pages/batches/BatchNew.jsx` (sub_zone_id chip picker + location pre-fill)
+
+### Notes for Next Tasks
+- IndoorCard and SubZoneRow have `onContextMenu={e => e.preventDefault()}` placeholders; long-press context menus are noted for the next task
+- The Sub-Zone picker in BatchNew shows all 8 sub-zones; if the preset location has a `sub_zone_id`, it is pre-selected but user can change it
+- `npx tsc --noEmit` and `npm run build` both pass clean
