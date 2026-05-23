@@ -471,7 +471,57 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    return reply.send({ tree });
+    // Global alerts (same queries as /home-summary)
+    let teardownPending = 0;
+    let startupPending = 0;
+    let labSamplesAwaiting = 0;
+    let lossesUnsynced = 0;
+
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt
+        FROM cv_container_state cs
+        LEFT JOIN cv_teardown_events te ON te.container_id = cs.container_id
+          AND te.teardown_id = (
+            SELECT MAX(teardown_id) FROM cv_teardown_events WHERE container_id = cs.container_id
+          )
+        WHERE cs.current_state = 'teardown'
+          AND (te.soil_sample_collected = 0 OR te.teardown_id IS NULL)
+      `).get() as Record<string, unknown> | undefined;
+      teardownPending = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cv_container_state WHERE current_state = 'startup'
+      `).get() as Record<string, unknown> | undefined;
+      startupPending = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cv_soil_samples
+        WHERE results_received = 0 AND lab_sent_at IS NOT NULL
+      `).get() as Record<string, unknown> | undefined;
+      labSamplesAwaiting = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cv_plant_loss_events WHERE metrc_sync_status = 'pending'
+      `).get() as Record<string, unknown> | undefined;
+      lossesUnsynced = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
+    return reply.send({
+      tree,
+      global_alerts: {
+        losses_unsynced:      lossesUnsynced,
+        teardown_pending:     teardownPending,
+        startup_pending:      startupPending,
+        lab_samples_awaiting: labSamplesAwaiting,
+      },
+    });
   });
 };
 

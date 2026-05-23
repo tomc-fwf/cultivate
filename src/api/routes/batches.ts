@@ -152,25 +152,50 @@ function resolvedPlantCount(row: Record<string, unknown>): number {
 
 const batchesRoutes: FastifyPluginAsync = async (app) => {
 
+  const BatchListQuerySchema = z.object({
+    status: z.string().default('active'),
+    location_id: z.coerce.number().int().positive().optional(),
+  });
+
   /**
-   * GET / — list batches with optional ?status filter.
+   * GET / — list batches with optional ?status and ?location_id filters.
    * status=active (default): all non-closed
    * status=closed: only closed
    * status=all: everything
+   * location_id: filter to batches whose most recent location matches
    */
   app.get('/', { preHandler: requireAuthOrServiceKey }, async (request, reply) => {
-    const { status = 'active' } = request.query as { status?: string };
+    const parsed = BatchListQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'Invalid query parameters' });
+    }
+    const { status, location_id } = parsed.data;
     const db = getDB();
 
-    let whereClause = '';
+    const conditions: string[] = [];
+    const params: unknown[] = [];
+
     if (status === 'closed') {
-      whereClause = "WHERE b.status = 'closed'";
+      conditions.push("b.status = 'closed'");
     } else if (status !== 'all') {
-      whereClause = "WHERE b.status != 'closed'";
+      conditions.push("b.status != 'closed'");
     }
 
+    if (location_id != null) {
+      conditions.push(`b.batch_id IN (
+        SELECT lh.batch_id FROM cv_batch_location_history lh
+        WHERE lh.location_id = ?
+          AND lh.location_history_id = (
+            SELECT MAX(lh2.location_history_id) FROM cv_batch_location_history lh2
+            WHERE lh2.batch_id = lh.batch_id
+          )
+      )`);
+      params.push(location_id);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const rows = db.prepare(`${BATCH_SELECT} ${whereClause} ORDER BY b.sow_date DESC`)
-      .all() as Record<string, unknown>[];
+      .all(...params) as Record<string, unknown>[];
 
     rows.sort((a, b) => {
       const rankDiff = (STATUS_RANK[a['status'] as string] ?? 99) - (STATUS_RANK[b['status'] as string] ?? 99);
