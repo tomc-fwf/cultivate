@@ -184,7 +184,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
     if (location_id != null) {
       conditions.push(`b.batch_id IN (
         SELECT lh.batch_id FROM cv_batch_location_history lh
-        WHERE lh.location_id = ?
+        WHERE lh.to_location_id = ?
           AND lh.location_history_id = (
             SELECT MAX(lh2.location_history_id) FROM cv_batch_location_history lh2
             WHERE lh2.batch_id = lh.batch_id
