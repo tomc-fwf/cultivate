@@ -198,6 +198,9 @@ export const api = {
   getSensorReadings: (sensorId, params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/sensors/${sensorId}/readings${q ? '?' + q : ''}`); },
   pollSensors: () => req('POST', '/sensors/poll'),
 
+  // Analytics
+  getApplicatorMetrics: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/analytics/applicators${q ? '?' + q : ''}`); },
+
   // Skills (UEM skill schema proof-of-concept)
   listSkills: () => req('GET', '/skills'),
   getSkill: (skillId) => req('GET', `/skills/${skillId}`),
