@@ -631,9 +631,10 @@ export default function ContainerDetail() {
           {(state === 'active' || state === 'empty') && current_batch.status === 'harvesting' && (() => {
             const activeHB = harvestCtx?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'harvest');
             const activeMB = harvestCtx?.harvest_batches?.find(hb => hb.status === 'in_progress' && hb.batch_type === 'manicure');
-            const containerAssignment = harvestCtx?.plant_assignments?.find(
+            const containerAssignments = harvestCtx?.plant_assignments?.filter(
               a => a.container_id === container.container_id && a.unassigned_at === null && !a.has_final_harvest
-            );
+            ) ?? [];
+            const containerAssignment = containerAssignments[0] ?? null;
             if (!harvestCtx) return (
               <div className="mt-3 text-xs text-gray-400">Loading harvest batches…</div>
             );
@@ -657,7 +658,12 @@ export default function ContainerDetail() {
                   )}
                   {activeHB && containerAssignment ? (
                     <button
-                      onClick={() => navigate(`/harvest/${current_batch.batch_id}/final?harvest_batch_id=${activeHB.harvest_batch_id}&assignment_id=${containerAssignment.assignment_id}`)}
+                      onClick={() => {
+                        const base = `/harvest/${current_batch.batch_id}/final?harvest_batch_id=${activeHB.harvest_batch_id}&container_id=${encodeURIComponent(container.container_id)}`;
+                        navigate(containerAssignments.length === 1
+                          ? `${base}&assignment_id=${containerAssignment.assignment_id}`
+                          : base);
+                      }}
                       className="flex-1 py-3 bg-red-50 border-2 border-red-300 text-red-800 font-semibold text-sm rounded-2xl hover:bg-red-100 transition-colors"
                       style={{ minHeight: '56px' }}
                     >
