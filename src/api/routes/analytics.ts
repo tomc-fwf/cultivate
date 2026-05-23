@@ -210,6 +210,85 @@ const analyticsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ year: yearFilter, batches });
   });
 
+  /**
+   * GET /recipe-performance — yield correlation by recipe version.
+   *
+   * Joins batches that have final_harvest events back through
+   * cv_batch_stage_recipes → cv_fertigation_recipes to compute
+   * per-recipe-version yield aggregates.
+   *
+   * Only recipes with at least one associated final_harvest event are returned.
+   */
+  app.get('/recipe-performance', { preHandler: requireAuth }, async (request, reply) => {
+    const db = getDB();
+
+    const rows = db.prepare(`
+      WITH batch_recipes AS (
+        -- One row per (batch_id, recipe_id) with date range of use
+        SELECT
+          batch_id,
+          recipe_id,
+          MIN(effective_from) AS first_used_at,
+          MAX(effective_from) AS last_used_at
+        FROM cv_batch_stage_recipes
+        GROUP BY batch_id, recipe_id
+      ),
+      harvest_totals AS (
+        -- Aggregate final_harvest events per batch, converting all weights to grams
+        SELECT
+          he.batch_id,
+          SUM(
+            CASE he.weight_unit
+              WHEN 'g'  THEN he.wet_weight
+              WHEN 'oz' THEN he.wet_weight * 28.3495
+              WHEN 'lb' THEN he.wet_weight * 453.592
+              ELSE           he.wet_weight
+            END
+          ) AS weight_g,
+          COUNT(*) AS final_harvest_count
+        FROM cv_plant_harvest_events he
+        WHERE he.event_type = 'final_harvest'
+        GROUP BY he.batch_id
+      )
+      SELECT
+        r.recipe_id,
+        r.name                                                          AS recipe_name,
+        r.version,
+        COUNT(DISTINCT br.batch_id)                                     AS batches_used,
+        SUM(ht.weight_g)                                               AS total_wet_weight_g,
+        SUM(ht.final_harvest_count)                                    AS harvest_count,
+        SUM(ht.weight_g) / NULLIF(SUM(b.plant_count_initial), 0)      AS avg_yield_per_plant_g,
+        MIN(br.first_used_at)                                          AS first_used_at,
+        MAX(br.last_used_at)                                           AS last_used_at
+      FROM cv_fertigation_recipes r
+      JOIN batch_recipes br ON br.recipe_id = r.recipe_id
+      JOIN harvest_totals ht ON ht.batch_id = br.batch_id
+      JOIN cv_batches b      ON b.batch_id  = br.batch_id
+      GROUP BY r.recipe_id, r.name, r.version
+      ORDER BY r.name, r.version
+    `).all() as Array<Record<string, unknown>>;
+
+    const result = rows.map(row => ({
+      recipe_id:              row['recipe_id'],
+      recipe_name:            row['recipe_name'],
+      version:                row['version'],
+      batches_used:           Number(row['batches_used']),
+      total_wet_weight_g:     row['total_wet_weight_g'] != null
+                                ? Number(Number(row['total_wet_weight_g']).toFixed(1))
+                                : null,
+      harvest_count:          Number(row['harvest_count']),
+      avg_yield_per_plant_g:  row['avg_yield_per_plant_g'] != null
+                                ? Number(Number(row['avg_yield_per_plant_g']).toFixed(1))
+                                : null,
+      date_range: {
+        first: row['first_used_at'],
+        last:  row['last_used_at'],
+      },
+    }));
+
+    return reply.send(result);
+  });
+
 };
 
 export default analyticsRoutes;

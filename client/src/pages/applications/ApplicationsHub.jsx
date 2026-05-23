@@ -351,6 +351,18 @@ export default function ApplicationsHub() {
           </div>
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
+        <button
+          onClick={() => navigate('/analytics/recipe-performance')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">🌱</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-gray-800">Recipe Performance</div>
+            <div className="text-xs text-gray-500">Harvest yield by recipe version · avg g per plant</div>
+          </div>
+          <span className="text-gray-400 flex-shrink-0">→</span>
+        </button>
       </div>
 
       {/* ── Admin ──────────────────────────────────────────────────────── */}

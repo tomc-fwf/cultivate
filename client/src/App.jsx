@@ -68,6 +68,7 @@ import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 import ApplicatorMetrics from './pages/analytics/ApplicatorMetrics';
 import PesticideSummary from './pages/analytics/PesticideSummary';
 import AnnualTracker from './pages/analytics/AnnualTracker';
+import RecipePerformance from './pages/analytics/RecipePerformance';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -196,6 +197,7 @@ export default function App() {
               <Route path="/analytics/applicators" element={<Protected><ApplicatorMetrics /></Protected>} />
               <Route path="/analytics/pesticide-summary" element={<Protected><PesticideSummary /></Protected>} />
               <Route path="/analytics/annual" element={<Protected><AnnualTracker /></Protected>} />
+              <Route path="/analytics/recipe-performance" element={<Protected><RecipePerformance /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>
