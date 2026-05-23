@@ -158,6 +158,58 @@ const analyticsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ year: yearFilter, products: result });
   });
 
+  /**
+   * GET /annual-tracker — Gantt data: all batches overlapping the given year.
+   * Query params:
+   *   ?year=YYYY  — 4-digit year (defaults to current year)
+   */
+  app.get('/annual-tracker', { preHandler: requireAuth }, async (request, reply) => {
+    const { year } = request.query as { year?: string };
+    const db = getDB();
+
+    const yearFilter = year && /^\d{4}$/.test(year) ? year : new Date().getFullYear().toString();
+    const yearNum = parseInt(yearFilter, 10);
+    const yearStart = `${yearNum}-01-01`;
+    const yearEnd   = `${yearNum}-12-31`;
+
+    // Include a batch if it started during the year, OR started before the year
+    // and hasn't closed yet (or closed during or after year start).
+    const rows = db.prepare(`
+      SELECT
+        b.batch_id,
+        s.name   AS strain_name,
+        s.type   AS strain_type,
+        b.sub_zone_id,
+        b.status,
+        b.sow_date,
+        b.closed_date,
+        b.plant_count_initial,
+        b.metrc_plant_batch_uid
+      FROM cv_batches b
+      JOIN cv_strains s ON s.strain_id = b.strain_id
+      WHERE b.sub_zone_id IS NOT NULL
+        AND (
+          (b.sow_date >= ? AND b.sow_date <= ?)
+          OR (b.sow_date < ? AND (b.closed_date IS NULL OR b.closed_date >= ?))
+        )
+      ORDER BY b.sub_zone_id, b.sow_date
+    `).all(yearStart, yearEnd, yearStart, yearStart) as Array<Record<string, unknown>>;
+
+    const batches = rows.map(row => ({
+      batch_id:              row['batch_id'],
+      strain_name:           row['strain_name'],
+      strain_type:           row['strain_type'],
+      sub_zone_id:           row['sub_zone_id'],
+      status:                row['status'],
+      sow_date:              row['sow_date'],
+      closed_date:           row['closed_date'] ?? null,
+      plant_count_initial:   Number(row['plant_count_initial']),
+      metrc_plant_batch_uid: row['metrc_plant_batch_uid'] ?? null,
+    }));
+
+    return reply.send({ year: yearFilter, batches });
+  });
+
 };
 
 export default analyticsRoutes;
