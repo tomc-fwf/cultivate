@@ -3251,3 +3251,27 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - No backend changes; POST /api/admin/locations already handles parent_location_id omission for top-level creation.
 - `npx tsc --noEmit` and `npm run build` both pass clean.
+
+---
+
+## Task: Location context menu (long-press + right-click)
+**Completed:** 2026-05-23
+
+### What Was Done
+- Created `client/src/components/LocationContextMenu.jsx` — context menu with mobile bottom sheet and desktop positioned popover. Uses Lucide icons, `isMouse` detection via `matchMedia('(pointer: fine)')`. Actions: Add Plant Group, Add Sub-location (location level only), Apply Fertigation (if batch exists), View History. Contains embedded `AddSubLocationModal` component (named export) that adapts to desktop centered modal vs mobile bottom sheet.
+- Modified `client/src/pages/locations/LocationView.jsx` — added long-press (300ms timer via `useRef` + `pressPos` ref capturing pointer position) and right-click to `IndoorCard`, `ZoneCard` header, `SubZoneRow`, and `NoSubZonesCard`. All four use a single `onOpenMenu(location, level, anchorPosition)` callback prop; no per-event pairs. Uses Pointer Events API (`onPointerDown/Up/Leave/Cancel`) for cross-device support. Inner batch rows in `IndoorCard` stop pointer propagation to avoid conflicting with card long-press. `contextMenu` state drives `<LocationContextMenu>` rendered at bottom of page. `onRefresh` wired to `loadData` (calls `getLocationsTree`).
+
+### Key Decisions
+- `LocationView` already uses `getLocationsTree()` (not `getLocationsSummary`) so all location nodes have real `location_id` values — no null-id handling needed.
+- Backend home-summary already had `location_id` + `location_category` on indoor locations from migration 023 work; no new backend change required.
+- Linter improved implementation: unified pointer events, Lucide icons replacing emoji, `AddSubLocationModal` as named export, desktop modal is centered (not anchored to cursor).
+- "Add Sub-location" action has no frontend role-check (API enforces admin-only). All users see it; non-admins get a 403 on attempt.
+- Long-press on ZoneCard header has no short-press navigation (sub-zone rows handle their own navigation).
+
+### Files Modified/Created
+- `client/src/components/LocationContextMenu.jsx` (new)
+- `client/src/pages/locations/LocationView.jsx` (modified)
+
+### Notes for Next Tasks
+- `AddSubLocationModal` is a named export from `LocationContextMenu.jsx` — reusable if needed elsewhere.
+- The "Add Plant Group" action navigates to `/batches/new?location_id=X` — `BatchNew` form may or may not use this param to pre-select location.
