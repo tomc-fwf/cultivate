@@ -250,4 +250,13 @@ export const api = {
   updateBatch: (id, data) => req('PATCH', `/batches/${id}`, data),
   assignBatchRecipe: (id, data) => req('PATCH', `/batches/${id}/recipe`, data),
   bulkTeardown: (batchId) => req('POST', `/batches/${batchId}/bulk-teardown`, {}),
+
+  // Seed packages
+  getSeedPackages: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return req('GET', `/seed-packages${q ? '?' + q : ''}`);
+  },
+  getSeedPackage: (id) => req('GET', `/seed-packages/${id}`),
+  createSeedPackage: (data) => req('POST', '/seed-packages', data),
+  updateSeedPackage: (id, data) => req('PATCH', `/seed-packages/${id}`, data),
 };

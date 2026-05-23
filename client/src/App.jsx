@@ -82,6 +82,7 @@ import AnnualTracker from './pages/analytics/AnnualTracker';
 import RecipePerformance from './pages/analytics/RecipePerformance';
 import CrossBatchCompare from './pages/analytics/CrossBatchCompare';
 import EcPhTrends from './pages/analytics/EcPhTrends';
+import SeedVault from './pages/seed-vault/SeedVault';
 
 export const AuthContext = createContext(null);
 export const useAuth = () => useContext(AuthContext);
@@ -224,6 +225,7 @@ export default function App() {
               <Route path="/analytics/recipe-performance" element={<Protected><RecipePerformance /></Protected>} />
               <Route path="/analytics/compare" element={<Protected><CrossBatchCompare /></Protected>} />
               <Route path="/analytics/batch/:batchId/trends" element={<Protected><EcPhTrends /></Protected>} />
+              <Route path="/seed-vault" element={<Protected><SeedVault /></Protected>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

@@ -47,9 +47,11 @@ export default function BatchNew() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const presetLocationId = searchParams.get('location_id');
+  const presetSeedPackageId = searchParams.get('seed_package_id');
 
   const [strains, setStrains] = useState([]);
   const [strainsLoading, setStrainsLoading] = useState(true);
+  const [presetSeedPackage, setPresetSeedPackage] = useState(null);
 
   const [strainId, setStrainId] = useState('');
   const [plantCount, setPlantCount] = useState('');
@@ -108,6 +110,17 @@ export default function BatchNew() {
       })
       .catch(() => { /* ignore — non-critical */ });
   }, [presetLocationId]);
+
+  // Pre-fill strain from seed package
+  useEffect(() => {
+    if (!presetSeedPackageId) return;
+    api.getSeedPackage(presetSeedPackageId)
+      .then(pkg => {
+        setPresetSeedPackage(pkg);
+        setStrainId(String(pkg.strain_id));
+      })
+      .catch(() => { /* non-critical */ });
+  }, [presetSeedPackageId]);
 
   const saveDraft = useCallback(() => {
     try {

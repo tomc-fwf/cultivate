@@ -105,11 +105,17 @@ function ObsBadge({ count }) {
   );
 }
 
+function isSeedVaultLocation(name) {
+  const lower = (name ?? '').toLowerCase();
+  return lower.includes('seed vault') || lower.includes('seed-vault');
+}
+
 function IndoorCard({ location, navigate, onOpenMenu }) {
   const { location_id, name, batches, open_observation_count } = location;
   const timerRef = useRef(null);
   const didLongPress = useRef(false);
   const pressPos = useRef({ x: 0, y: 0 });
+  const seedVault = isSeedVaultLocation(name);
 
   function startPress(e) {
     didLongPress.current = false;
@@ -131,11 +137,17 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
 
   return (
     <div
-      className="relative bg-white rounded-2xl border border-gray-200 px-4 py-4 hover:border-green-300 transition-colors cursor-pointer select-none"
+      className={`relative bg-white rounded-2xl border px-4 py-4 hover:border-green-300 transition-colors cursor-pointer select-none ${
+        seedVault ? 'border-green-300' : 'border-gray-200'
+      }`}
       style={{ minHeight: '100px' }}
       onClick={() => {
         if (didLongPress.current) { didLongPress.current = false; return; }
-        navigate(`/batches?location_id=${location_id}&location_name=${encodeURIComponent(name)}`);
+        if (seedVault) {
+          navigate('/seed-vault');
+        } else {
+          navigate(`/batches?location_id=${location_id}&location_name=${encodeURIComponent(name)}`);
+        }
       }}
       onContextMenu={e => { e.preventDefault(); onOpenMenu(location, 'location', { x: e.clientX, y: e.clientY }); }}
       onPointerDown={startPress}
@@ -146,13 +158,22 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
       <ObsBadge count={open_observation_count} />
       <div className="flex items-start justify-between gap-2 mb-2">
         <span className="font-semibold text-gray-800 text-sm leading-snug">{name}</span>
-        {location.location_category && CATEGORY_BADGE[location.location_category] && (
-          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${CATEGORY_BADGE[location.location_category].className}`}>
-            {CATEGORY_BADGE[location.location_category].label}
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {seedVault && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-800">
+              🌱 Seed Vault
+            </span>
+          )}
+          {!seedVault && location.location_category && CATEGORY_BADGE[location.location_category] && (
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${CATEGORY_BADGE[location.location_category].className}`}>
+              {CATEGORY_BADGE[location.location_category].label}
+            </span>
+          )}
+        </div>
       </div>
-      {!batches || batches.length === 0 ? (
+      {seedVault ? (
+        <p className="text-sm text-green-700 font-medium">View seed inventory →</p>
+      ) : !batches || batches.length === 0 ? (
         <p className="text-sm text-gray-400 italic">Empty</p>
       ) : (
         <div className="space-y-1.5">
