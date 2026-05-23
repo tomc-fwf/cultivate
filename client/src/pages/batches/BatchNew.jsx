@@ -62,6 +62,7 @@ export default function BatchNew() {
   const [plantsPerContainer, setPlantsPerContainer] = useState('1');
   const [startDate, setStartDate] = useState(todayISO());
   const [expectedHarvestDate, setExpectedHarvestDate] = useState('');
+  const [metrcUid, setMetrcUid] = useState('');
   const [notes, setNotes] = useState('');
 
   const [presetLocationName, setPresetLocationName] = useState(null);
@@ -156,12 +157,13 @@ export default function BatchNew() {
 
   function validate() {
     const errors = {};
-    if (phase === 'immature' && sourceType === 'seed' && !selectedPackageId)
-      errors.package = 'Select a seed package';
+    // seed package is optional — batch can be created without inventory tracking
     if (!plantCount || isNaN(Number(plantCount)) || Number(plantCount) <= 0)
       errors.plantCount = 'Plant count must be a positive number';
     if (!startDate) errors.startDate = 'Start date is required';
     if (weightExceeded) errors.weight = 'Deduction exceeds available weight';
+    if (metrcUid && (metrcUid.length !== 24 || !/^[A-Za-z0-9]+$/.test(metrcUid)))
+      errors.metrcUid = 'METRC UID must be exactly 24 alphanumeric characters';
     return errors;
   }
 
@@ -178,7 +180,7 @@ export default function BatchNew() {
         plants_per_container: Number(plantsPerContainer),
         sow_date: startDate,
         expected_harvest_date: (phase !== 'immature' && expectedHarvestDate) ? expectedHarvestDate : null,
-        metrc_plant_batch_uid: null,
+        metrc_plant_batch_uid: metrcUid.trim() || null,
         sub_zone_id: null,
         notes: notes || null,
         source_type: phase === 'immature' ? sourceType : null,
@@ -547,14 +549,45 @@ export default function BatchNew() {
         </div>
       )}
 
+      {/* No-package notice — immature + seed with no package selected */}
+      {phase === 'immature' && sourceType === 'seed' && !selectedPackageId && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5 text-sm text-amber-800">
+          <span className="font-semibold">No seed package selected.</span> Batch will be created without seed inventory tracking. You can link a seed package later by adding one to the Seed Vault.
+        </div>
+      )}
+
       {/* METRC batch name preview — shown when package + date are set */}
       {metrcBatchName && (
-        <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-6">
+        <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-5">
           <div className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">METRC Plant Batch Name</div>
           <div className="font-mono text-sm font-bold text-green-900">{metrcBatchName}</div>
           <div className="text-xs text-green-600 mt-1">
             Auto-generated · {phase === 'immature' ? 'Immature · Germ-01' : phase === 'veg' ? 'Vegetative' : 'Flowering'}
           </div>
+        </div>
+      )}
+
+      {/* METRC UID — optional, enter if batch already exists in METRC */}
+      {phase === 'immature' && (
+        <div className="mb-5">
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            METRC Plant Batch UID <span className="text-gray-400 font-normal text-xs">(optional — enter if batch already created in METRC)</span>
+          </label>
+          <input
+            type="text"
+            value={metrcUid}
+            onChange={e => { setMetrcUid(e.target.value.trim()); setFieldErrors(fe => ({ ...fe, metrcUid: undefined })); }}
+            placeholder="24-character alphanumeric UID"
+            className={`${inputClass} font-mono tracking-wide`}
+            style={{ minHeight: '56px' }}
+            maxLength={24}
+            autoCapitalize="characters"
+          />
+          {metrcUid && metrcUid.length !== 24 && (
+            <p className="text-xs text-amber-600 mt-1">{metrcUid.length}/24 characters</p>
+          )}
+          {fieldErrors.metrcUid && <p className="text-red-500 text-xs mt-1">{fieldErrors.metrcUid}</p>}
+          <p className="text-xs text-gray-400 mt-1">Can also be added from the batch detail page after creation.</p>
         </div>
       )}
 

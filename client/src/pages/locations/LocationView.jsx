@@ -174,27 +174,73 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
       {seedVault ? (
         <p className="text-sm text-green-700 font-medium">View seed inventory →</p>
       ) : !batches || batches.length === 0 ? (
-        <p className="text-sm text-gray-400 italic">Empty</p>
+        <div>
+          <p className="text-sm text-gray-400 italic mb-2">Empty</p>
+          <button
+            onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
+            onPointerDown={e => e.stopPropagation()}
+            className="w-full py-2 text-xs font-semibold rounded-xl bg-green-50 border border-green-200 text-green-700 hover:bg-green-100 transition-colors"
+            style={{ minHeight: '36px' }}
+          >
+            🌱 Start New Batch
+          </button>
+        </div>
       ) : (
-        <div className="space-y-1.5">
+        <div className="space-y-2.5">
           {batches.map(b => (
-            <div
-              key={b.batch_id}
-              className="flex items-center gap-2 min-w-0"
-              onClick={e => { e.stopPropagation(); navigate(`/batches/${b.batch_id}`); }}
-              onPointerDown={e => e.stopPropagation()}
-            >
-              <span className="text-sm font-medium text-gray-900 truncate flex-1 min-w-0">
-                {b.strain_name}
-              </span>
-              <span className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full ${STATUS_CHIP[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                {STATUS_LABELS[b.status] ?? b.status}
-              </span>
-              <span className="shrink-0 text-xs text-gray-500">
-                {b.plant_count_current ?? b.plant_count_initial}p
-              </span>
+            <div key={b.batch_id}>
+              {/* Batch info row — tap to go to detail */}
+              <div
+                className="flex items-center gap-2 min-w-0 mb-1.5 cursor-pointer"
+                onClick={e => { e.stopPropagation(); navigate(`/batches/${b.batch_id}`); }}
+                onPointerDown={e => e.stopPropagation()}
+              >
+                <span className="text-sm font-medium text-gray-900 truncate flex-1 min-w-0">
+                  {b.strain_name}
+                </span>
+                <span className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full ${STATUS_CHIP[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                  {STATUS_LABELS[b.status] ?? b.status}
+                </span>
+                {b.days_in_stage != null && (
+                  <span className="shrink-0 text-xs text-gray-400">D{b.days_in_stage}</span>
+                )}
+              </div>
+              {/* Quick actions — stop propagation so card tap doesn't fire */}
+              <div className="flex gap-1.5" onPointerDown={e => e.stopPropagation()}>
+                <button
+                  onClick={e => { e.stopPropagation(); navigate(`/applications/fertigation/new?batch_id=${b.batch_id}`); }}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-green-50 border border-green-200 text-green-800 hover:bg-green-100 transition-colors"
+                  style={{ minHeight: '32px' }}
+                >
+                  💧 Log
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); navigate(`/observations/new?batch_id=${b.batch_id}`); }}
+                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100 transition-colors"
+                  style={{ minHeight: '32px' }}
+                >
+                  🔍 Observe
+                </button>
+                {['harvest_window', 'harvesting'].includes(b.status) && (
+                  <button
+                    onClick={e => { e.stopPropagation(); navigate(`/harvest/${b.batch_id}`); }}
+                    className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100 transition-colors"
+                    style={{ minHeight: '32px' }}
+                  >
+                    🌾 Harvest
+                  </button>
+                )}
+              </div>
             </div>
           ))}
+          <button
+            onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
+            onPointerDown={e => e.stopPropagation()}
+            className="w-full py-1.5 text-xs font-medium rounded-xl border border-dashed border-gray-300 text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
+            style={{ minHeight: '32px' }}
+          >
+            + Add Another Batch
+          </button>
         </div>
       )}
     </div>
@@ -272,16 +318,50 @@ function SubZoneRow({ subLoc, navigate, onOpenMenu }) {
       {/* State bar */}
       <StateBar counts={container_counts ?? {}} total={container_count ?? 0} />
 
-      {/* Batch info */}
+      {/* Batch info + quick actions */}
       {batch ? (
-        <div className="flex items-center gap-1.5 mt-1 min-w-0">
-          <span className="text-xs text-gray-700 font-medium truncate flex-1 min-w-0">{batch.strain_name}</span>
-          <span className={`shrink-0 text-xs font-medium px-1.5 py-px rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
-            {STATUS_LABELS[batch.status] ?? batch.status}
-          </span>
-          {batch.days_in_stage != null && (
-            <span className="shrink-0 text-xs text-gray-400">Day {batch.days_in_stage}</span>
-          )}
+        <div className="mt-1">
+          <div
+            className="flex items-center gap-1.5 min-w-0 cursor-pointer mb-1"
+            onClick={e => { e.stopPropagation(); navigate(`/batches/${batch.batch_id}`); }}
+            onPointerDown={e => e.stopPropagation()}
+          >
+            <span className="text-xs text-gray-700 font-medium truncate flex-1 min-w-0">{batch.strain_name}</span>
+            <span className={`shrink-0 text-xs font-medium px-1.5 py-px rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
+              {STATUS_LABELS[batch.status] ?? batch.status}
+            </span>
+            {batch.days_in_stage != null && (
+              <span className="shrink-0 text-xs text-gray-400">D{batch.days_in_stage}</span>
+            )}
+          </div>
+          <div className="flex gap-1.5" onPointerDown={e => e.stopPropagation()}>
+            {['harvesting', 'harvest_window'].includes(batch.status) ? (
+              <button
+                onClick={e => { e.stopPropagation(); navigate(`/harvest/${batch.batch_id}`); }}
+                className="flex-1 py-1 text-xs font-semibold rounded-lg bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100 transition-colors"
+                style={{ minHeight: '28px' }}
+              >
+                🌾 Harvest
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={e => { e.stopPropagation(); navigate(`/applications/fertigation/new?batch_id=${batch.batch_id}`); }}
+                  className="flex-1 py-1 text-xs font-semibold rounded-lg bg-green-50 border border-green-200 text-green-800 hover:bg-green-100 transition-colors"
+                  style={{ minHeight: '28px' }}
+                >
+                  💧 Log
+                </button>
+                <button
+                  onClick={e => { e.stopPropagation(); navigate(`/observations/new?batch_id=${batch.batch_id}`); }}
+                  className="flex-1 py-1 text-xs font-semibold rounded-lg bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100 transition-colors"
+                  style={{ minHeight: '28px' }}
+                >
+                  🔍 Observe
+                </button>
+              </>
+            )}
+          </div>
         </div>
       ) : (
         <p className="text-xs text-gray-400 italic mt-1">—</p>
