@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapPin, ScanLine, FlaskConical, Users, RefreshCw, AlertTriangle } from 'lucide-react';
+import { MapPin, ScanLine, FlaskConical, Users, RefreshCw, AlertTriangle, Plus } from 'lucide-react';
 import { api } from '../../api';
 
 // ─── Static config ─────────────────────────────────────────────────────────
@@ -243,12 +243,31 @@ function SkeletonCard() {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
+const CATEGORY_PLACEHOLDERS = {
+  indoor: 'e.g. Germ-02',
+  hoop_house: 'e.g. Hoop-02',
+  outdoor: 'e.g. Zone 5',
+};
+
+const CATEGORY_DISPLAY = {
+  indoor: 'Indoor',
+  hoop_house: 'Hoop-House',
+  outdoor: 'Outdoor',
+};
+
 export default function LocationView() {
   const navigate = useNavigate();
   const [tree, setTree] = useState(null);
   const [globalAlerts, setGlobalAlerts] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [addLocationModal, setAddLocationModal] = useState(null); // null | { category }
+  const [addName, setAddName] = useState('');
+  const [addMetrcName, setAddMetrcName] = useState('');
+  const [addDescription, setAddDescription] = useState('');
+  const [addNameError, setAddNameError] = useState('');
+  const [addSaving, setAddSaving] = useState(false);
+  const [addError, setAddError] = useState('');
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -263,6 +282,39 @@ export default function LocationView() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const closeAddModal = () => {
+    setAddLocationModal(null);
+    setAddName('');
+    setAddMetrcName('');
+    setAddDescription('');
+    setAddNameError('');
+    setAddError('');
+  };
+
+  const handleAddLocation = async () => {
+    if (!addName.trim()) {
+      setAddNameError('Name is required.');
+      return;
+    }
+    setAddNameError('');
+    setAddError('');
+    setAddSaving(true);
+    try {
+      await api.createLocation({
+        name: addName.trim(),
+        location_category: addLocationModal.category,
+        metrc_name: addMetrcName.trim() || addName.trim(),
+        ...(addDescription.trim() ? { description: addDescription.trim() } : {}),
+      });
+      closeAddModal();
+      loadData();
+    } catch (err) {
+      setAddError(err.message || 'Failed to create location.');
+    } finally {
+      setAddSaving(false);
+    }
+  };
 
   const alerts = globalAlerts;
   const alertParts = [];
@@ -329,31 +381,127 @@ export default function LocationView() {
       {/* Tree sections */}
       {!loading && tree && SECTION_ORDER.map(category => {
         const locations = tree[category] ?? [];
-        if (!locations.length) return null;
         const isOutdoor = category === 'outdoor';
         return (
           <section key={category} className="mb-6">
-            <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500 mb-3">
-              {SECTION_LABELS[category]}
-            </h2>
-            <div className={
-              isOutdoor
-                ? 'grid grid-cols-2 md:grid-cols-4 gap-3'
-                : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'
-            }>
-              {locations.map(loc => {
-                if (isOutdoor) {
-                  if (loc.sub_locations && loc.sub_locations.length > 0) {
-                    return <ZoneCard key={loc.location_id} location={loc} navigate={navigate} />;
-                  }
-                  return <NoSubZonesCard key={loc.location_id} location={loc} />;
-                }
-                return <IndoorCard key={loc.location_id} location={loc} navigate={navigate} />;
-              })}
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-gray-500">
+                {SECTION_LABELS[category]}
+              </h2>
+              <button
+                onClick={() => setAddLocationModal({ category })}
+                className="flex items-center gap-1 text-xs font-medium text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 rounded-xl px-3 py-1.5 transition"
+                style={{ minHeight: '36px' }}
+              >
+                <Plus size={14} /> Add
+              </button>
             </div>
+            {locations.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No locations yet.</p>
+            ) : (
+              <div className={
+                isOutdoor
+                  ? 'grid grid-cols-2 md:grid-cols-4 gap-3'
+                  : 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'
+              }>
+                {locations.map(loc => {
+                  if (isOutdoor) {
+                    if (loc.sub_locations && loc.sub_locations.length > 0) {
+                      return <ZoneCard key={loc.location_id} location={loc} navigate={navigate} />;
+                    }
+                    return <NoSubZonesCard key={loc.location_id} location={loc} />;
+                  }
+                  return <IndoorCard key={loc.location_id} location={loc} navigate={navigate} />;
+                })}
+              </div>
+            )}
           </section>
         );
       })}
+
+      {/* ── Add Location modal ───────────────────────────────────────────── */}
+      {addLocationModal && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={closeAddModal} />
+          <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 p-4 pb-8">
+            <h3 className="text-base font-bold text-gray-900 mb-4">
+              Add {CATEGORY_DISPLAY[addLocationModal.category]} Location
+            </h3>
+
+            {addError && (
+              <div className="mb-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5 text-sm text-red-800">
+                {addError}
+              </div>
+            )}
+
+            <div className="space-y-3 mb-5">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={addName}
+                  onChange={e => { setAddName(e.target.value); setAddNameError(''); }}
+                  placeholder={CATEGORY_PLACEHOLDERS[addLocationModal.category]}
+                  className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 ${addNameError ? 'border-red-400' : 'border-gray-300'}`}
+                  style={{ minHeight: '44px' }}
+                  autoFocus
+                />
+                {addNameError && (
+                  <p className="mt-1 text-xs text-red-600">{addNameError}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  METRC Name <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={addMetrcName}
+                  onChange={e => setAddMetrcName(e.target.value)}
+                  placeholder="Same as name if blank"
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Description <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={addDescription}
+                  onChange={e => setAddDescription(e.target.value)}
+                  placeholder="Short description"
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  style={{ minHeight: '44px' }}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={closeAddModal}
+                className="flex-1 text-sm font-medium text-gray-600 hover:text-gray-900 py-3 transition"
+                disabled={addSaving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddLocation}
+                disabled={addSaving}
+                className="flex-1 bg-green-700 hover:bg-green-800 disabled:opacity-50 text-white rounded-2xl px-6 py-3 font-semibold text-sm transition"
+                style={{ minHeight: '48px' }}
+              >
+                {addSaving ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ── Quick Actions bar ─────────────────────────────────────────────── */}
       <div className="fixed bottom-20 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-gray-200 py-3">
