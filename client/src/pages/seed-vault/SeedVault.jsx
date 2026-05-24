@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { RefreshCw, Plus, Vault, Pencil } from 'lucide-react';
+import { RefreshCw, Plus, Vault, MoreHorizontal, Pencil, Sprout } from 'lucide-react';
 import { api } from '../../api';
 
 function SkeletonCard() {
@@ -19,6 +19,19 @@ function SkeletonCard() {
 }
 
 function PackageCard({ pkg, navigate, onEdit }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [menuOpen]);
+
   // Weight-based inventory (primary); fall back to seed count if no weight data
   const useWeight = pkg.weight_g_initial != null && pkg.weight_g_remaining != null;
   const remaining = useWeight ? pkg.weight_g_remaining : (pkg.seed_count_remaining ?? 0);
@@ -27,7 +40,7 @@ function PackageCard({ pkg, navigate, onEdit }) {
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-4 hover:border-green-300 transition-colors">
-      {/* Row 1 — name + badges */}
+      {/* Row 1 — name + badges + menu */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
           <p className="font-semibold text-gray-900 text-sm leading-snug truncate">
@@ -37,19 +50,44 @@ function PackageCard({ pkg, navigate, onEdit }) {
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
           <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => onEdit(pkg)}
-              className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
-              aria-label="Edit package"
-              style={{ minWidth: '28px', minHeight: '28px' }}
-            >
-              <Pencil size={13} />
-            </button>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
               pkg.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
             }`}>
               {pkg.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
             </span>
+            {/* ⋯ menu trigger */}
+            <div className="relative" ref={menuRef}>
+              <button
+                onClick={() => setMenuOpen(v => !v)}
+                className="p-1 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                aria-label="Package actions"
+                style={{ minWidth: '28px', minHeight: '28px' }}
+              >
+                <MoreHorizontal size={16} />
+              </button>
+
+              {menuOpen && (
+                <div className="absolute right-0 top-8 z-20 bg-white border border-gray-200 rounded-2xl shadow-lg py-1 min-w-[180px]">
+                  <button
+                    onClick={() => { setMenuOpen(false); navigate(`/batches/new?seed_package_id=${pkg.package_id}`); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-green-800 hover:bg-green-50 transition-colors"
+                    style={{ minHeight: '44px' }}
+                  >
+                    <Sprout size={15} />
+                    Create new planting
+                  </button>
+                  <div className="h-px bg-gray-100 mx-3" />
+                  <button
+                    onClick={() => { setMenuOpen(false); onEdit(pkg); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+                    style={{ minHeight: '44px' }}
+                  >
+                    <Pencil size={15} />
+                    Edit package
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
           {pkg.seed_sex === 'feminized' && (
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">♀ FEM</span>
@@ -87,7 +125,7 @@ function PackageCard({ pkg, navigate, onEdit }) {
       </div>
 
       {/* Row 3 — metadata chips */}
-      <div className="flex flex-wrap gap-1.5 mb-3 text-[11px]">
+      <div className="flex flex-wrap gap-1.5 text-[11px]">
         {pkg.metrc_package_id && (
           <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-mono">
             {pkg.metrc_package_id.slice(-8)}
@@ -114,20 +152,6 @@ function PackageCard({ pkg, navigate, onEdit }) {
           </span>
         )}
       </div>
-
-      {/* Row 4 — full METRC package ID */}
-      {pkg.metrc_package_id && (
-        <p className="text-[10px] font-mono text-gray-400 mb-3 break-all">{pkg.metrc_package_id}</p>
-      )}
-
-      {/* Row 5 — action button */}
-      <button
-        onClick={() => navigate(`/batches/new?seed_package_id=${pkg.package_id}`)}
-        className="w-full py-2.5 bg-green-700 text-white rounded-xl text-sm font-semibold hover:bg-green-800 transition-colors"
-        style={{ minHeight: '44px' }}
-      >
-        Use in New Batch →
-      </button>
     </div>
   );
 }
