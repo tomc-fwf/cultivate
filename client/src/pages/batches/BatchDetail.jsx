@@ -1110,7 +1110,7 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
         </div>
 
         <p className="text-sm text-gray-500 mb-4">
-          Moving this plant batch to <strong>{nextLabel}</strong>. This transition is logged and cannot be undone.
+          This will move the batch to <strong>{nextLabel}</strong> and log the transaction.
         </p>
 
         {/* Sub-zone picker — shown only for "Move to Field" */}
