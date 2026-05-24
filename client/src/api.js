@@ -266,6 +266,7 @@ export const api = {
 
   // METRC todos
   getMetrcTodos: (params = {}) => req('GET', '/metrc-todos', null, params),
+  getMetrcTodosPendingCount: () => req('GET', '/metrc-todos/pending-count'),
   markMetrcTodoDone: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'done' }),
   reopenMetrcTodo: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'pending' }),
 };

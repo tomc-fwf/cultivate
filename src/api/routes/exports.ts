@@ -1101,11 +1101,19 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       SELECT COUNT(*) AS cnt FROM cv_plant_loss_events WHERE metrc_sync_status = 'pending'
     `).get() as Record<string, unknown> | undefined;
 
+    // Manual METRC actions pending
+    let metrcTodosPending = 0;
+    try {
+      const metrcRow = db.prepare(`SELECT COUNT(*) AS cnt FROM cv_metrc_todos WHERE status = 'pending'`).get() as Record<string, unknown> | undefined;
+      metrcTodosPending = Number(metrcRow?.['cnt'] ?? 0);
+    } catch { /* table may not exist on older deployments */ }
+
     return reply.send({
-      teardown_pending:    Number(teardownRow?.['cnt'] ?? 0),
-      startup_pending:     Number(startupRow?.['cnt'] ?? 0),
+      teardown_pending:     Number(teardownRow?.['cnt'] ?? 0),
+      startup_pending:      Number(startupRow?.['cnt'] ?? 0),
       lab_samples_awaiting: Number(labRow?.['cnt'] ?? 0),
-      losses_unsynced:     Number(lossRow?.['cnt'] ?? 0),
+      losses_unsynced:      Number(lossRow?.['cnt'] ?? 0),
+      metrc_todos_pending:  metrcTodosPending,
     });
   });
 

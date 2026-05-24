@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks } from 'lucide-react';
 import { useAuth } from '../App';
 import { useSyncStatus } from '../lib/offlineQueue';
+import { api } from '../api';
 
 function SyncBadge() {
   const { pending, failed } = useSyncStatus();
@@ -25,7 +26,23 @@ function SyncBadge() {
   );
 }
 
-function MoreSheet({ onClose }) {
+function useMetrcPending() {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    let mounted = true;
+    function refresh() {
+      api.getMetrcTodosPendingCount()
+        .then(data => { if (mounted) setCount(data.count ?? 0); })
+        .catch(() => {});
+    }
+    refresh();
+    const interval = setInterval(refresh, 30000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, []);
+  return count;
+}
+
+function MoreSheet({ onClose, metrcPending }) {
   const navigate = useNavigate();
   const go = (path) => { navigate(path); onClose(); };
 
@@ -37,7 +54,7 @@ function MoreSheet({ onClose }) {
     { icon: <Eye size={20} />, label: 'Observations', path: '/observations' },
     { icon: <Grid2x2 size={20} />, label: 'Containers', path: '/containers' },
     { icon: <MapPin size={20} />, label: 'Locations', path: '/locations' },
-    { icon: <ListChecks size={20} />, label: 'METRC Actions', path: '/compliance/metrc-todos' },
+    { icon: <ListChecks size={20} />, label: 'METRC Actions', path: '/compliance/metrc-todos', badge: metrcPending },
     { icon: <ClipboardList size={20} />, label: 'Compliance', path: '/compliance' },
     { icon: <BarChart2 size={20} />, label: 'Analytics', path: '/analytics/applicators' },
     { icon: <ClipboardList size={20} />, label: 'Planting Plans', path: '/planting-plans' },
@@ -63,7 +80,12 @@ function MoreSheet({ onClose }) {
               style={{ minHeight: '56px' }}
             >
               <span className="text-gray-400">{item.icon}</span>
-              <span>{item.label}</span>
+              <span className="flex-1">{item.label}</span>
+              {item.badge > 0 && (
+                <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[22px] text-center">
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -75,6 +97,7 @@ function MoreSheet({ onClose }) {
 export default function NavBar() {
   const { logout } = useAuth();
   const [showMore, setShowMore] = useState(false);
+  const metrcPending = useMetrcPending();
   const cls = ({ isActive }) =>
     `flex flex-col items-center gap-0.5 text-xs pt-1 ${isActive ? 'text-green-800 font-semibold' : 'text-gray-600'}`;
   return (
@@ -86,12 +109,19 @@ export default function NavBar() {
         </div>
         <NavLink to="/locations" className={cls}><MapPin size={22} /><span>Locations</span></NavLink>
         <NavLink to="/tasks" className={cls}><ClipboardList size={22} /><span>Tasks</span></NavLink>
-        <button
-          onClick={() => setShowMore(true)}
-          className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-green-800 transition-colors"
-        >
-          <MoreHorizontal size={22} /><span>More</span>
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowMore(true)}
+            className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-green-800 transition-colors"
+          >
+            <MoreHorizontal size={22} /><span>More</span>
+          </button>
+          {metrcPending > 0 && (
+            <span className="absolute -top-0.5 -right-1.5 bg-amber-500 text-white text-[9px] font-bold rounded-full min-w-[14px] h-3.5 flex items-center justify-center px-0.5">
+              {metrcPending > 9 ? '9+' : metrcPending}
+            </span>
+          )}
+        </div>
         <button
           onClick={logout}
           className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-red-600 transition-colors"
@@ -99,7 +129,7 @@ export default function NavBar() {
           <LogOut size={22} /><span>Logout</span>
         </button>
       </nav>
-      {showMore && <MoreSheet onClose={() => setShowMore(false)} />}
+      {showMore && <MoreSheet onClose={() => setShowMore(false)} metrcPending={metrcPending} />}
     </>
   );
 }
