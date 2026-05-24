@@ -852,6 +852,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
             UPDATE cv_batch_phase_history SET transitioned_at = ?
             WHERE batch_id = ? AND from_status IS NULL
           `).run(isoSow, id);
+          // Sync location history: the initial placement record has from_location_id IS NULL
+          db.prepare(`
+            UPDATE cv_batch_location_history SET moved_at = ?
+            WHERE batch_id = ? AND from_location_id IS NULL
+          `).run(isoSow, id);
         }
       }
 
@@ -866,6 +871,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
             UPDATE cv_batch_phase_history SET transitioned_at = ?
             WHERE batch_id = ? AND to_status = 'seedling'
           `).run(isoDate, id);
+          // Sync location history: move to Seedlings (location_id = 2)
+          db.prepare(`
+            UPDATE cv_batch_location_history SET moved_at = ?
+            WHERE batch_id = ? AND to_location_id = 2
+          `).run(isoDate, id);
         }
       }
 
@@ -879,6 +889,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
           db.prepare(`
             UPDATE cv_batch_phase_history SET transitioned_at = ?
             WHERE batch_id = ? AND to_status = 'field-veg'
+          `).run(isoDate, id);
+          // Sync location history: move to Cult-Hoop or Field (location_id >= 3)
+          db.prepare(`
+            UPDATE cv_batch_location_history SET moved_at = ?
+            WHERE batch_id = ? AND to_location_id >= 3
           `).run(isoDate, id);
         }
       }
