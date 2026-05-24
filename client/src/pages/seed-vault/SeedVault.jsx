@@ -51,10 +51,11 @@ function PackageCard({ pkg, navigate, onEdit }) {
               {pkg.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
             </span>
           </div>
-          {pkg.feminized && (
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">
-              ♀ FEM
-            </span>
+          {pkg.seed_sex === 'feminized' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-100 text-pink-700">♀ FEM</span>
+          )}
+          {pkg.seed_sex === 'regular' && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">REG</span>
           )}
         </div>
       </div>
@@ -131,15 +132,16 @@ function PackageCard({ pkg, navigate, onEdit }) {
   );
 }
 
-const FEMINIZED_OPTIONS = [
-  { value: false, label: 'No' },
-  { value: true, label: 'Yes' },
+const SEED_SEX_OPTIONS = [
+  { value: 'feminized', label: '♀ Feminized' },
+  { value: 'regular',   label: 'Regular' },
+  { value: 'unknown',   label: 'Unknown' },
 ];
 
 function AddPackageForm({ onSave, onCancel }) {
   const [packageName, setPackageName] = useState('');
   const [strainName, setStrainName] = useState('');
-  const [strainType, setStrainType] = useState('auto');
+  const [strainType, setStrainType] = useState('photo');
   const [metrcPackageId, setMetrcPackageId] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [supplier, setSupplier] = useState('');
@@ -148,13 +150,16 @@ function AddPackageForm({ onSave, onCancel }) {
   const [seasonYear, setSeasonYear] = useState(String(new Date().getFullYear()));
   const [seedCount, setSeedCount] = useState('');
   const [weightG, setWeightG] = useState('');
-  const [feminized, setFeminized] = useState(false);
+  const [seedSex, setSeedSex] = useState('unknown');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSubmit(e) {
     e.preventDefault();
+    if (!packageName.trim()) { setError('Package Name (Item) is required'); return; }
+    if (!metrcPackageId.trim()) { setError('METRC Package ID is required'); return; }
+    if (!/^[A-Za-z0-9]{24}$/.test(metrcPackageId.trim())) { setError('METRC Package ID must be exactly 24 alphanumeric characters'); return; }
     if (!weightG || Number(weightG) <= 0) { setError('Total weight in grams is required'); return; }
     if (!strainName.trim()) { setError('Strain name is required'); return; }
 
@@ -165,9 +170,9 @@ function AddPackageForm({ onSave, onCancel }) {
         strain_name: strainName.trim(),
         strain_type: strainType,
         lot_number: lotNumber.trim() || null,
-        package_name: packageName.trim() || null,
-        metrc_package_id: metrcPackageId.trim() || null,
-        feminized,
+        package_name: packageName.trim(),
+        metrc_package_id: metrcPackageId.trim(),
+        seed_sex: seedSex,
         season_year: seasonYear ? Number(seasonYear) : undefined,
         supplier: supplier.trim() || null,
         source_detail: sourceDetail.trim() || null,
@@ -199,11 +204,13 @@ function AddPackageForm({ onSave, onCancel }) {
       <form onSubmit={handleSubmit}>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Package Name</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Package Name (Item) <span className="text-red-500">*</span>
+            </label>
             <input
               type="text"
               value={packageName}
-              onChange={e => setPackageName(e.target.value)}
+              onChange={e => { setPackageName(e.target.value); setError(''); }}
               placeholder="e.g. NL Auto 2026 Batch A"
               className={inputClass}
               style={{ minHeight: '44px' }}
@@ -255,14 +262,22 @@ function AddPackageForm({ onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">METRC Package ID</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-gray-600">
+                METRC Package ID <span className="text-red-500">*</span>
+              </label>
+              <span className={`text-[11px] font-mono ${metrcPackageId.length === 24 ? 'text-green-600' : 'text-gray-400'}`}>
+                {metrcPackageId.length}/24
+              </span>
+            </div>
             <input
               type="text"
               value={metrcPackageId}
-              onChange={e => setMetrcPackageId(e.target.value)}
-              placeholder="24-char METRC UID"
+              onChange={e => { setMetrcPackageId(e.target.value); setError(''); }}
+              placeholder="24 alphanumeric characters"
               className={`${inputClass} font-mono`}
               style={{ minHeight: '44px' }}
+              maxLength={24}
             />
           </div>
 
@@ -359,15 +374,17 @@ function AddPackageForm({ onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-2">Feminized</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">
+              Seed Sex <span className="text-red-500">*</span>
+            </label>
             <div className="flex gap-2">
-              {FEMINIZED_OPTIONS.map(opt => (
+              {SEED_SEX_OPTIONS.map(opt => (
                 <button
-                  key={String(opt.value)}
+                  key={opt.value}
                   type="button"
-                  onClick={() => setFeminized(opt.value)}
+                  onClick={() => setSeedSex(opt.value)}
                   className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
-                    feminized === opt.value
+                    seedSex === opt.value
                       ? 'bg-green-700 text-white border-green-700'
                       : 'bg-white text-gray-700 border-gray-200 hover:border-green-300'
                   }`}
@@ -426,14 +443,13 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
   const [weightG, setWeightG] = useState(pkg.weight_g_initial ? String(pkg.weight_g_initial) : '');
   const [weightGRemaining, setWeightGRemaining] = useState(pkg.weight_g_remaining != null ? String(pkg.weight_g_remaining) : '');
   const [seedCountRemaining, setSeedCountRemaining] = useState(String(pkg.seed_count_remaining ?? ''));
-  const [feminized, setFeminized] = useState(Boolean(pkg.feminized));
+  const [seedSex, setSeedSex] = useState(pkg.seed_sex || (pkg.feminized ? 'feminized' : 'unknown'));
   const [notes, setNotes] = useState(pkg.notes || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!lotNumber.trim()) { setError('Lot number is required'); return; }
 
     setSaving(true);
     setError('');
@@ -449,7 +465,7 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
         weight_g_initial: weightG ? Number(weightG) : null,
         weight_g_remaining: weightGRemaining !== '' ? Number(weightGRemaining) : undefined,
         seed_count_remaining: seedCountRemaining !== '' ? Number(seedCountRemaining) : undefined,
-        feminized,
+        seed_sex: seedSex,
         notes: notes.trim() || null,
       });
       onSave(updated);
@@ -603,15 +619,15 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-2">Feminized</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Seed Sex</label>
             <div className="flex gap-2">
-              {FEMINIZED_OPTIONS.map(opt => (
+              {SEED_SEX_OPTIONS.map(opt => (
                 <button
-                  key={String(opt.value)}
+                  key={opt.value}
                   type="button"
-                  onClick={() => setFeminized(opt.value)}
+                  onClick={() => setSeedSex(opt.value)}
                   className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition ${
-                    feminized === opt.value
+                    seedSex === opt.value
                       ? 'bg-green-700 text-white border-green-700'
                       : 'bg-white text-gray-700 border-gray-200 hover:border-green-300'
                   }`}
