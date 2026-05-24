@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault } from 'lucide-react';
+import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks } from 'lucide-react';
 import { useAuth } from '../App';
 import { useSyncStatus } from '../lib/offlineQueue';
 
@@ -37,6 +37,7 @@ function MoreSheet({ onClose }) {
     { icon: <Eye size={20} />, label: 'Observations', path: '/observations' },
     { icon: <Grid2x2 size={20} />, label: 'Containers', path: '/containers' },
     { icon: <MapPin size={20} />, label: 'Locations', path: '/locations' },
+    { icon: <ListChecks size={20} />, label: 'METRC Actions', path: '/compliance/metrc-todos' },
     { icon: <ClipboardList size={20} />, label: 'Compliance', path: '/compliance' },
     { icon: <BarChart2 size={20} />, label: 'Analytics', path: '/analytics/applicators' },
     { icon: <ClipboardList size={20} />, label: 'Planting Plans', path: '/planting-plans' },
