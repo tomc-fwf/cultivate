@@ -93,7 +93,14 @@ const BatchUpdateSchema = z.object({
   notes: z.string().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
   plant_count_initial: z.number().int().positive().optional(),
-  // Correction: override when the batch entered its current stage (recalculates days_in_stage)
+  // Date corrections — allow supervisors to fix any key lifecycle date.
+  // Changing transplant_date / field_move_date also syncs the matching phase_history entry.
+  // Changing current_stage_since syncs the last phase_history entry.
+  sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  transplant_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  field_move_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  harvest_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  closed_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   current_stage_since: z.string().regex(/^\d{4}-\d{2}-\d{2}/).nullable().optional(),
 });
 type BatchUpdateBody = z.infer<typeof BatchUpdateSchema>;
@@ -262,17 +269,14 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       const batchSowDate = row['sow_date'] as string | null;
       const currentStageSince = row['current_stage_since'] as string | null;
+      // phase_history transitioned_at values are kept in sync with current_stage_since
+      // (and transplant_date / field_move_date) by the PATCH handler, so we use them
+      // directly — no runtime proxy needed.
       const phaseHistory = rawPhaseHistory.map((ph, idx) => {
         const stageStart = idx === 0
           ? batchSowDate
           : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
-        // For the last transition, current_stage_since is the most accurate record
-        // of when the current stage began (may have been corrected by supervisor).
-        // Use it as the end anchor so the previous stage's duration is correct.
-        const isLast = idx === rawPhaseHistory.length - 1;
-        const stageEnd = (isLast && currentStageSince)
-          ? currentStageSince
-          : ph['transitioned_at'] as string | null;
+        const stageEnd = ph['transitioned_at'] as string | null;
         const daysInStage = (stageStart && stageEnd)
           ? Math.floor(
               (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
@@ -735,15 +739,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).all(id) as Array<Record<string, unknown>>;
 
       const batchSowDate = row['sow_date'] as string | null;
-      const newStageSince = row['current_stage_since'] as string | null;
       const phaseHistory = rawPhaseHistory.map((ph, idx) => {
         const stageStart = idx === 0
           ? batchSowDate
           : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
-        const isLast = idx === rawPhaseHistory.length - 1;
-        const stageEnd = (isLast && newStageSince)
-          ? newStageSince
-          : ph['transitioned_at'] as string | null;
+        const stageEnd = ph['transitioned_at'] as string | null;
         const daysInStage = (stageStart && stageEnd)
           ? Math.floor(
               (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
@@ -840,11 +840,85 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         values.push(Number(body.plant_count_initial));
       }
 
+      if ('sow_date' in body) {
+        updates.push('sow_date = ?');
+        values.push(body.sow_date ?? null);
+      }
+
+      if ('transplant_date' in body) {
+        const isoDate = body.transplant_date
+          ? new Date(body.transplant_date + 'T00:00:00.000Z').toISOString()
+          : null;
+        updates.push('transplant_date = ?');
+        values.push(isoDate);
+        if (isoDate) {
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ? AND to_status = 'seedling'
+          `).run(isoDate, id);
+        }
+      }
+
+      if ('field_move_date' in body) {
+        const isoDate = body.field_move_date
+          ? new Date(body.field_move_date + 'T00:00:00.000Z').toISOString()
+          : null;
+        updates.push('field_move_date = ?');
+        values.push(isoDate);
+        if (isoDate) {
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ? AND to_status = 'field-veg'
+          `).run(isoDate, id);
+        }
+      }
+
+      if ('harvest_date' in body) {
+        const isoDate = body.harvest_date
+          ? new Date(body.harvest_date + 'T00:00:00.000Z').toISOString()
+          : null;
+        updates.push('harvest_date = ?');
+        values.push(isoDate);
+        if (isoDate) {
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ? AND to_status = 'harvesting'
+          `).run(isoDate, id);
+        }
+      }
+
+      if ('closed_date' in body) {
+        const isoDate = body.closed_date
+          ? new Date(body.closed_date + 'T00:00:00.000Z').toISOString()
+          : null;
+        updates.push('closed_date = ?');
+        values.push(isoDate);
+        if (isoDate) {
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ? AND to_status = 'closed'
+          `).run(isoDate, id);
+        }
+      }
+
       if ('current_stage_since' in body) {
         const val = body.current_stage_since;
-        // Store as start-of-day UTC ISO string for the given date
+        const isoDate = val ? new Date(val + 'T00:00:00.000Z').toISOString() : null;
         updates.push('current_stage_since = ?');
-        values.push(val ? new Date(val + 'T00:00:00.000Z').toISOString() : null);
+        values.push(isoDate);
+        // Sync the last phase_history entry so StageTimeline durations stay consistent.
+        // Without this, the previous stage's duration computes negative when correcting
+        // a start date that differs from the originally-logged transitioned_at.
+        if (isoDate) {
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ?
+              AND rowid = (
+                SELECT rowid FROM cv_batch_phase_history
+                WHERE batch_id = ? ORDER BY transitioned_at DESC LIMIT 1
+              )
+          `).run(isoDate, id, id);
+        }
       }
 
       if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });

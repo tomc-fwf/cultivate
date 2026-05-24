@@ -294,6 +294,184 @@ function StageDateField({ batch, isSupervisor, onUpdated }) {
   );
 }
 
+// ─── Batch Dates Section ──────────────────────────────────────────────────────
+// Reusable inline date editor: shows a label + value; pencil opens a date input.
+function InlineDateField({ label, value, patchKey, batchId, isSupervisor, disabled, onUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [dateVal, setDateVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  function startEdit() {
+    // Extract YYYY-MM-DD from either a date string or ISO timestamp
+    const raw = value ? String(value).slice(0, 10) : new Date().toISOString().slice(0, 10);
+    setDateVal(raw);
+    setErr('');
+    setEditing(true);
+  }
+
+  async function save() {
+    if (!dateVal) return;
+    setSaving(true);
+    setErr('');
+    try {
+      await api.updateBatch(batchId, { [patchKey]: dateVal });
+      onUpdated();
+      setEditing(false);
+    } catch (e) {
+      setErr(e.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const display = value
+    ? new Date(String(value).slice(0, 10) + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—';
+
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 gap-2">
+      <span className="text-xs font-medium text-gray-500 w-28 flex-shrink-0">{label}</span>
+      {editing ? (
+        <div className="flex items-center gap-2 flex-1 flex-wrap">
+          <input
+            type="date"
+            value={dateVal}
+            onChange={e => setDateVal(e.target.value)}
+            className="border border-gray-300 rounded-lg px-2 py-1 text-xs text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-green-400 flex-1"
+            style={{ minHeight: '32px', minWidth: '130px' }}
+            autoFocus
+          />
+          <button
+            onClick={save}
+            disabled={saving}
+            className="text-xs font-semibold text-white bg-green-700 hover:bg-green-800 px-3 py-1 rounded-lg disabled:opacity-50"
+            style={{ minHeight: '32px' }}
+          >
+            {saving ? '…' : 'Save'}
+          </button>
+          <button
+            onClick={() => { setEditing(false); setErr(''); }}
+            className="text-xs text-gray-400 hover:text-gray-600"
+          >
+            Cancel
+          </button>
+          {err && <span className="text-xs text-red-600 w-full">{err}</span>}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 flex-1 justify-end">
+          <span className={`text-xs font-mono ${value ? 'text-gray-700 font-semibold' : 'text-gray-300'}`}>
+            {display}
+          </span>
+          {isSupervisor && !disabled && (
+            <button
+              onClick={startEdit}
+              title={`Edit ${label}`}
+              className="text-gray-300 hover:text-green-600 transition-colors flex-shrink-0"
+              style={{ lineHeight: 1, fontSize: '13px' }}
+            >
+              ✏
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// STATUS_ORDER used to determine which date fields are relevant for the batch's current status
+const DATES_STATUS_ORDER = [
+  'germ', 'seedling', 'cult-hoop', 'field-veg', 'field-flower',
+  'flush', 'harvest_window', 'harvesting', 'closed',
+];
+
+function BatchDatesSection({ batch, isSupervisor, onUpdated }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const statusIdx = DATES_STATUS_ORDER.indexOf(batch.status);
+  const isActive = batch.status !== 'closed';
+
+  const dateFields = [
+    {
+      key: 'sow_date',
+      label: 'Sow Date',
+      value: batch.sow_date,
+      show: true,
+      // sow_date is always editable but warn if batch has phase history
+      disabled: false,
+    },
+    {
+      key: 'transplant_date',
+      label: 'Transplant',
+      value: batch.transplant_date,
+      show: statusIdx >= DATES_STATUS_ORDER.indexOf('seedling'),
+      disabled: false,
+    },
+    {
+      key: 'field_move_date',
+      label: 'Field Move',
+      value: batch.field_move_date,
+      show: statusIdx >= DATES_STATUS_ORDER.indexOf('field-veg'),
+      disabled: false,
+    },
+    {
+      key: 'current_stage_since',
+      label: 'Stage Since',
+      value: batch.current_stage_since,
+      show: isActive,
+      disabled: false,
+    },
+    {
+      key: 'harvest_date',
+      label: 'Harvest Start',
+      value: batch.harvest_date,
+      show: statusIdx >= DATES_STATUS_ORDER.indexOf('harvest_window'),
+      disabled: false,
+    },
+    {
+      key: 'closed_date',
+      label: 'Closed',
+      value: batch.closed_date,
+      show: batch.status === 'closed',
+      disabled: false,
+    },
+  ].filter(f => f.show);
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl mb-4 overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left"
+        style={{ minHeight: '48px' }}
+      >
+        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Batch Dates</span>
+        <span className={`text-gray-400 text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+      </button>
+      {expanded && (
+        <div className="px-5 pb-4 pt-0 border-t border-gray-100">
+          {isSupervisor && (
+            <p className="text-[10px] text-amber-600 mb-3 mt-2">
+              Editing dates also updates the lifecycle timeline. Use to correct dates entered incorrectly during setup.
+            </p>
+          )}
+          {dateFields.map(f => (
+            <InlineDateField
+              key={f.key}
+              label={f.label}
+              value={f.value}
+              patchKey={f.key}
+              batchId={batch.batch_id}
+              isSupervisor={isSupervisor}
+              disabled={f.disabled}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, [onDone]);
   const bg = type === 'success' ? 'bg-green-700' : type === 'warning' ? 'bg-amber-600' : 'bg-red-600';
@@ -534,6 +712,9 @@ export default function BatchDetail() {
           )}
         </div>
       </div>
+
+      {/* ── Batch Dates — collapsed section for reviewing / correcting lifecycle dates ── */}
+      <BatchDatesSection batch={batch} isSupervisor={isSupervisor} onUpdated={load} />
 
       {/* Stage Guide — germ / seedling / cult-hoop day context */}
       <StageGuide
