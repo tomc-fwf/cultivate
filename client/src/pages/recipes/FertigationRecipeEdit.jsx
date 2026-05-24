@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 
-const RECIPE_NAMES = ['BASE', 'SEEDLING', 'AUTO-VEG', 'AUTO-FLOWER', 'PHOTO-VEG', 'PHOTO-FLOWER', 'FLUSH'];
 
 const RATE_UNITS = [
   { value: 'ml_per_gal', label: 'ml/gal' },
@@ -25,9 +24,9 @@ export default function FertigationRecipeEdit() {
   const navigate = useNavigate();
 
   const isVersioning = !!id;
-  const nameFromQuery = searchParams.get('name')?.toUpperCase() ?? '';
+  const nameFromQuery = searchParams.get('name') ?? '';
 
-  const [name, setName] = useState(nameFromQuery || RECIPE_NAMES[0]);
+  const [name, setName] = useState(nameFromQuery || '');
   const [ecLow, setEcLow] = useState('');
   const [ecHigh, setEcHigh] = useState('');
   const [phLow, setPhLow] = useState('');
@@ -283,21 +282,21 @@ export default function FertigationRecipeEdit() {
       <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1.5">Recipe Name</label>
         {isVersioning ? (
-          <div className="py-2.5 px-3 bg-gray-100 rounded-xl text-gray-700 font-semibold" style={{ minHeight: '48px' }}>
+          <div
+            className="py-2.5 px-3 bg-gray-100 rounded-xl text-gray-700 font-semibold flex items-center"
+            style={{ minHeight: '56px' }}
+          >
             {name}
           </div>
         ) : (
-          <select
+          <input
+            type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            disabled={!!nameFromQuery}
-            className={`w-full rounded-xl border px-3 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-700 ${errors.name ? 'border-red-400' : 'border-gray-300'} ${nameFromQuery ? 'bg-gray-100 text-gray-700' : ''}`}
-            style={{ minHeight: '56px', fontSize: '15px' }}
-          >
-            {RECIPE_NAMES.map((n) => (
-              <option key={n} value={n}>{n}</option>
-            ))}
-          </select>
+            placeholder="e.g. Base Feed, Bloom, Flush, Cal-Mag Boost…"
+            className={`w-full rounded-xl border px-3 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-700 ${errors.name ? 'border-red-400' : 'border-gray-300'}`}
+            style={{ minHeight: '56px', fontSize: '16px' }}
+          />
         )}
         {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
       </div>

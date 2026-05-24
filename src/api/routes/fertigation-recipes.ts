@@ -3,9 +3,6 @@ import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middleware.js';
 
-const RECIPE_NAMES = ['BASE', 'SEEDLING', 'AUTO-VEG', 'AUTO-FLOWER', 'PHOTO-VEG', 'PHOTO-FLOWER', 'FLUSH'] as const;
-type RecipeName = (typeof RECIPE_NAMES)[number];
-
 interface IdParams { id: string }
 interface NameParams { name: string }
 
@@ -18,7 +15,7 @@ const IngredientSchema = z.object({
 });
 
 const RecipeCreateSchema = z.object({
-  name: z.enum(RECIPE_NAMES),
+  name: z.string().min(1).max(100),
   ec_target_low: z.number().nullable().optional(),
   ec_target_high: z.number().nullable().optional(),
   ph_target_low: z.number().nullable().optional(),
@@ -80,8 +77,7 @@ async function fetchItemNames(inputIds: number[]): Promise<Map<number, string>> 
 
 const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
   /**
-   * GET / — list active recipe for each of the 7 fixed names.
-   * Returns all 7 slots; entries without a recipe show name + null recipe fields.
+   * GET / — list all active fertigation recipes, ordered by name.
    */
   app.get('/', { preHandler: requireAuth }, async (_request, reply) => {
     const db = getDB();
@@ -97,15 +93,7 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
       )
       .all() as Record<string, unknown>[];
 
-    const byName = new Map(activeRecipes.map((r) => [r['name'] as string, r]));
-
-    const result = RECIPE_NAMES.map((name) => {
-      const recipe = byName.get(name);
-      if (recipe) return recipe;
-      return { name, active: null, recipe_id: null };
-    });
-
-    return reply.send(result);
+    return reply.send(activeRecipes);
   });
 
   /**
@@ -116,9 +104,6 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: requireAuth },
     async (request, reply) => {
       const name = request.params.name.toUpperCase();
-      if (!RECIPE_NAMES.includes(name as RecipeName)) {
-        return reply.code(400).send({ error: `Invalid recipe name. Must be one of: ${RECIPE_NAMES.join(', ')}` });
-      }
 
       const db = getDB();
       const recipe = db
