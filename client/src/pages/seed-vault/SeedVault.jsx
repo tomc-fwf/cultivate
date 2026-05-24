@@ -461,6 +461,8 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
   const [seedCountRemaining, setSeedCountRemaining] = useState(String(pkg.seed_count_remaining ?? ''));
   const [seedSex, setSeedSex] = useState(pkg.seed_sex || (pkg.feminized ? 'feminized' : 'unknown'));
   const [notes, setNotes] = useState(pkg.notes || '');
+  const hasOptional = !!(pkg.lot_number || pkg.supplier || pkg.source_detail || pkg.received_date || pkg.season_year || pkg.seed_count_remaining);
+  const [showMore, setShowMore] = useState(hasOptional);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -508,9 +510,10 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
       )}
 
       <form onSubmit={handleSubmit}>
+        {/* ── Required fields ── */}
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Package Name</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Package Name (Item)</label>
             <input
               type="text"
               value={packageName}
@@ -522,73 +525,20 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">METRC Package ID</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-gray-600">METRC Package ID</label>
+              <span className={`text-[11px] font-mono ${metrcPackageId.length === 24 ? 'text-green-600' : 'text-gray-400'}`}>
+                {metrcPackageId.length}/24
+              </span>
+            </div>
             <input
               type="text"
               value={metrcPackageId}
               onChange={e => setMetrcPackageId(e.target.value)}
-              placeholder="24-char METRC UID"
+              placeholder="24 alphanumeric characters"
               className={`${inputClass} font-mono`}
               style={{ minHeight: '44px' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Lot Number</label>
-            <input
-              type="text"
-              value={lotNumber}
-              onChange={e => setLotNumber(e.target.value)}
-              placeholder="Lot number from packaging"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Supplier / Source</label>
-            <input
-              type="text"
-              value={supplier}
-              onChange={e => setSupplier(e.target.value)}
-              placeholder="Breeder or supplier name"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Source Detail</label>
-            <input
-              type="text"
-              value={sourceDetail}
-              onChange={e => setSourceDetail(e.target.value)}
-              placeholder="URL, invoice #, or notes"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Date Received</label>
-            <input
-              type="date"
-              value={receivedDate}
-              onChange={e => setReceivedDate(e.target.value)}
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Season Year</label>
-            <input
-              type="number"
-              value={seasonYear}
-              onChange={e => setSeasonYear(e.target.value)}
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-              inputMode="numeric"
+              maxLength={24}
             />
           </div>
 
@@ -603,34 +553,6 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
               style={{ minHeight: '44px' }}
               inputMode="decimal"
               step="0.01"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Weight Remaining (g)</label>
-            <input
-              type="number"
-              value={weightGRemaining}
-              onChange={e => setWeightGRemaining(e.target.value)}
-              placeholder="Current weight remaining in grams"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-              inputMode="decimal"
-              step="0.01"
-            />
-            <p className="text-[11px] text-gray-400 mt-1">Manual correction — use only to fix inventory discrepancies</p>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Seeds Remaining (optional)</label>
-            <input
-              type="number"
-              value={seedCountRemaining}
-              onChange={e => setSeedCountRemaining(e.target.value)}
-              placeholder="Current seed count"
-              className={inputClass}
-              style={{ minHeight: '44px' }}
-              inputMode="numeric"
             />
           </div>
 
@@ -662,10 +584,111 @@ function EditPackageForm({ pkg, onSave, onCancel }) {
               onChange={e => setNotes(e.target.value)}
               placeholder="Optional notes"
               className={`${inputClass} resize-none`}
-              rows={3}
+              rows={2}
             />
           </div>
         </div>
+
+        {/* ── Optional fields ── */}
+        <button
+          type="button"
+          onClick={() => setShowMore(v => !v)}
+          className="mt-3 w-full flex items-center justify-center gap-1.5 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 border border-dashed border-gray-200 rounded-xl transition"
+        >
+          <span>{showMore ? '▲' : '▼'}</span>
+          {showMore ? 'Hide optional fields' : 'More fields (lot, supplier, date received…)'}
+        </button>
+
+        {showMore && (
+          <div className="space-y-3 mt-3 pt-3 border-t border-gray-100">
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Lot Number</label>
+              <input
+                type="text"
+                value={lotNumber}
+                onChange={e => setLotNumber(e.target.value)}
+                placeholder="Lot number from packaging"
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Supplier / Source</label>
+              <input
+                type="text"
+                value={supplier}
+                onChange={e => setSupplier(e.target.value)}
+                placeholder="Breeder or supplier name"
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Source Detail</label>
+              <input
+                type="text"
+                value={sourceDetail}
+                onChange={e => setSourceDetail(e.target.value)}
+                placeholder="URL, invoice #, or notes"
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Date Received</label>
+              <input
+                type="date"
+                value={receivedDate}
+                onChange={e => setReceivedDate(e.target.value)}
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Season Year</label>
+              <input
+                type="number"
+                value={seasonYear}
+                onChange={e => setSeasonYear(e.target.value)}
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+                inputMode="numeric"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Weight Remaining (g)</label>
+              <input
+                type="number"
+                value={weightGRemaining}
+                onChange={e => setWeightGRemaining(e.target.value)}
+                placeholder="Current weight remaining"
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+                inputMode="decimal"
+                step="0.01"
+              />
+              <p className="text-[11px] text-gray-400 mt-1">Manual correction only — use to fix inventory discrepancies</p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 mb-1">Seeds Remaining</label>
+              <input
+                type="number"
+                value={seedCountRemaining}
+                onChange={e => setSeedCountRemaining(e.target.value)}
+                placeholder="Current seed count"
+                className={inputClass}
+                style={{ minHeight: '44px' }}
+                inputMode="numeric"
+              />
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-3 mt-4">
           <button
