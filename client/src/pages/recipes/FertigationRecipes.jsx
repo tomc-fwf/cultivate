@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
@@ -19,12 +19,65 @@ function phRange(r) {
   return null;
 }
 
+function ContextMenu({ x, y, recipe, onClose, onView, onEdit }) {
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
+    }
+    function handleKey(e) {
+      if (e.key === 'Escape') onClose();
+    }
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  // Clamp to viewport
+  const menuW = 180;
+  const left = Math.min(x, window.innerWidth - menuW - 8);
+  const top = y;
+
+  return (
+    <div
+      ref={menuRef}
+      className="fixed z-50 bg-white rounded-xl shadow-xl border border-gray-200 py-1 text-sm"
+      style={{ left, top, minWidth: menuW }}
+    >
+      <div className="px-3 py-1.5 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100 mb-1">
+        {recipe.name}
+      </div>
+      <button
+        onClick={() => { onClose(); onView(); }}
+        className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-gray-800 flex items-center gap-2"
+        style={{ minHeight: '40px' }}
+      >
+        View Recipe
+      </button>
+      {onEdit && (
+        <button
+          onClick={() => { onClose(); onEdit(); }}
+          className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-green-800 font-medium flex items-center gap-2"
+          style={{ minHeight: '40px' }}
+        >
+          Edit / New Version
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function FertigationRecipes() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [contextMenu, setContextMenu] = useState(null); // { x, y, recipe }
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -46,6 +99,12 @@ export default function FertigationRecipes() {
     loadRecipes();
   }, []);
 
+  function handleContextMenu(e, recipe) {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, recipe });
+  }
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-6">
@@ -56,6 +115,17 @@ export default function FertigationRecipes() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          recipe={contextMenu.recipe}
+          onClose={() => setContextMenu(null)}
+          onView={() => navigate(`/recipes/fertigation/${contextMenu.recipe.recipe_id}`)}
+          onEdit={isSupervisor ? () => navigate(`/recipes/fertigation/${contextMenu.recipe.recipe_id}/version`) : null}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
@@ -113,6 +183,7 @@ export default function FertigationRecipes() {
               key={recipe.recipe_id}
               className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col gap-3 hover:border-green-400 transition-colors cursor-pointer"
               onClick={() => navigate(`/recipes/fertigation/${recipe.recipe_id}`)}
+              onContextMenu={(e) => handleContextMenu(e, recipe)}
               style={{ minHeight: '180px' }}
             >
               <div className="flex items-start justify-between">
