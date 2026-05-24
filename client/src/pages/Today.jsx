@@ -210,9 +210,9 @@ function BatchCard({ batch, onClick }) {
       className="text-left w-full bg-white rounded-2xl border border-gray-200 px-4 py-3 hover:border-green-300 transition-colors active:bg-green-50"
       style={{ minHeight: '72px' }}
     >
-      <div className="flex items-center gap-2 flex-wrap mb-1">
+      <div className="flex items-center gap-2 flex-wrap mb-0.5">
         <span className="font-semibold text-gray-900 text-sm" style={{ fontFamily: 'Fraunces, serif' }}>
-          {batch.strain_name}
+          {batch.name || batch.strain_name}
         </span>
         {batch.sub_zone_id && (
           <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
@@ -223,6 +223,9 @@ function BatchCard({ batch, onClick }) {
           {STATUS_LABELS[batch.status] ?? batch.status}
         </span>
       </div>
+      {batch.name && batch.strain_name && (
+        <div className="text-xs text-gray-400 mb-0.5">{batch.strain_name}</div>
+      )}
       <div className="text-xs text-gray-400 flex items-center gap-3 flex-wrap">
         <span>Day {batch.days_in_stage ?? 0} in stage</span>
         {batch.plant_age_days != null && <span>Age {batch.plant_age_days}d</span>}
