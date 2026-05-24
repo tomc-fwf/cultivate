@@ -1142,6 +1142,39 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       }
     },
   );
+  // ── Admin: raw phase history debug ──────────────────────────────────────────
+  // GET /api/batches/:id/phase-history/raw  — supervisor+ only
+  app.get(
+    '/:id/phase-history/raw',
+    { preHandler: requireRole('supervisor') },
+    async (request: FastifyRequest<{ Params: IdParams }>, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid batch id' });
+      const db = getDB();
+      const rows = db.prepare(
+        'SELECT * FROM cv_batch_phase_history WHERE batch_id = ? ORDER BY phase_history_id ASC'
+      ).all(id);
+      return reply.send(rows);
+    },
+  );
+
+  // DELETE /api/batches/:id/phase-history/:rowId  — admin only
+  app.delete(
+    '/:id/phase-history/:rowId',
+    { preHandler: requireRole('admin') },
+    async (request: FastifyRequest<{ Params: { id: string; rowId: string } }>, reply) => {
+      const batchId = Number(request.params.id);
+      const rowId = Number(request.params.rowId);
+      if (isNaN(batchId) || isNaN(rowId)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      const row = db.prepare(
+        'SELECT * FROM cv_batch_phase_history WHERE phase_history_id = ? AND batch_id = ?'
+      ).get(rowId, batchId);
+      if (!row) return reply.code(404).send({ error: 'Row not found' });
+      db.prepare('DELETE FROM cv_batch_phase_history WHERE phase_history_id = ?').run(rowId);
+      return reply.send({ deleted: rowId });
+    },
+  );
 };
 
 export default batchesRoutes;
