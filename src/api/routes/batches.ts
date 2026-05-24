@@ -847,7 +847,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         // and uses transitioned_at as the germ stageStart for duration calculations.
         // Keep it in sync with sow_date so the timeline stays self-consistent.
         if (body.sow_date) {
-          const isoSow = new Date(body.sow_date + 'T00:00:00.000Z').toISOString();
+          const isoSow = new Date(body.sow_date + 'T12:00:00.000Z').toISOString();
           db.prepare(`
             UPDATE cv_batch_phase_history SET transitioned_at = ?
             WHERE batch_id = ? AND from_status IS NULL
@@ -857,7 +857,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('transplant_date' in body) {
         const isoDate = body.transplant_date
-          ? new Date(body.transplant_date + 'T00:00:00.000Z').toISOString()
+          ? new Date(body.transplant_date + 'T12:00:00.000Z').toISOString()
           : null;
         updates.push('transplant_date = ?');
         values.push(isoDate);
@@ -871,7 +871,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('field_move_date' in body) {
         const isoDate = body.field_move_date
-          ? new Date(body.field_move_date + 'T00:00:00.000Z').toISOString()
+          ? new Date(body.field_move_date + 'T12:00:00.000Z').toISOString()
           : null;
         updates.push('field_move_date = ?');
         values.push(isoDate);
@@ -885,7 +885,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('harvest_date' in body) {
         const isoDate = body.harvest_date
-          ? new Date(body.harvest_date + 'T00:00:00.000Z').toISOString()
+          ? new Date(body.harvest_date + 'T12:00:00.000Z').toISOString()
           : null;
         updates.push('harvest_date = ?');
         values.push(isoDate);
@@ -899,7 +899,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('closed_date' in body) {
         const isoDate = body.closed_date
-          ? new Date(body.closed_date + 'T00:00:00.000Z').toISOString()
+          ? new Date(body.closed_date + 'T12:00:00.000Z').toISOString()
           : null;
         updates.push('closed_date = ?');
         values.push(isoDate);
@@ -913,7 +913,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('current_stage_since' in body) {
         const val = body.current_stage_since;
-        const isoDate = val ? new Date(val + 'T00:00:00.000Z').toISOString() : null;
+        const isoDate = val ? new Date(val + 'T12:00:00.000Z').toISOString() : null;
         updates.push('current_stage_since = ?');
         values.push(isoDate);
         // Sync the phase_history entry that started the current status so duration

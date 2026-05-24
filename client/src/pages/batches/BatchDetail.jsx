@@ -1158,8 +1158,14 @@ function toMetrcPhase(status) {
 function fmtTs(ts) {
   if (!ts) return '—';
   try {
-    return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch { return ts.slice(0, 10); }
+    // Date-only values stored as midnight UTC display as the previous day in CDT.
+    // Treat any timestamp that ends at midnight UTC as a date-only value and
+    // parse it at local noon so it renders on the correct calendar day.
+    const s = String(ts);
+    const isDateOnly = s.length <= 10 || s.endsWith('T00:00:00.000Z') || s.endsWith('T00:00:00Z');
+    const d = isDateOnly ? new Date(s.slice(0, 10) + 'T12:00:00') : new Date(s);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return String(ts).slice(0, 10); }
 }
 
 function MetrcSyncBadge({ status }) {
@@ -1252,11 +1258,6 @@ function BatchHistory({ batch }) {
                   <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
                     <span>{fmtTs(evt.ts)}</span>
                     {evt.by && <span>by {evt.by}</span>}
-                    {evt.days_in_stage != null && (
-                      <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">
-                        {evt.days_in_stage}d in prev stage
-                      </span>
-                    )}
                   </div>
                   {evt.notes && (
                     <div className="text-xs text-gray-500 mt-1 italic">"{evt.notes}"</div>
