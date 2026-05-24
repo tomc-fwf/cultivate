@@ -261,13 +261,20 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).all(id) as Array<Record<string, unknown>>;
 
       const batchSowDate = row['sow_date'] as string | null;
+      const currentStageSince = row['current_stage_since'] as string | null;
       const phaseHistory = rawPhaseHistory.map((ph, idx) => {
         const stageStart = idx === 0
           ? batchSowDate
           : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
-        const stageEnd = ph['transitioned_at'] as string | null;
+        // For the last transition, current_stage_since is the most accurate record
+        // of when the current stage began (may have been corrected by supervisor).
+        // Use it as the end anchor so the previous stage's duration is correct.
+        const isLast = idx === rawPhaseHistory.length - 1;
+        const stageEnd = (isLast && currentStageSince)
+          ? currentStageSince
+          : ph['transitioned_at'] as string | null;
         const daysInStage = (stageStart && stageEnd)
-          ? Math.round(
+          ? Math.floor(
               (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
             )
           : null;
@@ -287,9 +294,8 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY lh.moved_at ASC
       `).all(id) as Array<Record<string, unknown>>;
 
-      const currentStageSince = row['current_stage_since'] as string | null;
       const currentStageDays = currentStageSince
-        ? Math.round((Date.now() - new Date(currentStageSince).getTime()) / 86400000)
+        ? Math.floor((Date.now() - new Date(currentStageSince).getTime()) / 86400000)
         : null;
 
       const fertigationCount = (
@@ -729,13 +735,17 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).all(id) as Array<Record<string, unknown>>;
 
       const batchSowDate = row['sow_date'] as string | null;
+      const newStageSince = row['current_stage_since'] as string | null;
       const phaseHistory = rawPhaseHistory.map((ph, idx) => {
         const stageStart = idx === 0
           ? batchSowDate
           : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
-        const stageEnd = ph['transitioned_at'] as string | null;
+        const isLast = idx === rawPhaseHistory.length - 1;
+        const stageEnd = (isLast && newStageSince)
+          ? newStageSince
+          : ph['transitioned_at'] as string | null;
         const daysInStage = (stageStart && stageEnd)
-          ? Math.round(
+          ? Math.floor(
               (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
             )
           : null;
