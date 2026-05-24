@@ -1101,7 +1101,7 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-10 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-20 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
             {actionLabel}
@@ -1188,7 +1188,7 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
 function BulkTeardownModal({ containerCount, loading, onClose, onConfirm }) {
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-10">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-20">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
             Start Bulk Teardown
@@ -1244,7 +1244,7 @@ function RecipeModal({ batch, onClose, onAssigned }) {
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
-      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-10 max-h-[80vh] overflow-y-auto">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-20 max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
             {batch.active_recipe_id ? 'Change Recipe' : 'Assign Recipe'}
