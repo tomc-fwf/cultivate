@@ -30,7 +30,9 @@ export default function FertigationRecipes() {
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
-  useEffect(() => {
+  function loadRecipes() {
+    setLoading(true);
+    setError('');
     api.getFertigationRecipes()
       .then((data) => {
         setRecipes(data);
@@ -40,6 +42,10 @@ export default function FertigationRecipes() {
         setError(e.message);
         setLoading(false);
       });
+  }
+
+  useEffect(() => {
+    loadRecipes();
   }, []);
 
   // Build a map from the API response keyed by name
@@ -56,16 +62,26 @@ export default function FertigationRecipes() {
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
-          Fertigation Recipes
-        </h1>
-        <p className="text-sm text-gray-500 mt-0.5">7 recipes · versioned and immutable once approved</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
+            Fertigation Recipes
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">7 recipes · versioned and immutable once approved</p>
+        </div>
+        <button
+          onClick={loadRecipes}
+          className="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
+          style={{ marginTop: '4px' }}
+        >
+          ↺ Refresh
+        </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">
-          {error}
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm flex items-center justify-between">
+          <span>{error}</span>
+          <button onClick={loadRecipes} className="ml-3 underline text-red-600 hover:text-red-800 text-xs shrink-0">Retry</button>
         </div>
       )}
 

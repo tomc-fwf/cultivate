@@ -214,7 +214,10 @@ export default function FertigationRecipeEdit() {
       }
       const draftKey = isVersioning ? `cv_draft_fertigation_recipe_${id}` : 'cv_draft_fertigation_recipe_new';
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
-      navigate(isVersioning && result?.recipe_id ? `/recipes/fertigation/${result.recipe_id}` : '/recipes/fertigation');
+      const dest = isVersioning && result?.recipe_id
+        ? `/recipes/fertigation/${result.recipe_id}`
+        : '/recipes/fertigation';
+      window.location.href = dest;
     } catch (e) {
       setSaveError(e.message);
       setSaving(false);
