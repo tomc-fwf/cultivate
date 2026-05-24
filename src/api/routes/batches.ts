@@ -264,14 +264,14 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_batch_phase_history ph
         LEFT JOIN cv_users u ON u.id = ph.transitioned_by
         WHERE ph.batch_id = ?
-        ORDER BY ph.transitioned_at ASC
+        ORDER BY ph.phase_history_id ASC
       `).all(id) as Array<Record<string, unknown>>;
 
       const batchSowDate = row['sow_date'] as string | null;
       const currentStageSince = row['current_stage_since'] as string | null;
-      // phase_history transitioned_at values are kept in sync with current_stage_since
-      // (and transplant_date / field_move_date) by the PATCH handler, so we use them
-      // directly — no runtime proxy needed.
+      // phase_history transitioned_at values are kept in sync with lifecycle date patches
+      // and returned in insertion order (phase_history_id ASC) so stageStart/stageEnd
+      // calculations are always in the right logical sequence.
       const phaseHistory = rawPhaseHistory.map((ph, idx) => {
         const stageStart = idx === 0
           ? batchSowDate
@@ -735,7 +735,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_batch_phase_history ph
         LEFT JOIN cv_users u ON u.id = ph.transitioned_by
         WHERE ph.batch_id = ?
-        ORDER BY ph.transitioned_at ASC
+        ORDER BY ph.phase_history_id ASC
       `).all(id) as Array<Record<string, unknown>>;
 
       const batchSowDate = row['sow_date'] as string | null;
@@ -843,6 +843,16 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       if ('sow_date' in body) {
         updates.push('sow_date = ?');
         values.push(body.sow_date ?? null);
+        // The initial phase_history entry (from_status IS NULL) represents batch creation
+        // and uses transitioned_at as the germ stageStart for duration calculations.
+        // Keep it in sync with sow_date so the timeline stays self-consistent.
+        if (body.sow_date) {
+          const isoSow = new Date(body.sow_date + 'T00:00:00.000Z').toISOString();
+          db.prepare(`
+            UPDATE cv_batch_phase_history SET transitioned_at = ?
+            WHERE batch_id = ? AND from_status IS NULL
+          `).run(isoSow, id);
+        }
       }
 
       if ('transplant_date' in body) {
@@ -906,18 +916,15 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         const isoDate = val ? new Date(val + 'T00:00:00.000Z').toISOString() : null;
         updates.push('current_stage_since = ?');
         values.push(isoDate);
-        // Sync the last phase_history entry so StageTimeline durations stay consistent.
-        // Without this, the previous stage's duration computes negative when correcting
-        // a start date that differs from the originally-logged transitioned_at.
+        // Sync the phase_history entry that started the current status so duration
+        // calculations stay self-consistent. Target by to_status (not by transitioned_at DESC)
+        // to avoid moving the wrong entry when a corrected date predates other entries.
         if (isoDate) {
+          const currentStatus = batch['status'] as string;
           db.prepare(`
             UPDATE cv_batch_phase_history SET transitioned_at = ?
-            WHERE batch_id = ?
-              AND rowid = (
-                SELECT rowid FROM cv_batch_phase_history
-                WHERE batch_id = ? ORDER BY transitioned_at DESC LIMIT 1
-              )
-          `).run(isoDate, id, id);
+            WHERE batch_id = ? AND to_status = ?
+          `).run(isoDate, id, currentStatus);
         }
       }
 

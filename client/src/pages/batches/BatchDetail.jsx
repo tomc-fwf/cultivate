@@ -1177,6 +1177,9 @@ function MetrcSyncBadge({ status }) {
 }
 
 function BatchHistory({ batch }) {
+  // Phase events are returned in phase_history_id (insertion) order from the API.
+  // We preserve that order as the authoritative sequence — date corrections can push
+  // transitioned_at backwards, and re-sorting by ts would scramble the logical flow.
   const phaseEvents = (batch.phase_history ?? []).map(p => ({
     type: 'phase',
     ts: p.transitioned_at,
@@ -1188,18 +1191,27 @@ function BatchHistory({ batch }) {
     days_in_stage: p.days_in_stage,
   }));
 
-  const locationEvents = (batch.location_history ?? []).map(l => ({
-    type: 'location',
-    ts: l.moved_at,
-    from_location: l.from_location_name,
-    to_location: l.to_location_name,
-    by: l.moved_by_name,
-    trigger: l.trigger,
-    metrc_sync_status: l.metrc_sync_status,
-  }));
-
-  const timeline = [...phaseEvents, ...locationEvents]
+  // Location events are interleaved into the phase event list by their ts.
+  const locationEvents = (batch.location_history ?? [])
+    .map(l => ({
+      type: 'location',
+      ts: l.moved_at,
+      from_location: l.from_location_name,
+      to_location: l.to_location_name,
+      by: l.moved_by_name,
+      trigger: l.trigger,
+      metrc_sync_status: l.metrc_sync_status,
+    }))
     .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
+
+  // Merge: keep phase events in insertion order; splice location events before the
+  // first phase event whose ts is strictly later.
+  const timeline = [...phaseEvents];
+  for (const loc of locationEvents) {
+    const insertAt = timeline.findIndex(e => e.type === 'phase' && (e.ts ?? '') > (loc.ts ?? ''));
+    if (insertAt === -1) timeline.push(loc);
+    else timeline.splice(insertAt, 0, loc);
+  }
 
   if (timeline.length === 0) return null;
 
