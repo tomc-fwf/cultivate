@@ -111,12 +111,17 @@ function isSeedVaultLocation(name) {
 }
 
 function IndoorCard({ location, navigate, onOpenMenu }) {
-  const { location_id, name, type, batches, open_observation_count } = location;
+  const { location_id, name, type, batches, open_observation_count,
+          seed_package_count, seed_package_weight_g } = location;
   const canStartBatch = type === 'germination';
   const timerRef = useRef(null);
   const didLongPress = useRef(false);
   const pressPos = useRef({ x: 0, y: 0 });
   const seedVault = isSeedVaultLocation(name);
+
+  const totalPlants = batches
+    ? batches.reduce((sum, b) => sum + (b.plant_count_current ?? b.plant_count_initial ?? 0), 0)
+    : 0;
 
   function startPress(e) {
     didLongPress.current = false;
@@ -157,6 +162,8 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
       onPointerCancel={cancelPress}
     >
       <ObsBadge count={open_observation_count} />
+
+      {/* Header */}
       <div className="flex items-start justify-between gap-2 mb-2">
         <span className="font-semibold text-gray-800 text-sm leading-snug">{name}</span>
         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -172,9 +179,27 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
           )}
         </div>
       </div>
+
+      {/* Body */}
       {seedVault ? (
-        <p className="text-sm text-green-700 font-medium">View seed inventory →</p>
+        /* Seed Vault — show package count + weight */
+        seed_package_count > 0 ? (
+          <div>
+            <div className="text-sm font-semibold text-green-800">
+              {seed_package_count} {seed_package_count === 1 ? 'package' : 'packages'}
+            </div>
+            {seed_package_weight_g > 0 && (
+              <div className="text-xs text-gray-500 mt-0.5">
+                {seed_package_weight_g.toFixed(1)} g remaining
+              </div>
+            )}
+            <div className="text-xs text-green-700 font-medium mt-2">View seed inventory →</div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 italic">No packages in vault</p>
+        )
       ) : !batches || batches.length === 0 ? (
+        /* Empty germ/seedling/cult-hoop location */
         <div>
           <p className="text-sm text-gray-400 italic mb-2">Empty</p>
           {canStartBatch && (
@@ -189,58 +214,44 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
           )}
         </div>
       ) : (
-        <div className="space-y-2.5">
-          {batches.map(b => (
-            <div key={b.batch_id}>
-              {/* Batch info row — tap to go to detail */}
+        /* Germ / Seedlings / Cult-Hoop — batch list with plant counts */
+        <div>
+          {/* Summary line */}
+          <div className="text-xs text-gray-500 mb-2.5">
+            {batches.length} {batches.length === 1 ? 'batch' : 'batches'} · {totalPlants} plants
+          </div>
+          <div className="space-y-1.5">
+            {batches.map(b => (
               <div
-                className="flex items-center gap-2 min-w-0 mb-1.5 cursor-pointer"
+                key={b.batch_id}
+                className="flex items-center gap-2 min-w-0 px-2.5 py-2 bg-gray-50 rounded-xl cursor-pointer hover:bg-green-50 transition-colors"
                 onClick={e => { e.stopPropagation(); navigate(`/batches/${b.batch_id}`); }}
                 onPointerDown={e => e.stopPropagation()}
               >
-                <span className="text-sm font-medium text-gray-900 truncate flex-1 min-w-0">
-                  {b.strain_name}
-                </span>
-                <span className={`shrink-0 text-xs font-medium px-1.5 py-0.5 rounded-full ${STATUS_CHIP[b.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                  {STATUS_LABELS[b.status] ?? b.status}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900 truncate leading-tight">
+                    {b.batch_name || b.strain_name}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">{b.strain_name}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-bold text-gray-800" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                    {b.plant_count_current ?? b.plant_count_initial ?? '—'}
+                  </div>
+                  <div className="text-[10px] text-gray-400">plants</div>
+                </div>
                 {b.days_in_stage != null && (
-                  <span className="shrink-0 text-xs text-gray-400">D{b.days_in_stage}</span>
+                  <div className="shrink-0 text-xs text-gray-400 w-8 text-right">D{b.days_in_stage}</div>
                 )}
+                <span className="text-gray-300 text-xs">›</span>
               </div>
-              {/* Quick actions — stop propagation so card tap doesn't fire */}
-              <div className="flex gap-1.5" onPointerDown={e => e.stopPropagation()}>
-                <button
-                  onClick={e => { e.stopPropagation(); navigate(`/applications/fertigation/new?batch_id=${b.batch_id}`); }}
-                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-green-50 border border-green-200 text-green-800 hover:bg-green-100 transition-colors"
-                  style={{ minHeight: '32px' }}
-                >
-                  💧 Log
-                </button>
-                <button
-                  onClick={e => { e.stopPropagation(); navigate(`/observations/new?batch_id=${b.batch_id}`); }}
-                  className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100 transition-colors"
-                  style={{ minHeight: '32px' }}
-                >
-                  🔍 Observe
-                </button>
-                {['harvest_window', 'harvesting'].includes(b.status) && (
-                  <button
-                    onClick={e => { e.stopPropagation(); navigate(`/harvest/${b.batch_id}`); }}
-                    className="flex-1 py-1.5 text-xs font-semibold rounded-lg bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100 transition-colors"
-                    style={{ minHeight: '32px' }}
-                  >
-                    🌾 Harvest
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
           {canStartBatch && (
             <button
               onClick={e => { e.stopPropagation(); navigate(`/batches/new?location_id=${location_id}`); }}
               onPointerDown={e => e.stopPropagation()}
-              className="w-full py-1.5 text-xs font-medium rounded-xl border border-dashed border-gray-300 text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
+              className="w-full mt-2 py-1.5 text-xs font-medium rounded-xl border border-dashed border-gray-300 text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
               style={{ minHeight: '32px' }}
             >
               + New Plant Batch

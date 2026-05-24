@@ -301,7 +301,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     let batchRows: Array<Record<string, unknown>> = [];
     try {
       batchRows = db.prepare(`
-        SELECT b.batch_id, b.strain_id, s.name AS strain_name, b.status,
+        SELECT b.batch_id, b.name AS batch_name, b.strain_id, s.name AS strain_name, b.status,
                b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
                b.sow_date, b.field_move_date,
                lh.to_location_id AS location_id,
@@ -417,6 +417,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       if (locId != null && byId[locId]) {
         byId[locId].batches.push({
           batch_id: batch['batch_id'],
+          batch_name: batch['batch_name'],
           strain_name: batch['strain_name'],
           status: batch['status'],
           plant_count_current: batch['plant_count_current'],
@@ -424,6 +425,27 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
           days_in_stage: batch['days_in_stage'],
           sub_zone_id: batch['sub_zone_id'],
         });
+      }
+    }
+
+    // Attach seed package summary to locations (for Seed Vault cards)
+    let seedPkgRows: Array<Record<string, unknown>> = [];
+    try {
+      seedPkgRows = db.prepare(`
+        SELECT location_id,
+               COUNT(*) AS package_count,
+               SUM(COALESCE(weight_g_remaining, 0)) AS total_weight_g
+        FROM cv_seed_packages
+        WHERE active = 1
+        GROUP BY location_id
+      `).all() as Array<Record<string, unknown>>;
+    } catch { /* table may not exist */ }
+
+    for (const sp of seedPkgRows) {
+      const locId = sp['location_id'] as number | null;
+      if (locId != null && byId[locId]) {
+        byId[locId].seed_package_count = Number(sp['package_count'] ?? 0);
+        byId[locId].seed_package_weight_g = Number(sp['total_weight_g'] ?? 0);
       }
     }
 
