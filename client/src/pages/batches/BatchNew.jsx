@@ -25,7 +25,7 @@ export default function BatchNew() {
   const [searchParams] = useSearchParams();
   const presetSeedPackageId = searchParams.get('seed_package_id');
 
-  // Plant type — seed or clone
+  // Plant type — locked to 'seed' when arriving from a seed card
   const [plantType, setPlantType] = useState('seed');
 
   // Seed package
@@ -37,10 +37,8 @@ export default function BatchNew() {
   const [quantityG, setQuantityG] = useState('');
   const [batchName, setBatchName] = useState('');
   const [plantCount, setPlantCount] = useState('');
-  const [plantsPerContainer, setPlantsPerContainer] = useState('1');
   const [plantingDate, setPlantingDate] = useState(todayISO());
   const [unpackageDate, setUnpackageDate] = useState(todayISO());
-  const [metrcUid, setMetrcUid] = useState('');
   const [notes, setNotes] = useState('');
 
   const [saving, setSaving] = useState(false);
@@ -63,20 +61,20 @@ export default function BatchNew() {
       .finally(() => setSeedPackagesLoading(false));
   }, [plantType]);
 
-  // Restore draft
+  // Restore draft (skip if preset package provided)
   useEffect(() => {
+    if (presetSeedPackageId) return;
     try {
       const draft = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
       if (draft) {
         if (draft.plantType) setPlantType(draft.plantType);
         if (draft.plantCount) setPlantCount(draft.plantCount);
-        if (draft.plantsPerContainer) setPlantsPerContainer(draft.plantsPerContainer);
         if (draft.plantingDate) setPlantingDate(draft.plantingDate);
         if (draft.unpackageDate) setUnpackageDate(draft.unpackageDate);
         if (draft.batchName) setBatchName(draft.batchName);
         if (draft.quantityG) setQuantityG(draft.quantityG);
         if (draft.notes) setNotes(draft.notes);
-        if (!presetSeedPackageId && draft.selectedPackageId) setSelectedPackageId(draft.selectedPackageId);
+        if (draft.selectedPackageId) setSelectedPackageId(draft.selectedPackageId);
       }
     } catch { /* ignore */ }
   }, []);
@@ -84,11 +82,11 @@ export default function BatchNew() {
   const saveDraft = useCallback(() => {
     try {
       localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        plantType, plantCount, plantsPerContainer, plantingDate, unpackageDate,
+        plantType, plantCount, plantingDate, unpackageDate,
         batchName, quantityG, notes, selectedPackageId, savedAt: Date.now(),
       }));
     } catch { /* ignore */ }
-  }, [plantType, plantCount, plantsPerContainer, plantingDate, unpackageDate,
+  }, [plantType, plantCount, plantingDate, unpackageDate,
       batchName, quantityG, notes, selectedPackageId]);
 
   useEffect(() => {
@@ -118,14 +116,18 @@ export default function BatchNew() {
     const errors = {};
     if (plantType === 'seed' && !selectedPackageId)
       errors.package = 'Select a seed package';
+    if (plantType === 'seed' && !effectiveQuantityG)
+      errors.quantity = 'Quantity in grams is required';
+    if (weightExceeded)
+      errors.quantity = 'Quantity exceeds available weight in package';
+    if (!batchName.trim())
+      errors.batchName = 'Batch name is required';
     if (!plantCount || isNaN(Number(plantCount)) || Number(plantCount) <= 0)
       errors.plantCount = 'Plant count is required';
     if (!plantingDate)
       errors.plantingDate = 'Planting date is required';
-    if (weightExceeded)
-      errors.quantity = 'Quantity exceeds available weight in package';
-    if (metrcUid && (metrcUid.length !== 24 || !/^[A-Za-z0-9]+$/.test(metrcUid)))
-      errors.metrcUid = 'METRC UID must be exactly 24 alphanumeric characters';
+    if (plantType === 'seed' && !unpackageDate)
+      errors.unpackageDate = 'Unpackage date is required';
     return errors;
   }
 
@@ -136,16 +138,15 @@ export default function BatchNew() {
     setErr('');
     try {
       const batch = await api.createBatch({
-        name: batchName.trim() || null,
+        name: batchName.trim(),
         strain_id: selectedPackage?.strain_id ?? null,
         plant_count_initial: Number(plantCount),
-        plants_per_container: Number(plantsPerContainer),
+        plants_per_container: 1,
         sow_date: plantingDate,
         package_open_date: plantType === 'seed' ? (unpackageDate || null) : null,
         source_type: plantType,
         seed_package_id: plantType === 'seed' && selectedPackageId ? Number(selectedPackageId) : null,
         seed_weight_g: plantType === 'seed' ? (effectiveQuantityG ?? null) : null,
-        metrc_plant_batch_uid: metrcUid.trim() || null,
         initial_phase: 'immature',
         initial_status: 'germ',
         notes: notes || null,
@@ -180,30 +181,32 @@ export default function BatchNew() {
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-5 text-sm">{err}</div>
       )}
 
-      {/* ── Plant Type ───────────────────────────────────────────── */}
-      <div className="mb-5">
-        <label className="block text-sm font-semibold text-gray-800 mb-2">Plant Type</label>
-        <div className="flex gap-2">
-          {[
-            { value: 'seed',  label: '🌱 Seed' },
-            { value: 'clone', label: '✂️ Clone' },
-          ].map(opt => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => { setPlantType(opt.value); setSelectedPackageId(''); setFieldErrors({}); }}
-              className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-colors ${
-                plantType === opt.value
-                  ? 'bg-green-800 text-white border-green-800'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
-              }`}
-              style={{ minHeight: '56px' }}
-            >
-              {opt.label}
-            </button>
-          ))}
+      {/* ── Plant Type — hidden when arriving from a seed card ───── */}
+      {!presetSeedPackageId && (
+        <div className="mb-5">
+          <label className="block text-sm font-semibold text-gray-800 mb-2">Plant Type</label>
+          <div className="flex gap-2">
+            {[
+              { value: 'seed',  label: '🌱 Seed' },
+              { value: 'clone', label: '✂️ Clone' },
+            ].map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => { setPlantType(opt.value); setSelectedPackageId(''); setFieldErrors({}); }}
+                className={`flex-1 py-3 rounded-xl text-sm font-semibold border-2 transition-colors ${
+                  plantType === opt.value
+                    ? 'bg-green-800 text-white border-green-800'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
+                }`}
+                style={{ minHeight: '56px' }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Source Package (seed only) ────────────────────────────── */}
       {plantType === 'seed' && (
@@ -225,7 +228,7 @@ export default function BatchNew() {
               </button>
             </div>
           ) : selectedPackage && presetSeedPackageId ? (
-            /* Pre-selected from seed vault card — show confirmed state, no picker */
+            /* Pre-selected from seed vault card — confirmed, no picker */
             <div className="border-2 border-green-700 bg-green-50 rounded-xl px-4 py-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
@@ -256,7 +259,7 @@ export default function BatchNew() {
               </div>
             </div>
           ) : (
-            /* Manual entry — show full picker */
+            /* Manual entry — full picker */
             <div className="flex flex-col gap-2">
               {seedPackages.map(p => {
                 const isSelected = String(p.package_id) === selectedPackageId;
@@ -318,7 +321,7 @@ export default function BatchNew() {
       {plantType === 'seed' && selectedPackage && (
         <div className="mb-5">
           <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-            Quantity in Grams
+            Quantity in Grams <span className="text-red-500">*</span>
           </label>
           <input
             type="number"
@@ -348,17 +351,17 @@ export default function BatchNew() {
       {/* ── Batch Name ────────────────────────────────────────────── */}
       <div className="mb-5">
         <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-          Batch Name
-          <span className="ml-1 text-xs font-normal text-gray-400">(optional)</span>
+          Batch Name <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
           value={batchName}
-          onChange={e => setBatchName(e.target.value)}
+          onChange={e => { setBatchName(e.target.value); setFieldErrors(fe => ({ ...fe, batchName: undefined })); }}
           placeholder={selectedPackage ? `${selectedPackage.strain_name} — Germ ${plantingDate}` : 'e.g. Z1A NL Auto Spring 2026'}
           className={inputClass}
           style={{ minHeight: '56px' }}
         />
+        {fieldErrors.batchName && <p className="text-red-500 text-xs mt-1">{fieldErrors.batchName}</p>}
       </div>
 
       {/* ── Plant Count ───────────────────────────────────────────── */}
@@ -380,29 +383,6 @@ export default function BatchNew() {
         {fieldErrors.plantCount && <p className="text-red-500 text-xs mt-1">{fieldErrors.plantCount}</p>}
       </div>
 
-      {/* Plants per container — secondary, shown small */}
-      <div className="mb-5">
-        <label className="block text-xs font-semibold text-gray-600 mb-1.5">Plants per container</label>
-        <div className="flex gap-2">
-          {['1', '2'].map(n => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => setPlantsPerContainer(n)}
-              className={`flex-1 py-2 rounded-xl text-sm font-semibold border-2 transition-colors ${
-                plantsPerContainer === n
-                  ? 'bg-green-800 text-white border-green-800'
-                  : 'bg-white text-gray-600 border-gray-200 hover:border-green-400'
-              }`}
-              style={{ minHeight: '44px' }}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-        <p className="text-xs text-gray-400 mt-1">2 per container is common for autoflowers</p>
-      </div>
-
       {/* ── Planting Date ─────────────────────────────────────────── */}
       <div className="mb-5">
         <label className="block text-sm font-semibold text-gray-800 mb-1.5">
@@ -422,40 +402,19 @@ export default function BatchNew() {
       {plantType === 'seed' && (
         <div className="mb-5">
           <label className="block text-sm font-semibold text-gray-800 mb-1.5">
-            Unpackage Date
+            Unpackage Date <span className="text-red-500">*</span>
             <span className="ml-1 text-xs font-normal text-gray-400">(when seed package was opened)</span>
           </label>
           <input
             type="date"
             value={unpackageDate}
-            onChange={e => setUnpackageDate(e.target.value)}
+            onChange={e => { setUnpackageDate(e.target.value); setFieldErrors(fe => ({ ...fe, unpackageDate: undefined })); }}
             className={inputClass}
             style={{ minHeight: '56px' }}
           />
+          {fieldErrors.unpackageDate && <p className="text-red-500 text-xs mt-1">{fieldErrors.unpackageDate}</p>}
         </div>
       )}
-
-      {/* ── METRC UID (optional) ──────────────────────────────────── */}
-      <div className="mb-5">
-        <label className="block text-sm font-semibold text-gray-800 mb-1">
-          METRC Plant Batch UID
-          <span className="ml-1 text-xs font-normal text-gray-400">(optional — enter if already created in METRC)</span>
-        </label>
-        <input
-          type="text"
-          value={metrcUid}
-          onChange={e => { setMetrcUid(e.target.value.trim()); setFieldErrors(fe => ({ ...fe, metrcUid: undefined })); }}
-          placeholder="24-character alphanumeric UID"
-          className={`${inputClass} font-mono tracking-wide`}
-          style={{ minHeight: '56px' }}
-          maxLength={24}
-          autoCapitalize="characters"
-        />
-        {metrcUid && metrcUid.length !== 24 && (
-          <p className="text-xs text-amber-600 mt-1">{metrcUid.length}/24 characters</p>
-        )}
-        {fieldErrors.metrcUid && <p className="text-red-500 text-xs mt-1">{fieldErrors.metrcUid}</p>}
-      </div>
 
       {/* ── Notes ─────────────────────────────────────────────────── */}
       <div className="mb-6">
