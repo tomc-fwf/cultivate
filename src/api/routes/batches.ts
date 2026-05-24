@@ -153,10 +153,10 @@ const BATCH_SELECT = `
            0
          ) AS active_assignment_count,
          CAST(
-           ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date)))
+           julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date))
          AS INTEGER) AS days_in_stage,
          CAST(
-           ROUND(julianday('now') - julianday(b.sow_date))
+           julianday('now') - julianday(b.sow_date)
          AS INTEGER) AS plant_age_days
   FROM cv_batches b
   LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
