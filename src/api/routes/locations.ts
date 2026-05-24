@@ -141,6 +141,14 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       lossesUnsynced = Number(row?.['cnt'] ?? 0);
     } catch { /* skip */ }
 
+    let metrcTodosPending = 0;
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cv_metrc_todos WHERE status = 'pending'
+      `).get() as Record<string, unknown> | undefined;
+      metrcTodosPending = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
     // ── Index results ──────────────────────────────────────────────────────────
 
     // Container counts by sub-zone
@@ -271,10 +279,11 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       indoor,
       zones,
       global_alerts: {
-        losses_unsynced:     lossesUnsynced,
-        teardown_pending:    teardownPending,
-        startup_pending:     startupPending,
+        losses_unsynced:      lossesUnsynced,
+        teardown_pending:     teardownPending,
+        startup_pending:      startupPending,
         lab_samples_awaiting: labSamplesAwaiting,
+        metrc_todos_pending:  metrcTodosPending,
       },
     });
   });
@@ -614,6 +623,14 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       lossesUnsynced = Number(row?.['cnt'] ?? 0);
     } catch { /* skip */ }
 
+    let metrcTodosPending = 0;
+    try {
+      const row = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM cv_metrc_todos WHERE status = 'pending'
+      `).get() as Record<string, unknown> | undefined;
+      metrcTodosPending = Number(row?.['cnt'] ?? 0);
+    } catch { /* skip */ }
+
     return reply.send({
       tree,
       global_alerts: {
@@ -621,6 +638,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         teardown_pending:     teardownPending,
         startup_pending:      startupPending,
         lab_samples_awaiting: labSamplesAwaiting,
+        metrc_todos_pending:  metrcTodosPending,
       },
     });
   });

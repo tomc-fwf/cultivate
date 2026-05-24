@@ -30,6 +30,7 @@ import skillInstancesRoutes from './routes/skill-instances.js';
 import analyticsRoutes from './routes/analytics.js';
 import locationsRoutes, { adminLocationsRoutes } from './routes/locations.js';
 import seedPackagesRoutes from './routes/seed-packages.js';
+import metrcTodosRoutes from './routes/metrc-todos.js';
 
 export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -98,6 +99,7 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   await app.register(locationsRoutes, { prefix: '/api/locations' });
   await app.register(adminLocationsRoutes, { prefix: '/api/admin' });
   await app.register(seedPackagesRoutes, { prefix: '/api/seed-packages' });
+  await app.register(metrcTodosRoutes, { prefix: '/api/metrc-todos' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 

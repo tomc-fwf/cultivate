@@ -62,6 +62,7 @@ import ComplianceDashboard from './pages/compliance/ComplianceDashboard';
 import PlantInventory from './pages/compliance/PlantInventory';
 import TagVerification from './pages/compliance/TagVerification';
 import MetrcReconciliation from './pages/compliance/MetrcReconciliation';
+import MetrcTodos from './pages/compliance/MetrcTodos';
 import ContainerScanner from './pages/containers/ContainerScanner';
 import SubZoneFieldMap from './pages/containers/SubZoneFieldMap';
 import TagAssignmentWalkthrough from './pages/containers/TagAssignmentWalkthrough';
@@ -207,6 +208,7 @@ export default function App() {
               <Route path="/compliance/plant-inventory" element={<Protected><PlantInventory /></Protected>} />
               <Route path="/compliance/tag-verification" element={<Protected><TagVerification /></Protected>} />
               <Route path="/compliance/metrc-reconciliation" element={<Protected><MetrcReconciliation /></Protected>} />
+              <Route path="/compliance/metrc-todos" element={<Protected minRole="supervisor"><MetrcTodos /></Protected>} />
               <Route path="/planting-plans" element={<Protected minRole="supervisor"><PlantingPlanList /></Protected>} />
               <Route path="/planting-plans/new" element={<Protected minRole="supervisor"><PlantingPlanNew /></Protected>} />
               <Route path="/planting-plans/:id" element={<Protected minRole="supervisor"><PlantingPlanDetail /></Protected>} />

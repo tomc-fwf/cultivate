@@ -349,6 +349,11 @@ function PendingActionsSection({ actions, navigate }) {
       icon: '⚠',
       href: '/compliance/metrc-reconciliation',
     },
+    actions.metrc_todos_pending > 0 && {
+      label: `${actions.metrc_todos_pending} METRC action${actions.metrc_todos_pending > 1 ? 's' : ''} pending manual entry`,
+      icon: '📋',
+      href: '/compliance/metrc-todos',
+    },
   ].filter(Boolean);
 
   if (items.length === 0) return null;

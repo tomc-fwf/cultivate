@@ -301,13 +301,17 @@ export default function BatchDetail() {
   const currentStatusIdx = LIFECYCLE_ORDER.indexOf(batch.status);
   const location = LOCATION_LABEL[batch.status];
 
-  async function handleTransition(toStatus, notes, subZoneId) {
+  async function handleTransition(toStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes) {
     try {
       // Set sub_zone before field transition if provided
       if (subZoneId) {
         await api.updateBatch(batch.batch_id, { sub_zone_id: subZoneId });
       }
-      const updated = await api.transitionBatch(id, { to_status: toStatus, notes });
+      const body = { to_status: toStatus, notes };
+      if (plantsMoved != null) body.plants_moved = plantsMoved;
+      if (lossReason)          body.loss_reason   = lossReason;
+      if (lossNotes)           body.loss_notes    = lossNotes;
+      const updated = await api.transitionBatch(id, body);
       setBatch(b => ({ ...b, ...updated, sub_zone_id: subZoneId || b.sub_zone_id }));
       setToast({ message: `Moved to ${STATUS_LABELS[toStatus] ?? toStatus} ✓`, type: 'success' });
       load();
@@ -854,15 +858,17 @@ export default function BatchDetail() {
 
       {showTransitionModal && nextStatus && (
         <TransitionModal
+          currentStatus={batch.status}
           nextStatus={nextStatus}
           nextLabel={STATUS_LABELS[nextStatus]}
           actionLabel={TRANSITION_ACTION[nextStatus]}
+          plantCount={batch.plant_count_current ?? batch.plant_count_initial}
           requiresSubZone={nextStatus === 'field-veg' && !batch.sub_zone_id}
           requiresNotes={nextStatus === 'harvesting'}
           onClose={() => setShowTransitionModal(false)}
-          onConfirm={(notes, subZoneId) => {
+          onConfirm={(notes, subZoneId, plantsMoved, lossReason, lossNotes) => {
             setShowTransitionModal(false);
-            handleTransition(nextStatus, notes, subZoneId);
+            handleTransition(nextStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes);
           }}
         />
       )}
@@ -1092,12 +1098,33 @@ function BatchNameInline({ batch, onSaved }) {
   );
 }
 
-function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, requiresNotes, onClose, onConfirm }) {
+const PRE_FIELD_FROM = new Set(['germ', 'seedling', 'cult-hoop']);
+const LOSS_REASONS = [
+  { value: 'never_sprouted', label: 'Never sprouted' },
+  { value: 'died',           label: 'Died' },
+  { value: 'damaged',        label: 'Damaged' },
+  { value: 'missing',        label: 'Missing / unknown' },
+  { value: 'other',          label: 'Other' },
+];
+
+function TransitionModal({ currentStatus, nextStatus, nextLabel, actionLabel, plantCount, requiresSubZone, requiresNotes, onClose, onConfirm }) {
   const [notes, setNotes] = useState('');
   const [subZoneId, setSubZoneId] = useState('');
+  const [plantsMovedStr, setPlantsMovedStr] = useState(String(plantCount ?? ''));
+  const [lossReason, setLossReason] = useState('');
+  const [lossNotes, setLossNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const canConfirm = (!requiresSubZone || subZoneId !== '') && (!requiresNotes || notes.trim() !== '');
+  const showPlantsMoved = PRE_FIELD_FROM.has(currentStatus);
+  const plantsMovedNum = parseInt(plantsMovedStr, 10);
+  const lostCount = showPlantsMoved && !isNaN(plantsMovedNum) ? (plantCount ?? 0) - plantsMovedNum : 0;
+  const hasLoss = lostCount > 0;
+
+  const canConfirm =
+    (!requiresSubZone || subZoneId !== '') &&
+    (!requiresNotes || notes.trim() !== '') &&
+    (!showPlantsMoved || (!isNaN(plantsMovedNum) && plantsMovedNum > 0 && plantsMovedNum <= (plantCount ?? Infinity))) &&
+    (!hasLoss || lossReason !== '');
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
@@ -1112,6 +1139,66 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
         <p className="text-sm text-gray-500 mb-4">
           This will move the batch to <strong>{nextLabel}</strong> and log the transaction.
         </p>
+
+        {/* Plants moved — shown for all pre-field transitions */}
+        {showPlantsMoved && (
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              Plants moving to {nextLabel} <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              Started with <strong>{plantCount}</strong>. Enter how many actually transfer — any difference will create a METRC destroy action.
+            </p>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={plantCount}
+              value={plantsMovedStr}
+              onChange={e => { setPlantsMovedStr(e.target.value); setLossReason(''); setLossNotes(''); }}
+              className="w-full border border-gray-200 rounded-xl px-3 py-3 text-lg font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-green-600 text-center"
+              style={{ minHeight: '56px' }}
+            />
+            {hasLoss && (
+              <p className="text-xs text-amber-700 mt-1.5">
+                {lostCount} plant{lostCount !== 1 ? 's' : ''} will be logged as lost — METRC destroy action will be created.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Loss reason — shown when plants_moved < plant_count */}
+        {showPlantsMoved && hasLoss && (
+          <div className="mb-4">
+            <label className="block text-sm font-semibold text-gray-700 mb-2">
+              Reason for loss <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              {LOSS_REASONS.map(r => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setLossReason(r.value)}
+                  className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-colors text-left ${
+                    lossReason === r.value
+                      ? 'bg-amber-700 text-white border-amber-700'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-amber-400'
+                  }`}
+                  style={{ minHeight: '48px' }}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <input
+              type="text"
+              value={lossNotes}
+              onChange={e => setLossNotes(e.target.value)}
+              placeholder="Additional notes (optional)…"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+            />
+          </div>
+        )}
 
         {/* Sub-zone picker — shown only for "Move to Field" */}
         {requiresSubZone && (
@@ -1171,7 +1258,13 @@ function TransitionModal({ nextStatus, nextLabel, actionLabel, requiresSubZone, 
             disabled={!canConfirm || saving}
             onClick={async () => {
               setSaving(true);
-              await onConfirm(notes || null, subZoneId || null);
+              await onConfirm(
+                notes || null,
+                subZoneId || null,
+                showPlantsMoved ? plantsMovedNum : null,
+                hasLoss ? lossReason : null,
+                hasLoss && lossNotes.trim() ? lossNotes.trim() : null,
+              );
               setSaving(false);
             }}
             className="flex-1 py-3 bg-green-800 text-white rounded-xl text-sm font-semibold hover:bg-green-900 disabled:opacity-50"

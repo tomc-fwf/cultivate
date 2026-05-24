@@ -263,4 +263,9 @@ export const api = {
   getSeedPackage: (id) => req('GET', `/seed-packages/${id}`),
   createSeedPackage: (data) => req('POST', '/seed-packages', data),
   updateSeedPackage: (id, data) => req('PATCH', `/seed-packages/${id}`, data),
+
+  // METRC todos
+  getMetrcTodos: (params = {}) => req('GET', '/metrc-todos', null, params),
+  markMetrcTodoDone: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'done' }),
+  reopenMetrcTodo: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'pending' }),
 };

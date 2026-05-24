@@ -99,6 +99,11 @@ type BatchUpdateBody = z.infer<typeof BatchUpdateSchema>;
 const TransitionSchema = z.object({
   to_status: z.string().min(1),
   notes: z.string().nullable().optional(),
+  // Pre-field transitions: how many plants actually moved to the next stage.
+  // If omitted, assumed to equal plant_count_initial (no losses).
+  plants_moved: z.number().int().positive().nullable().optional(),
+  loss_reason: z.enum(['never_sprouted', 'died', 'damaged', 'missing', 'other']).nullable().optional(),
+  loss_notes: z.string().nullable().optional(),
 });
 type TransitionBody = z.infer<typeof TransitionSchema>;
 
@@ -485,7 +490,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
         throw e;
       }
-      const { to_status, notes } = transBody;
+      const { to_status, notes, plants_moved, loss_reason, loss_notes } = transBody;
 
       const db = getDB();
 
@@ -517,12 +522,45 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
+      // Pre-field transitions: validate plants_moved if provided
+      const PRE_FIELD_TRANSITIONS = new Set(['seedling', 'cult-hoop', 'field-veg']);
+      const isPreFieldTransition = PRE_FIELD_TRANSITIONS.has(to_status);
+      const currentPlantCount = Number(batch['plant_count_initial'] ?? 0);
+      const effectivePlantsMovedCount = plants_moved ?? currentPlantCount;
+      const lostCount = currentPlantCount - effectivePlantsMovedCount;
+
+      if (isPreFieldTransition && plants_moved != null) {
+        if (plants_moved > currentPlantCount) {
+          return reply.code(400).send({
+            error: `plants_moved (${plants_moved}) cannot exceed current plant count (${currentPlantCount})`,
+          });
+        }
+        if (lostCount > 0 && !loss_reason) {
+          return reply.code(400).send({
+            error: 'loss_reason is required when plants_moved is less than current plant count',
+          });
+        }
+      }
+
       const now = new Date().toISOString();
       const userId = request.user.id;
 
       const impliedMove = IMPLIED_LOCATION_MOVES[to_status];
       const phaseMetrcStatus = METRC_PHASE_EVENT[to_status] ? 'pending' : 'not_required';
       const locationMetrcStatus = METRC_LOCATION_EVENT[to_status] ? 'pending' : 'not_required';
+
+      // Look up location names for METRC todo descriptions
+      const fromLocRow = batch['current_location_id']
+        ? db.prepare('SELECT name, metrc_name FROM cv_locations WHERE location_id = ?')
+            .get(batch['current_location_id']) as Record<string, unknown> | undefined
+        : undefined;
+      const toLocRow = impliedMove
+        ? db.prepare('SELECT name, metrc_name FROM cv_locations WHERE location_id = ?')
+            .get(impliedMove.to_location_id) as Record<string, unknown> | undefined
+        : undefined;
+
+      const fromLocName = (fromLocRow?.['metrc_name'] ?? fromLocRow?.['name'] ?? String(currentStatus)) as string;
+      const toLocName = (toLocRow?.['metrc_name'] ?? toLocRow?.['name'] ?? String(to_status)) as string;
 
       db.transaction(() => {
         // Build batch UPDATE
@@ -541,6 +579,12 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         } else if (to_status === 'closed') {
           updates.push('closed_date = ?');
           values.push(now);
+        }
+
+        // Update plant count if plants were lost pre-field
+        if (isPreFieldTransition && lostCount > 0) {
+          updates.push('plant_count_initial = ?');
+          values.push(effectivePlantsMovedCount);
         }
 
         if (impliedMove) {
@@ -568,6 +612,37 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
                trigger, metrc_sync_status, created_at)
             VALUES (?, ?, ?, ?, ?, 'phase_transition', ?, ?)
           `).run(id, fromLocationId ?? null, impliedMove.to_location_id, now, userId, locationMetrcStatus, now);
+        }
+
+        // METRC todos for pre-field location moves
+        if (isPreFieldTransition && (impliedMove || to_status === 'field-veg')) {
+          // Move todo
+          const moveDescription = `Move ${effectivePlantsMovedCount} immature plant${effectivePlantsMovedCount !== 1 ? 's' : ''} from ${fromLocName} to ${toLocName} in METRC`;
+          db.prepare(`
+            INSERT INTO cv_metrc_todos
+              (todo_type, batch_id, description, from_location, to_location, plant_count,
+               status, created_at, created_by)
+            VALUES ('move', ?, ?, ?, ?, ?, 'pending', ?, ?)
+          `).run(id, moveDescription, fromLocName, toLocName, effectivePlantsMovedCount, now, userId);
+
+          // Destroy todo — only when plants were actually lost
+          if (lostCount > 0 && loss_reason) {
+            const LOSS_REASON_LABELS: Record<string, string> = {
+              never_sprouted: 'never sprouted',
+              died: 'died',
+              damaged: 'were damaged',
+              missing: 'are missing',
+              other: 'other reason',
+            };
+            const reasonLabel = LOSS_REASON_LABELS[loss_reason] ?? loss_reason;
+            const destroyDescription = `Destroy ${lostCount} plant${lostCount !== 1 ? 's' : ''} at ${fromLocName} in METRC — ${reasonLabel}`;
+            db.prepare(`
+              INSERT INTO cv_metrc_todos
+                (todo_type, batch_id, description, from_location, plant_count, loss_count,
+                 loss_reason, loss_notes, status, created_at, created_by)
+              VALUES ('destroy', ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+            `).run(id, destroyDescription, fromLocName, lostCount, lostCount, loss_reason, loss_notes ?? null, now, userId);
+          }
         }
       })();
 
