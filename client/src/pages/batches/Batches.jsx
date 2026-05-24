@@ -165,26 +165,30 @@ function BatchCard({ batch, onClick }) {
       className="bg-white rounded-2xl border border-gray-200 px-5 py-4 hover:border-green-400 transition-colors cursor-pointer active:scale-[0.99]"
       style={{ minHeight: '80px' }}
     >
-      {/* Top row */}
-      <div className="flex items-center gap-2 flex-wrap mb-2">
+      {/* Top row — batch name + type badge + location */}
+      <div className="flex items-center gap-2 flex-wrap mb-1.5">
         <span className="font-semibold text-gray-900 text-base" style={{ fontFamily: 'Fraunces, serif' }}>
-          {batch.strain_name}
+          {batch.name || batch.strain_name}
         </span>
         <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
           batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
         }`}>
           {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
         </span>
-        {/* Location badge */}
         {location && (
-          <span className="text-xs font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">
+          <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">
             📍 {location}{batch.sub_zone_id ? ` · ${batch.sub_zone_id}` : ''}
           </span>
         )}
       </div>
 
-      {/* Phase + days + plants */}
-      <div className="flex items-center gap-3 flex-wrap mb-2">
+      {/* Strain name (secondary) */}
+      {batch.name && batch.strain_name && (
+        <div className="text-xs text-gray-400 mb-1.5">{batch.strain_name}</div>
+      )}
+
+      {/* Status + stage days + plant age + count */}
+      <div className="flex items-center gap-3 flex-wrap mb-1.5">
         <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
           {STATUS_LABELS[batch.status] ?? batch.status}
         </span>
@@ -198,25 +202,13 @@ function BatchCard({ batch, onClick }) {
       {/* Recipe + sow date */}
       <div className="flex items-center gap-3 flex-wrap">
         {batch.active_recipe_name ? (
-          <span className="text-xs text-gray-600">
+          <span className="text-xs text-gray-500">
             {batch.active_recipe_name}{ec ? ` · ${ec}` : ''}
           </span>
         ) : (
           <span className="text-xs text-amber-600 font-medium">No recipe assigned</span>
         )}
         <span className="text-xs text-gray-400 ml-auto">Sow {batch.sow_date}</span>
-      </div>
-
-      {/* METRC UID */}
-      <div className="mt-2 pt-2 border-t border-gray-100">
-        {batch.metrc_plant_batch_uid ? (
-          <span className="text-xs font-mono text-gray-500 tracking-wide">
-            METRC <span className="text-gray-400">{batch.metrc_plant_batch_uid.slice(0, -4)}</span>
-            <span className="font-bold text-gray-700">{batch.metrc_plant_batch_uid.slice(-4)}</span>
-          </span>
-        ) : (
-          <span className="text-xs text-amber-600 font-medium">⚠ No METRC UID — required before harvest</span>
-        )}
       </div>
     </div>
   );
