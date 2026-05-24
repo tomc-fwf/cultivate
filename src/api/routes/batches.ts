@@ -470,7 +470,39 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
             deductVals.push(Number(seed_package_id));
             db.prepare(`UPDATE cv_seed_packages SET ${deductParts.join(', ')} WHERE package_id = ?`).run(...deductVals);
           }
+
+          // METRC todo: deduct seeds from METRC seed package
+          const pkgLabel = (_seedPkgForDeduction['package_name'] as string | null)
+            || (_seedPkgForDeduction['lot_number'] as string | null)
+            || `Package #${seed_package_id}`;
+          const metrcPkgId = _seedPkgForDeduction['metrc_package_id'] as string | null;
+          const weightDesc = _weightToDeduct != null ? `${_weightToDeduct.toFixed(2)}g` : null;
+          const countDesc = seed_count_used != null ? `${seed_count_used} seeds` : null;
+          const amountDesc = [weightDesc, countDesc].filter(Boolean).join(' / ');
+          const seedTodoDesc = `Deduct ${amountDesc} from seed package "${pkgLabel}"${metrcPkgId ? ` (METRC: ${metrcPkgId})` : ''} in METRC — used to start batch "${name}"`;
+
+          db.prepare(`
+            INSERT INTO cv_metrc_todos
+              (todo_type, batch_id, description, plant_count, status, created_at, created_by)
+            VALUES ('other', ?, ?, ?, 'pending', ?, ?)
+          `).run(newBatchId, seedTodoDesc, Number(plant_count_initial), now, userId);
         }
+
+        // METRC todo: record plants placed in Germ-01
+        const germLoc = db.prepare(`SELECT name FROM cv_locations WHERE location_id = ?`).get(initial_location_id) as { name: string } | undefined;
+        const germName = germLoc?.name ?? 'Germ-01';
+        db.prepare(`
+          INSERT INTO cv_metrc_todos
+            (todo_type, batch_id, description, to_location, plant_count, status, created_at, created_by)
+          VALUES ('move', ?, ?, ?, ?, 'pending', ?, ?)
+        `).run(
+          newBatchId,
+          `Record ${Number(plant_count_initial)} plants placed in ${germName} in METRC — new batch "${name}"`,
+          germName,
+          Number(plant_count_initial),
+          now,
+          userId,
+        );
 
         return newBatchId;
       })();
