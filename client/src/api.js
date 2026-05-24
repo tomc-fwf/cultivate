@@ -12,7 +12,12 @@ async function req(method, path, body, params) {
     body: body != null ? JSON.stringify(body) : undefined
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) {
+    const detail = data.issues
+      ? ': ' + data.issues.map(i => `${i.path.join('.')} — ${i.message}`).join('; ')
+      : '';
+    throw new Error((data.error || 'Request failed') + detail);
+  }
   return data;
 }
 

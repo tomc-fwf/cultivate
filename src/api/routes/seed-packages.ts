@@ -40,7 +40,7 @@ type CreateSeedPackageBody = z.infer<typeof CreateSeedPackageSchema>;
 
 const UpdateSeedPackageSchema = z.object({
   package_name: z.string().min(1).nullable().optional(),
-  metrc_package_id: z.string().min(1).nullable().optional(),
+  metrc_package_id: z.string().regex(METRC_PACKAGE_ID_RE).nullable().optional(),
   lot_number: z.string().nullable().optional(),
   seed_sex: z.enum(SEED_SEX_VALUES).optional(),
   feminized: z.boolean().optional(),
