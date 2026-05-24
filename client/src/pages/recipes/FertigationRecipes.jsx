@@ -19,7 +19,7 @@ function phRange(r) {
   return null;
 }
 
-function ContextMenu({ x, y, recipe, onClose, onView, onEdit }) {
+function ContextMenu({ x, y, recipe, onClose, onView, onEdit, onCopy }) {
   const menuRef = useRef(null);
 
   useEffect(() => {
@@ -65,6 +65,15 @@ function ContextMenu({ x, y, recipe, onClose, onView, onEdit }) {
           style={{ minHeight: '40px' }}
         >
           Edit / New Version
+        </button>
+      )}
+      {onCopy && (
+        <button
+          onClick={() => { onClose(); onCopy(); }}
+          className="w-full text-left px-4 py-2.5 hover:bg-gray-50 text-blue-800 font-medium flex items-center gap-2"
+          style={{ minHeight: '40px' }}
+        >
+          Copy as New Recipe
         </button>
       )}
     </div>
@@ -123,6 +132,7 @@ export default function FertigationRecipes() {
           onClose={() => setContextMenu(null)}
           onView={() => navigate(`/recipes/fertigation/${contextMenu.recipe.recipe_id}`)}
           onEdit={isSupervisor ? () => navigate(`/recipes/fertigation/${contextMenu.recipe.recipe_id}/version`) : null}
+          onCopy={isSupervisor ? () => navigate(`/recipes/fertigation/new?from=${contextMenu.recipe.recipe_id}`) : null}
         />
       )}
 

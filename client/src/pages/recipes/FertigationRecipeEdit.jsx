@@ -24,6 +24,7 @@ export default function FertigationRecipeEdit() {
   const navigate = useNavigate();
 
   const isVersioning = !!id;
+  const fromId = !isVersioning ? (searchParams.get('from') ?? null) : null;
   const nameFromQuery = searchParams.get('name') ?? '';
 
   const [name, setName] = useState(nameFromQuery || '');
@@ -58,6 +59,7 @@ export default function FertigationRecipeEdit() {
       prev.includes(value) ? prev.filter(s => s !== value) : [...prev, value]
     );
   }
+  const [copiedFromName, setCopiedFromName] = useState('');
   const [catalogItems, setCatalogItems] = useState([]);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [errors, setErrors] = useState({});
@@ -80,6 +82,8 @@ export default function FertigationRecipeEdit() {
   const saveDraft = useCallback(() => {
     const draftKey = isVersioning
       ? `cv_draft_fertigation_recipe_${id}`
+      : fromId
+      ? `cv_draft_fertigation_recipe_copy_${fromId}`
       : 'cv_draft_fertigation_recipe_new';
     try {
       localStorage.setItem(draftKey, JSON.stringify({
@@ -89,7 +93,7 @@ export default function FertigationRecipeEdit() {
         savedAt: Date.now(),
       }));
     } catch { /* ignore */ }
-  }, [id, isVersioning, name, ecLow, ecHigh, phLow, phHigh, mixingOrder, notes, ingredients,
+  }, [id, isVersioning, fromId, name, ecLow, ecHigh, phLow, phHigh, mixingOrder, notes, ingredients,
       applicableStages, dayMin, dayMax, isBaseRecipe, usageNotes]);
 
   useEffect(() => {
@@ -98,19 +102,52 @@ export default function FertigationRecipeEdit() {
     return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
   }, [saveDraft]);
 
+  function applyRecipeData(recipe) {
+    setEcLow(recipe.ec_target_low != null ? String(recipe.ec_target_low) : '');
+    setEcHigh(recipe.ec_target_high != null ? String(recipe.ec_target_high) : '');
+    setPhLow(recipe.ph_target_low != null ? String(recipe.ph_target_low) : '');
+    setPhHigh(recipe.ph_target_high != null ? String(recipe.ph_target_high) : '');
+    setMixingOrder(recipe.mixing_order ?? '');
+    setNotes(recipe.notes ?? '');
+    if (recipe.ingredients && recipe.ingredients.length > 0) {
+      setIngredients(
+        recipe.ingredients.map((ing, i) => ({
+          _key: ing.id ?? Date.now() + i,
+          input_id: ing.input_id,
+          rate_value: String(ing.rate_value),
+          rate_unit: ing.rate_unit,
+          order_index: ing.order_index ?? i + 1,
+          notes: ing.notes ?? '',
+        })),
+      );
+    }
+    if (recipe.applicable_stages) {
+      try {
+        const stages = typeof recipe.applicable_stages === 'string'
+          ? JSON.parse(recipe.applicable_stages)
+          : recipe.applicable_stages;
+        setApplicableStages(Array.isArray(stages) ? stages : []);
+      } catch { setApplicableStages([]); }
+    }
+    setDayMin(recipe.day_min != null ? String(recipe.day_min) : '');
+    setDayMax(recipe.day_max != null ? String(recipe.day_max) : '');
+    setIsBaseRecipe(!!recipe.is_base_recipe);
+    setUsageNotes(recipe.usage_notes ?? '');
+  }
+
   // Load existing recipe when versioning
   useEffect(() => {
     const draftKey = isVersioning
       ? `cv_draft_fertigation_recipe_${id}`
+      : fromId
+      ? `cv_draft_fertigation_recipe_copy_${fromId}`
       : 'cv_draft_fertigation_recipe_new';
 
-    if (!isVersioning) {
-      setLoading(false);
+    function restoreDraft(raw, includeNameFromDraft) {
       try {
-        const raw = localStorage.getItem(draftKey);
         if (!raw) return;
         const draft = JSON.parse(raw);
-        if (draft.name) setName(draft.name);
+        if (includeNameFromDraft && draft.name) setName(draft.name);
         if (draft.ecLow !== undefined) setEcLow(draft.ecLow);
         if (draft.ecHigh !== undefined) setEcHigh(draft.ecHigh);
         if (draft.phLow !== undefined) setPhLow(draft.phLow);
@@ -124,67 +161,42 @@ export default function FertigationRecipeEdit() {
         if (draft.isBaseRecipe !== undefined) setIsBaseRecipe(draft.isBaseRecipe);
         if (draft.usageNotes !== undefined) setUsageNotes(draft.usageNotes);
       } catch { /* ignore */ }
+    }
+
+    if (!isVersioning && !fromId) {
+      setLoading(false);
+      restoreDraft(localStorage.getItem(draftKey), true);
+      return;
+    }
+
+    if (!isVersioning && fromId) {
+      // Copy-as-new mode: fetch source recipe for pre-fill, name stays blank
+      api.getFertigationRecipe(fromId)
+        .then((recipe) => {
+          setCopiedFromName(recipe.name);
+          applyRecipeData(recipe);
+          setLoading(false);
+          restoreDraft(localStorage.getItem(draftKey), true);
+        })
+        .catch((e) => {
+          setLoadError(e.message);
+          setLoading(false);
+        });
       return;
     }
     api.getFertigationRecipe(id)
       .then((recipe) => {
         setName(recipe.name);
-        setEcLow(recipe.ec_target_low != null ? String(recipe.ec_target_low) : '');
-        setEcHigh(recipe.ec_target_high != null ? String(recipe.ec_target_high) : '');
-        setPhLow(recipe.ph_target_low != null ? String(recipe.ph_target_low) : '');
-        setPhHigh(recipe.ph_target_high != null ? String(recipe.ph_target_high) : '');
-        setMixingOrder(recipe.mixing_order ?? '');
-        setNotes(recipe.notes ?? '');
-        if (recipe.ingredients && recipe.ingredients.length > 0) {
-          setIngredients(
-            recipe.ingredients.map((ing, i) => ({
-              _key: ing.id ?? Date.now() + i,
-              input_id: ing.input_id,
-              rate_value: String(ing.rate_value),
-              rate_unit: ing.rate_unit,
-              order_index: ing.order_index ?? i + 1,
-              notes: ing.notes ?? '',
-            })),
-          );
-        }
-        // Populate "when to use" metadata from existing recipe (for versioning pre-fill)
-        if (recipe.applicable_stages) {
-          try {
-            const stages = typeof recipe.applicable_stages === 'string'
-              ? JSON.parse(recipe.applicable_stages)
-              : recipe.applicable_stages;
-            setApplicableStages(Array.isArray(stages) ? stages : []);
-          } catch { setApplicableStages([]); }
-        }
-        setDayMin(recipe.day_min != null ? String(recipe.day_min) : '');
-        setDayMax(recipe.day_max != null ? String(recipe.day_max) : '');
-        setIsBaseRecipe(!!recipe.is_base_recipe);
-        setUsageNotes(recipe.usage_notes ?? '');
+        applyRecipeData(recipe);
         setLoading(false);
-        // Restore in-progress draft on top of API-loaded values
-        try {
-          const raw = localStorage.getItem(draftKey);
-          if (!raw) return;
-          const draft = JSON.parse(raw);
-          if (draft.ecLow !== undefined) setEcLow(draft.ecLow);
-          if (draft.ecHigh !== undefined) setEcHigh(draft.ecHigh);
-          if (draft.phLow !== undefined) setPhLow(draft.phLow);
-          if (draft.phHigh !== undefined) setPhHigh(draft.phHigh);
-          if (draft.mixingOrder !== undefined) setMixingOrder(draft.mixingOrder);
-          if (draft.notes !== undefined) setNotes(draft.notes);
-          if (draft.ingredients && draft.ingredients.length > 0) setIngredients(draft.ingredients);
-          if (draft.applicableStages) setApplicableStages(draft.applicableStages);
-          if (draft.dayMin !== undefined) setDayMin(draft.dayMin);
-          if (draft.dayMax !== undefined) setDayMax(draft.dayMax);
-          if (draft.isBaseRecipe !== undefined) setIsBaseRecipe(draft.isBaseRecipe);
-          if (draft.usageNotes !== undefined) setUsageNotes(draft.usageNotes);
-        } catch { /* ignore */ }
+        restoreDraft(localStorage.getItem(draftKey), false);
       })
       .catch((e) => {
         setLoadError(e.message);
         setLoading(false);
       });
-  }, [id, isVersioning]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, isVersioning, fromId]);
 
   function addIngredient() {
     setIngredients((prev) => [...prev, emptyIngredient(prev.length)]);
@@ -271,7 +283,11 @@ export default function FertigationRecipeEdit() {
       } else {
         result = await api.createFertigationRecipe(payload);
       }
-      const draftKey = isVersioning ? `cv_draft_fertigation_recipe_${id}` : 'cv_draft_fertigation_recipe_new';
+      const draftKey = isVersioning
+        ? `cv_draft_fertigation_recipe_${id}`
+        : fromId
+        ? `cv_draft_fertigation_recipe_copy_${fromId}`
+        : 'cv_draft_fertigation_recipe_new';
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
       const dest = isVersioning && result?.recipe_id
         ? `/recipes/fertigation/${result.recipe_id}`
@@ -322,6 +338,11 @@ export default function FertigationRecipeEdit() {
         {isVersioning && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2">
             Creating a new version will supersede the current active recipe. The old version is preserved for audit history.
+          </p>
+        )}
+        {copiedFromName && (
+          <p className="text-sm text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mt-2">
+            Pre-filled from <strong>{copiedFromName}</strong> — give this recipe a new name before saving.
           </p>
         )}
       </div>
@@ -735,6 +756,8 @@ export default function FertigationRecipeEdit() {
               ? 'Saving…'
               : isVersioning
               ? 'Save New Version'
+              : copiedFromName
+              ? 'Save as New Recipe'
               : 'Save Recipe'}
           </button>
         </div>
