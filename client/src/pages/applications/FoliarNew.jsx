@@ -951,5 +951,4 @@ export default function FoliarNew() {
 
 function BatchCard({ batch }) {
   return <BatchSummaryCard batch={batch} />;
-  );
 }
