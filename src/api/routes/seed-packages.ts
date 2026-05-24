@@ -11,31 +11,38 @@ const SeedPackageQuerySchema = z.object({
   active: z.string().default('1'),
 });
 
+const METRC_PACKAGE_ID_RE = /^[A-Za-z0-9]{24}$/;
+const SEED_SEX_VALUES = ['feminized', 'regular', 'unknown'] as const;
+
 const CreateSeedPackageSchema = z.object({
+  // Required fields
+  package_name: z.string().min(1),
+  metrc_package_id: z.string().regex(METRC_PACKAGE_ID_RE, 'METRC Package ID must be exactly 24 alphanumeric characters'),
+  weight_g_initial: z.number().positive(),
+  seed_sex: z.enum(SEED_SEX_VALUES).default('unknown'),
   // Inline strain (preferred): provide name + type and the route auto-finds/creates the strain.
   strain_name: z.string().min(1).nullable().optional(),
   strain_type: z.enum(['auto', 'photo']).nullable().optional(),
   // Legacy / explicit: pass a strain_id directly (still accepted).
   strain_id: z.number().int().positive().nullable().optional(),
+  // Optional fields
   location_id: z.number().int().positive().nullable().optional(),
   lot_number: z.string().nullable().optional(),
-  package_name: z.string().nullable().optional(),
-  metrc_package_id: z.string().nullable().optional(),
   feminized: z.boolean().optional().default(false),
   season_year: z.number().int().optional(),
   supplier: z.string().nullable().optional(),
   source_detail: z.string().nullable().optional(),
   received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   seed_count_initial: z.number().int().positive().nullable().optional(),
-  weight_g_initial: z.number().positive(),
   notes: z.string().nullable().optional(),
 });
 type CreateSeedPackageBody = z.infer<typeof CreateSeedPackageSchema>;
 
 const UpdateSeedPackageSchema = z.object({
-  package_name: z.string().nullable().optional(),
-  metrc_package_id: z.string().nullable().optional(),
-  lot_number: z.string().min(1).optional(),
+  package_name: z.string().min(1).nullable().optional(),
+  metrc_package_id: z.string().min(1).nullable().optional(),
+  lot_number: z.string().nullable().optional(),
+  seed_sex: z.enum(SEED_SEX_VALUES).optional(),
   feminized: z.boolean().optional(),
   season_year: z.number().int().nullable().optional(),
   supplier: z.string().nullable().optional(),
@@ -50,7 +57,9 @@ const UpdateSeedPackageSchema = z.object({
 type UpdateSeedPackageBody = z.infer<typeof UpdateSeedPackageSchema>;
 
 const SEED_PACKAGE_SELECT = `
-  SELECT sp.*, s.name AS strain_name, s.type AS strain_type
+  SELECT sp.*,
+         COALESCE(sp.seed_sex, CASE WHEN sp.feminized = 1 THEN 'feminized' ELSE 'unknown' END) AS seed_sex,
+         s.name AS strain_name, s.type AS strain_type
   FROM cv_seed_packages sp
   LEFT JOIN cv_strains s ON s.strain_id = sp.strain_id
 `;
@@ -147,25 +156,27 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
     const now = new Date().toISOString();
     const userId = request.user.id;
 
+    const seedSex = body.seed_sex ?? 'unknown';
     const r = db.prepare(`
       INSERT INTO cv_seed_packages
         (strain_id, location_id, lot_number, package_name, metrc_package_id,
-         feminized, season_year, supplier, source_detail, received_date,
+         feminized, seed_sex, season_year, supplier, source_detail, received_date,
          seed_count_initial, seed_count_remaining, weight_g_initial, weight_g_remaining,
          notes, active, created_at, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
     `).run(
       resolvedStrainId,
       body.location_id ?? null,
-      body.lot_number?.trim() || null,   // nullable after migration 029
-      body.package_name ?? null,
-      body.metrc_package_id ?? null,
-      body.feminized ? 1 : 0,
+      body.lot_number?.trim() || null,
+      body.package_name,
+      body.metrc_package_id,
+      seedSex === 'feminized' ? 1 : 0,
+      seedSex,
       body.season_year ?? null,
       body.supplier ?? null,
       body.source_detail ?? null,
       body.received_date ?? null,
-      body.seed_count_initial != null ? Number(body.seed_count_initial) : 0,   // 0 = unset; nullable after migration 029
+      body.seed_count_initial != null ? Number(body.seed_count_initial) : 0,
       body.seed_count_initial != null ? Number(body.seed_count_initial) : 0,
       Number(body.weight_g_initial),
       Number(body.weight_g_initial),
@@ -202,8 +213,10 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
 
       if ('package_name' in body)        { updates.push('package_name = ?');        values.push(body.package_name ?? null); }
       if ('metrc_package_id' in body)     { updates.push('metrc_package_id = ?');     values.push(body.metrc_package_id ?? null); }
-      if ('lot_number' in body)           { updates.push('lot_number = ?');           values.push((body.lot_number ?? '').trim()); }
-      if ('feminized' in body)            { updates.push('feminized = ?');            values.push(body.feminized ? 1 : 0); }
+      if ('lot_number' in body)           { updates.push('lot_number = ?');           values.push(body.lot_number?.trim() || null); }
+      if ('seed_sex' in body)             { updates.push('seed_sex = ?');             values.push(body.seed_sex ?? 'unknown');
+                                            updates.push('feminized = ?');            values.push(body.seed_sex === 'feminized' ? 1 : 0); }
+      if ('feminized' in body && !('seed_sex' in body)) { updates.push('feminized = ?'); values.push(body.feminized ? 1 : 0); }
       if ('season_year' in body)          { updates.push('season_year = ?');          values.push(body.season_year ?? null); }
       if ('supplier' in body)             { updates.push('supplier = ?');             values.push(body.supplier ?? null); }
       if ('source_detail' in body)        { updates.push('source_detail = ?');        values.push(body.source_detail ?? null); }
