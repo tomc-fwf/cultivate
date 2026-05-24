@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
+import { BatchPickerRow, BatchSummaryCard } from '../../components/BatchCard';
 
 const DRAFT_KEY = 'cv_draft_observation';
 
@@ -342,18 +343,12 @@ export default function ObservationNew() {
             ) : (
               <div className="flex flex-col gap-2">
                 {batches.map(batch => (
-                  <button key={batch.batch_id} onClick={() => { setSelectedBatch(batch); setCategory(''); }}
-                    className={`text-left w-full px-4 py-3 rounded-2xl border-2 transition-colors ${selectedBatch?.batch_id === batch.batch_id ? 'border-green-600 bg-green-50' : 'border-gray-200 bg-white hover:border-green-300'}`}
-                    style={{ minHeight: '64px' }}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>{batch.strain_name}</span>
-                      {batch.sub_zone_id && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">{batch.sub_zone_id}</span>}
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {STATUS_LABELS[batch.status] ?? batch.status}
-                      </span>
-                    </div>
-                  </button>
+                  <BatchPickerRow
+                    key={batch.batch_id}
+                    batch={batch}
+                    selected={selectedBatch?.batch_id === batch.batch_id}
+                    onSelect={() => { setSelectedBatch(batch); setCategory(''); }}
+                  />
                 ))}
               </div>
             )}
@@ -592,16 +587,5 @@ export default function ObservationNew() {
 }
 
 function BatchCard({ batch }) {
-  return (
-    <div className={`border-2 rounded-2xl px-4 py-4 ${batch.status === 'harvest_window' || batch.status === 'harvesting' ? 'bg-orange-50 border-orange-300' : 'bg-white border-green-300'}`}>
-      <div className="flex items-center gap-2 flex-wrap mb-1">
-        <span className="font-bold text-gray-900 text-base" style={{ fontFamily: 'Fraunces, serif' }}>{batch.strain_name}</span>
-        {batch.sub_zone_id && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">{batch.sub_zone_id}</span>}
-        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
-          {STATUS_LABELS[batch.status] ?? batch.status}
-        </span>
-      </div>
-      <div className="text-xs text-gray-500">Day {batch.days_in_stage ?? 0} · {batch.plant_count_current ?? batch.plant_count_initial} plants</div>
-    </div>
-  );
+  return <BatchSummaryCard batch={batch} />;
 }
