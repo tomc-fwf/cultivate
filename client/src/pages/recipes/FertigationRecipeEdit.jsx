@@ -43,6 +43,7 @@ export default function FertigationRecipeEdit() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const formRef = useRef(null);
+  const ingredientsRef = useRef(null);
   const autoSaveTimer = useRef(null);
 
   // Load catalog items
@@ -182,7 +183,12 @@ export default function FertigationRecipeEdit() {
     const errs = validate();
     setErrors(errs);
     if (Object.keys(errs).length > 0) {
-      formRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const hasIngredientError = Object.keys(errs).some((k) => k.startsWith('ing_') || k === 'ingredients');
+      if (hasIngredientError) {
+        ingredientsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } else {
+        formRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }
       return;
     }
 
@@ -367,14 +373,20 @@ export default function FertigationRecipeEdit() {
       </div>
 
       {/* Ingredients */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
-        <div className="flex items-center justify-between mb-3">
-          <label className="text-sm font-medium text-gray-700">Ingredients</label>
+      <div
+        ref={ingredientsRef}
+        className={`bg-white rounded-2xl border p-5 mb-4 ${errors.ingredients || Object.keys(errors).some(k => k.startsWith('ing_')) ? 'border-red-300' : 'border-gray-200'}`}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-sm font-medium text-gray-700">
+            Ingredients <span className="text-red-500">*</span>
+          </label>
           <span className="text-xs text-gray-400">{ingredients.length} product{ingredients.length !== 1 ? 's' : ''}</span>
         </div>
+        <p className="text-xs text-gray-400 mb-3">Select a product and enter a rate for each ingredient.</p>
 
         {errors.ingredients && (
-          <p className="text-red-500 text-xs mb-2">{errors.ingredients}</p>
+          <p className="text-red-500 text-sm font-medium mb-2">{errors.ingredients}</p>
         )}
 
         {/* Catalog search — shown when catalog loaded */}
@@ -540,8 +552,15 @@ export default function FertigationRecipeEdit() {
         />
       </div>
 
-      {/* Save button — fixed to bottom thumb zone */}
-      <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-50">
+      {/* Save bar — fixed to bottom thumb zone */}
+      <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 px-4 pt-2 pb-3 z-50">
+        {(saveError || Object.keys(errors).length > 0) && (
+          <div className="max-w-2xl mx-auto mb-2">
+            <p className="text-red-600 text-xs font-medium text-center">
+              {saveError || 'Fix the errors above before saving'}
+            </p>
+          </div>
+        )}
         <div className="max-w-2xl mx-auto flex gap-3">
           <button
             type="button"
