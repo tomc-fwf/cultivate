@@ -43,11 +43,13 @@ export default function FertigationRecipeEdit() {
   const [usageNotes, setUsageNotes] = useState('');
 
   const STAGE_OPTIONS = [
-    { value: 'germ', label: 'Germination' },
-    { value: 'seedling', label: 'Seedling' },
-    { value: 'cult-hoop', label: 'Cult-Hoop' },
-    { value: 'field-veg', label: 'Veg' },
-    { value: 'field-flower', label: 'Flower' },
+    { value: 'germination', label: 'Germination' },
+    { value: 'seedlings', label: 'Seedlings' },
+    { value: 'hardening', label: 'Hardening' },
+    { value: 'early-veg', label: 'Early Veg' },
+    { value: 'late-veg', label: 'Late Veg' },
+    { value: 'early-flower', label: 'Early Flower' },
+    { value: 'flower', label: 'Flower' },
     { value: 'flush', label: 'Flush' },
   ];
 

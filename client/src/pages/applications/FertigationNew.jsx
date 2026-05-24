@@ -219,10 +219,23 @@ export default function FertigationNew() {
     return diff >= 0 ? diff : null;
   }
 
+  // Map batch status to the set of stage values that should match it.
+  // Covers both new stage names and legacy values stored before the rename.
+  const STATUS_TO_STAGES = {
+    'germ':         ['germination', 'germ'],
+    'seedling':     ['seedlings', 'seedling'],
+    'cult-hoop':    ['hardening', 'cult-hoop'],
+    'field-veg':    ['early-veg', 'late-veg', 'field-veg'],
+    'field-flower': ['early-flower', 'flower', 'field-flower'],
+    'flush':        ['flush'],
+  };
+
   // --- Compute whether a recipe is recommended for current batch ---
   function isRecommended(recipe, batchStatus, days) {
     if (recipe.applicable_stages && recipe.applicable_stages.length > 0) {
-      if (!batchStatus || !recipe.applicable_stages.includes(batchStatus)) return false;
+      if (!batchStatus) return false;
+      const matchable = STATUS_TO_STAGES[batchStatus] ?? [batchStatus];
+      if (!recipe.applicable_stages.some(s => matchable.includes(s))) return false;
     }
     if (recipe.day_min != null && days != null && days < recipe.day_min) return false;
     if (recipe.day_max != null && days != null && days > recipe.day_max) return false;
