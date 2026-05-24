@@ -214,7 +214,7 @@ export default function FertigationRecipeEdit() {
       }
       const draftKey = isVersioning ? `cv_draft_fertigation_recipe_${id}` : 'cv_draft_fertigation_recipe_new';
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
-      navigate(`/recipes/fertigation/${result.recipe_id}`);
+      navigate(result?.recipe_id ? `/recipes/fertigation/${result.recipe_id}` : '/recipes/fertigation');
     } catch (e) {
       setSaveError(e.message);
       setSaving(false);
@@ -247,6 +247,13 @@ export default function FertigationRecipeEdit() {
     <div className="max-w-2xl mx-auto px-4 py-6 pb-36" ref={formRef}>
       {/* Header */}
       <div className="mb-6">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800 mb-3"
+        >
+          ← Back
+        </button>
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
           {isVersioning ? `New Version — ${name}` : 'Create Fertigation Recipe'}
         </h1>
@@ -532,12 +539,21 @@ export default function FertigationRecipeEdit() {
 
       {/* Save button — fixed to bottom thumb zone */}
       <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-50">
-        <div className="max-w-2xl mx-auto">
+        <div className="max-w-2xl mx-auto flex gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            disabled={saving}
+            className="flex-none px-5 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold text-base hover:bg-gray-200 disabled:opacity-50 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            Cancel
+          </button>
           <button
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-4 bg-green-800 text-white rounded-xl font-semibold text-base hover:bg-green-900 disabled:bg-gray-300 disabled:text-gray-500 transition-colors"
+            className="flex-1 py-4 bg-green-800 text-white rounded-xl font-semibold text-base hover:bg-green-900 disabled:bg-gray-300 disabled:text-gray-500 transition-colors"
             style={{ minHeight: '56px' }}
           >
             {saving
