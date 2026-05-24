@@ -713,5 +713,4 @@ export default function FertigationNew() {
 
 function LockedBatchCard({ batch }) {
   return <BatchSummaryCard batch={batch} />;
-  );
 }
