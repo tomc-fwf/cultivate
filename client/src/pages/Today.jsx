@@ -155,37 +155,6 @@ export default function Today() {
         />
       )}
 
-      {/* ── QUICK ACTIONS ─────────────────────────────────────────────────── */}
-      <div className="mb-5">
-        <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide mb-3">Quick Actions</h2>
-        <div className="grid grid-cols-2 gap-2">
-          <QuickAction
-            label="Fertigation"
-            color="bg-blue-50 border-blue-200 text-blue-800 hover:border-blue-400"
-            icon="💧"
-            onClick={() => navigate('/applications/fertigation/new')}
-          />
-          <QuickAction
-            label="Foliar"
-            color="bg-green-50 border-green-200 text-green-800 hover:border-green-400"
-            icon="🌿"
-            onClick={() => navigate('/applications/foliar/new')}
-          />
-          <QuickAction
-            label="Amendment"
-            color="bg-amber-50 border-amber-200 text-amber-800 hover:border-amber-400"
-            icon="🪱"
-            onClick={() => navigate('/applications/amendments/new')}
-          />
-          <QuickAction
-            label="Pesticide"
-            color="bg-red-50 border-red-200 text-red-800 hover:border-red-400"
-            icon="⚗️"
-            onClick={() => navigate('/applications/pesticide/new')}
-          />
-        </div>
-      </div>
-
       {/* ── RECENT APPLICATIONS (placeholder for Phase 1 #14 full Today screen) ── */}
       <div className="mb-5">
         <div className="flex items-center justify-between mb-3">
@@ -216,19 +185,6 @@ function BatchCard({ batch, onClick }) {
       onClick={onClick}
       footer={recipeLine ? <span className="text-xs text-gray-400">{recipeLine}</span> : null}
     />
-  );
-}
-
-function QuickAction({ label, color, icon, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center gap-3 px-4 py-3.5 rounded-2xl border-2 font-semibold text-sm transition-colors active:scale-[0.97] ${color}`}
-      style={{ minHeight: '56px' }}
-    >
-      <span className="text-xl">{icon}</span>
-      <span>{label}</span>
-    </button>
   );
 }
 

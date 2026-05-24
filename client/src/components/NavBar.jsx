@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks } from 'lucide-react';
+import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks, Droplets, Leaf, Bug, Package } from 'lucide-react';
 import { useAuth } from '../App';
 import { useSyncStatus } from '../lib/offlineQueue';
 import { api } from '../api';
@@ -47,6 +47,10 @@ function MoreSheet({ onClose, metrcPending }) {
   const go = (path) => { navigate(path); onClose(); };
 
   const items = [
+    { icon: <Droplets size={20} />, label: 'Log Fertigation', path: '/applications/fertigation/new' },
+    { icon: <Leaf size={20} />, label: 'Log Foliar', path: '/applications/foliar/new' },
+    { icon: <Package size={20} />, label: 'Log Amendment', path: '/applications/amendments/new' },
+    { icon: <Bug size={20} />, label: 'Log Pesticide', path: '/applications/pesticide/new' },
     { icon: <ScanLine size={20} />, label: 'Scan', path: '/scan' },
     { icon: <Layers size={20} />, label: 'Batches', path: '/batches' },
     { icon: <Vault size={20} />, label: 'Seed Vault', path: '/seed-vault' },
