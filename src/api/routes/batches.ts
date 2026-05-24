@@ -93,6 +93,8 @@ const BatchUpdateSchema = z.object({
   notes: z.string().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
   plant_count_initial: z.number().int().positive().optional(),
+  // Correction: override when the batch entered its current stage (recalculates days_in_stage)
+  current_stage_since: z.string().regex(/^\d{4}-\d{2}-\d{2}/).nullable().optional(),
 });
 type BatchUpdateBody = z.infer<typeof BatchUpdateSchema>;
 
@@ -826,6 +828,13 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         }
         updates.push('plant_count_initial = ?');
         values.push(Number(body.plant_count_initial));
+      }
+
+      if ('current_stage_since' in body) {
+        const val = body.current_stage_since;
+        // Store as start-of-day UTC ISO string for the given date
+        updates.push('current_stage_since = ?');
+        values.push(val ? new Date(val + 'T00:00:00.000Z').toISOString() : null);
       }
 
       if (updates.length === 0) return reply.code(400).send({ error: 'No valid fields to update' });

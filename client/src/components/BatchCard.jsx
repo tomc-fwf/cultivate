@@ -117,7 +117,7 @@ export function BatchSummaryCard({ batch, accent = 'green', onClick, footer }) {
         <div className="text-xs text-gray-400 mb-0.5">{batch.strain_name}</div>
       )}
       <div className="text-xs text-gray-500">
-        Day {batch.days_in_stage ?? 0} · {batch.plant_count_current ?? batch.plant_count_initial} plants
+        Day {(batch.days_in_stage ?? 0) + 1} · {batch.plant_count_current ?? batch.plant_count_initial} plants
       </div>
       {footer && <div className="mt-1">{footer}</div>}
     </Tag>

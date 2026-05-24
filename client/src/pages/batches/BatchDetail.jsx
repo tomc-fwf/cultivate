@@ -166,7 +166,7 @@ function StageGuide({ batch, onOpenFertiPanel, onOpenTransitionModal, isSupervis
         )}
       </div>
       <div className="text-xs text-gray-500 mb-3">
-        Day {day} of ~{cfg.stageDays}
+        Day {day + 1} of ~{cfg.stageDays}
         {isTransitionReady
           ? ' — plants ready for next location'
           : ` — ${Math.max(0, cfg.stageDays - day)} days until typical transition`
@@ -218,6 +218,79 @@ function StageGuide({ batch, onOpenFertiPanel, onOpenTransitionModal, isSupervis
         </Link>
       </div>
     </div>
+  );
+}
+
+// Inline stage-date correction — shows "Day X in stage" with a pencil for supervisors.
+// Clicking pencil replaces the line with a date picker to set current_stage_since.
+function StageDateField({ batch, isSupervisor, onUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [dateVal, setDateVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  function startEdit() {
+    // Pre-fill with the date current_stage_since represents, or today
+    const raw = batch.current_stage_since ?? batch.sow_date;
+    setDateVal(raw ? raw.slice(0, 10) : new Date().toISOString().slice(0, 10));
+    setErr('');
+    setEditing(true);
+  }
+
+  async function save() {
+    if (!dateVal) return;
+    setSaving(true);
+    setErr('');
+    try {
+      const updated = await api.updateBatch(batch.batch_id, { current_stage_since: dateVal });
+      onUpdated(updated);
+      setEditing(false);
+    } catch (e) {
+      setErr(e.message || 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <span className="flex items-center gap-2 flex-wrap">
+        <span>Stage started</span>
+        <input
+          type="date"
+          value={dateVal}
+          max={new Date().toISOString().slice(0, 10)}
+          onChange={e => setDateVal(e.target.value)}
+          className="border border-gray-300 rounded-lg px-2 py-0.5 text-xs text-gray-800 bg-white focus:outline-none focus:ring-1 focus:ring-green-400"
+          style={{ minHeight: '28px' }}
+        />
+        <button
+          onClick={save}
+          disabled={saving}
+          className="text-xs font-semibold text-green-700 hover:text-green-900 disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+        {err && <span className="text-xs text-red-600">{err}</span>}
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1">
+      <span>Day <span className="font-semibold text-gray-700">{(batch.days_in_stage ?? 0) + 1}</span> in stage</span>
+      {isSupervisor && batch.status !== 'closed' && (
+        <button
+          onClick={startEdit}
+          title="Correct stage date"
+          className="text-gray-300 hover:text-green-600 transition-colors ml-0.5"
+          style={{ lineHeight: 1 }}
+        >
+          ✏
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -451,7 +524,7 @@ export default function BatchDetail() {
 
         {/* Day in stage + plant age + sow date */}
         <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 border-t border-gray-100 pt-3 flex-wrap">
-          <span>Day <span className="font-semibold text-gray-700">{batch.days_in_stage ?? 0}</span> in stage</span>
+          <StageDateField batch={batch} isSupervisor={isSupervisor} onUpdated={updated => setBatch(b => ({ ...b, ...updated }))} />
           {batch.plant_age_days != null && (
             <span>Plant age <span className="font-semibold text-gray-700">{batch.plant_age_days}d</span></span>
           )}

@@ -174,7 +174,7 @@ export default function Today() {
 
 function BatchCard({ batch, onClick }) {
   const recipeLine = [
-    batch.days_in_stage != null ? `Day ${batch.days_in_stage} in stage` : null,
+    batch.days_in_stage != null ? `Day ${batch.days_in_stage + 1} in stage` : null,
     batch.plant_age_days != null ? `Age ${batch.plant_age_days}d` : null,
     batch.active_recipe_name ? `Recipe: ${batch.active_recipe_name}` : null,
   ].filter(Boolean).join(' · ');
