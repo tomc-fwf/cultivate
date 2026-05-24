@@ -524,7 +524,7 @@ export default function BatchDetail() {
 
         {/* Day in stage + plant age + sow date */}
         <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 border-t border-gray-100 pt-3 flex-wrap">
-          <StageDateField batch={batch} isSupervisor={isSupervisor} onUpdated={updated => setBatch(b => ({ ...b, ...updated }))} />
+          <StageDateField batch={batch} isSupervisor={isSupervisor} onUpdated={() => load()} />
           {batch.plant_age_days != null && (
             <span>Plant age <span className="font-semibold text-gray-700">{batch.plant_age_days}d</span></span>
           )}
@@ -1110,7 +1110,7 @@ function BatchHistory({ batch }) {
 
 function StageTimeline({ batch }) {
   const history = batch.phase_history ?? [];
-  if (history.length === 0 && !batch.current_stage_days) return null;
+  if (history.length === 0 && !batch.days_in_stage) return null;
 
   const stages = history.map(ph => ({
     status: ph.from_status,
@@ -1150,7 +1150,7 @@ function StageTimeline({ batch }) {
             </div>
             <div className="bg-green-100 text-green-800 text-xs font-bold px-2.5 py-1 rounded-lg font-mono flex items-center gap-1">
               <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              {batch.current_stage_days ?? 0}d
+              {batch.days_in_stage ?? 0}d
             </div>
           </div>
         )}
