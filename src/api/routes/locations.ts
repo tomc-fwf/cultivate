@@ -21,7 +21,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         SELECT b.batch_id, b.strain_id, s.name AS strain_name, b.status,
                b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
                b.sow_date, b.field_move_date,
-               lh.location_id,
+               lh.to_location_id AS location_id,
                loc.name AS current_location_name,
                loc.location_type AS current_location_type,
                CAST((julianday('now') - julianday(
@@ -32,10 +32,10 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_batches b
         JOIN cv_strains s ON s.strain_id = b.strain_id
         LEFT JOIN cv_batch_location_history lh ON lh.batch_id = b.batch_id
-          AND lh.location_history_id = (
-            SELECT MAX(location_history_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
+          AND lh.move_id = (
+            SELECT MAX(move_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
           )
-        LEFT JOIN cv_locations loc ON loc.location_id = lh.location_id
+        LEFT JOIN cv_locations loc ON loc.location_id = lh.to_location_id
         WHERE b.status NOT IN ('closed')
         ORDER BY b.batch_id
       `).all() as Array<Record<string, unknown>>;
@@ -88,10 +88,10 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_observations o
         JOIN cv_batches b ON b.batch_id = o.plant_batch_id
         LEFT JOIN cv_batch_location_history blh ON blh.batch_id = b.batch_id
-          AND blh.location_history_id = (
-            SELECT MAX(location_history_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
+          AND blh.move_id = (
+            SELECT MAX(move_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
           )
-        LEFT JOIN cv_locations lh_loc ON lh_loc.location_id = blh.location_id
+        LEFT JOIN cv_locations lh_loc ON lh_loc.location_id = blh.to_location_id
         WHERE o.resolved_at IS NULL
         GROUP BY b.sub_zone_id, lh_loc.name
       `).all() as Array<Record<string, unknown>>;
@@ -304,7 +304,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         SELECT b.batch_id, b.strain_id, s.name AS strain_name, b.status,
                b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
                b.sow_date, b.field_move_date,
-               lh.location_id,
+               lh.to_location_id AS location_id,
                loc.name AS current_location_name,
                loc.location_type AS current_location_type,
                CAST((julianday('now') - julianday(
@@ -315,10 +315,10 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_batches b
         JOIN cv_strains s ON s.strain_id = b.strain_id
         LEFT JOIN cv_batch_location_history lh ON lh.batch_id = b.batch_id
-          AND lh.location_history_id = (
-            SELECT MAX(location_history_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
+          AND lh.move_id = (
+            SELECT MAX(move_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
           )
-        LEFT JOIN cv_locations loc ON loc.location_id = lh.location_id
+        LEFT JOIN cv_locations loc ON loc.location_id = lh.to_location_id
         WHERE b.status NOT IN ('closed')
         ORDER BY b.batch_id
       `).all() as Array<Record<string, unknown>>;
@@ -371,10 +371,10 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
         FROM cv_observations o
         JOIN cv_batches b ON b.batch_id = o.plant_batch_id
         LEFT JOIN cv_batch_location_history blh ON blh.batch_id = b.batch_id
-          AND blh.location_history_id = (
-            SELECT MAX(lh2.location_history_id) FROM cv_batch_location_history lh2 WHERE lh2.batch_id = b.batch_id
+          AND blh.move_id = (
+            SELECT MAX(lh2.move_id) FROM cv_batch_location_history lh2 WHERE lh2.batch_id = b.batch_id
           )
-        LEFT JOIN cv_locations lh_loc ON lh_loc.location_id = blh.location_id
+        LEFT JOIN cv_locations lh_loc ON lh_loc.location_id = blh.to_location_id
         WHERE o.resolved_at IS NULL
         GROUP BY b.sub_zone_id, lh_loc.name
       `).all() as Array<Record<string, unknown>>;

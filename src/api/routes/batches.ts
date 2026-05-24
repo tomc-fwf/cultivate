@@ -88,6 +88,7 @@ const BatchCreateSchema = z.object({
 type BatchCreateBody = z.infer<typeof BatchCreateSchema>;
 
 const BatchUpdateSchema = z.object({
+  name: z.string().nullable().optional(),
   metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
   notes: z.string().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
@@ -636,6 +637,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const updates: string[] = [];
       const values: unknown[] = [];
       const now = new Date().toISOString();
+
+      if ('name' in body) {
+        updates.push('name = ?');
+        values.push(body.name?.trim() || null);
+      }
 
       if ('metrc_plant_batch_uid' in body) {
         updates.push('metrc_plant_batch_uid = ?');

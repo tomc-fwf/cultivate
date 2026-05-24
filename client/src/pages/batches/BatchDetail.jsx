@@ -416,21 +416,21 @@ export default function BatchDetail() {
       {/* ── METRC Identity Card ──────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
 
-        {/* Strain + type + internal status */}
+        {/* Batch name (primary) + status badges */}
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
-              {batch.strain_name}
-            </h1>
-            <div className="flex items-center gap-2 flex-wrap mt-1">
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-              }`}>
-                {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
-              </span>
+            <BatchNameInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
+            <div className="flex items-center gap-2 flex-wrap mt-1.5">
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {STATUS_LABELS[batch.status] ?? batch.status}
               </span>
+              {batch.strain_type && (
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                  batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
+                }`}>
+                  {batch.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
+                </span>
+              )}
             </div>
           </div>
           {batch.sub_zone_id && (
@@ -1070,6 +1070,70 @@ function MetricCard({ label, sub, mono }) {
         {label}
       </div>
       <div className="text-xs text-gray-500 mt-0.5">{sub}</div>
+    </div>
+  );
+}
+
+function BatchNameInline({ batch, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(batch.name ?? '');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setValue(batch.name ?? ''); setEditing(true); setErr(''); }}
+        className="group flex items-baseline gap-2 text-left w-full"
+      >
+        <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
+          {batch.name || <span className="text-gray-400 italic">Unnamed batch</span>}
+        </h1>
+        <span className="text-xs text-green-700 font-semibold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">Edit</span>
+      </button>
+    );
+  }
+
+  async function save() {
+    if (!value.trim()) { setErr('Name is required'); return; }
+    setSaving(true);
+    try {
+      const updated = await api.updateBatch(batch.batch_id, { name: value.trim() });
+      onSaved(updated);
+      setEditing(false);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mb-1">
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => { setValue(e.target.value); setErr(''); }}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+        className="w-full text-2xl font-bold text-gray-900 border-b-2 border-green-600 bg-transparent outline-none pb-0.5 leading-tight"
+        style={{ fontFamily: 'Fraunces, serif' }}
+        placeholder="Batch name…"
+        maxLength={120}
+      />
+      {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="text-sm font-semibold text-white bg-green-700 hover:bg-green-800 px-4 py-1.5 rounded-lg disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+      </div>
     </div>
   );
 }
