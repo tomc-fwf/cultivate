@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import api from '../../api';
+import { api } from '../../api';
 
 const TYPE_LABELS = {
   move:         { label: 'Move Plants',    color: 'bg-blue-100 text-blue-700'   },
