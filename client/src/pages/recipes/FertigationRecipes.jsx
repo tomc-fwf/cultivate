@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
@@ -28,11 +28,9 @@ export default function FertigationRecipes() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const location = useLocation();
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
   useEffect(() => {
-    setLoading(true);
     api.getFertigationRecipes()
       .then((data) => {
         setRecipes(data);
@@ -42,7 +40,7 @@ export default function FertigationRecipes() {
         setError(e.message);
         setLoading(false);
       });
-  }, [location.key]);
+  }, []);
 
   // Build a map from the API response keyed by name
   const byName = new Map(recipes.map((r) => [r.name, r]));

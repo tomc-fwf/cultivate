@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
 export default function FoliarRecipes() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [recipes, setRecipes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -14,7 +13,6 @@ export default function FoliarRecipes() {
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
   useEffect(() => {
-    setLoading(true);
     api.getFoliarRecipes()
       .then((data) => {
         setRecipes(data);
@@ -24,7 +22,7 @@ export default function FoliarRecipes() {
         setError(e.message);
         setLoading(false);
       });
-  }, [location.key]);
+  }, []);
 
   if (loading) {
     return (

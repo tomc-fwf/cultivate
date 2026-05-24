@@ -185,7 +185,7 @@ export default function FoliarRecipeEdit() {
       }
       const draftKey = isVersioning ? `cv_draft_foliar_recipe_${id}` : 'cv_draft_foliar_recipe_new';
       try { localStorage.removeItem(draftKey); } catch { /* ignore */ }
-      navigate(result?.foliar_recipe_id ? `/recipes/foliar/${result.foliar_recipe_id}` : '/recipes/foliar');
+      navigate(isVersioning && result?.foliar_recipe_id ? `/recipes/foliar/${result.foliar_recipe_id}` : '/recipes/foliar');
     } catch (e) {
       setSaveError(e.message);
       setSaving(false);
