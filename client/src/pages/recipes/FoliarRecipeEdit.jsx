@@ -436,7 +436,7 @@ export default function FoliarRecipeEdit() {
       </div>
 
       {/* Save button — fixed to bottom thumb zone */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-50">
+      <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-50">
         <div className="max-w-2xl mx-auto">
           <button
             type="button"
