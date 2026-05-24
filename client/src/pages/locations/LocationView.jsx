@@ -241,7 +241,12 @@ function IndoorCard({ location, navigate, onOpenMenu }) {
                   <div className="text-[10px] text-gray-400">plants</div>
                 </div>
                 {b.days_in_stage != null && (
-                  <div className="shrink-0 text-xs text-gray-400 w-8 text-right">D{b.days_in_stage}</div>
+                  <div className="shrink-0 text-xs text-gray-400 text-right">
+                    D{b.days_in_stage}
+                    {b.plant_age_days != null && (
+                      <span className="text-gray-300"> / {b.plant_age_days}d</span>
+                    )}
+                  </div>
                 )}
                 <span className="text-gray-300 text-xs">›</span>
               </div>
@@ -347,7 +352,9 @@ function SubZoneRow({ subLoc, navigate, onOpenMenu }) {
               {STATUS_LABELS[batch.status] ?? batch.status}
             </span>
             {batch.days_in_stage != null && (
-              <span className="shrink-0 text-xs text-gray-400">D{batch.days_in_stage}</span>
+              <span className="shrink-0 text-xs text-gray-400">
+                D{batch.days_in_stage}{batch.plant_age_days != null ? ` / ${batch.plant_age_days}d` : ''}
+              </span>
             )}
           </div>
           <div className="flex gap-1.5" onPointerDown={e => e.stopPropagation()}>

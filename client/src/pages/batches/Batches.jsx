@@ -188,7 +188,10 @@ function BatchCard({ batch, onClick }) {
         <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
           {STATUS_LABELS[batch.status] ?? batch.status}
         </span>
-        <span className="text-xs text-gray-500">Day {batch.days_in_stage ?? 0} in phase</span>
+        <span className="text-xs text-gray-500">Day {batch.days_in_stage ?? 0} in stage</span>
+        {batch.plant_age_days != null && (
+          <span className="text-xs text-gray-400">Age {batch.plant_age_days}d</span>
+        )}
         <span className="text-xs text-gray-500">{batch.plant_count_current} plants</span>
       </div>
 

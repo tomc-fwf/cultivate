@@ -449,9 +449,12 @@ export default function BatchDetail() {
           </div>
         </div>
 
-        {/* Day in stage + sow date */}
-        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 border-t border-gray-100 pt-3">
+        {/* Day in stage + plant age + sow date */}
+        <div className="flex items-center gap-4 mt-3 text-xs text-gray-500 border-t border-gray-100 pt-3 flex-wrap">
           <span>Day <span className="font-semibold text-gray-700">{batch.days_in_stage ?? 0}</span> in stage</span>
+          {batch.plant_age_days != null && (
+            <span>Plant age <span className="font-semibold text-gray-700">{batch.plant_age_days}d</span></span>
+          )}
           <span>Sow <span className="font-semibold text-gray-700 font-mono">{batch.sow_date}</span></span>
           {batch.plants_per_container > 1 && (
             <span><span className="font-semibold text-gray-700">{batch.plants_per_container}</span> per container</span>
@@ -792,6 +795,9 @@ export default function BatchDetail() {
         </div>
       )}
 
+      {/* ── Stage Timeline ───────────────────────────────────────────────── */}
+      <StageTimeline batch={batch} />
+
       {/* ── Phase & Location History ─────────────────────────────────────── */}
       <BatchHistory batch={batch} />
 
@@ -925,6 +931,7 @@ function BatchHistory({ batch }) {
     by: p.transitioned_by_name,
     notes: p.notes,
     metrc_sync_status: p.metrc_sync_status,
+    days_in_stage: p.days_in_stage,
   }));
 
   const locationEvents = (batch.location_history ?? []).map(l => ({
@@ -976,9 +983,14 @@ function BatchHistory({ batch }) {
                     )}
                     <MetrcSyncBadge status={evt.metrc_sync_status} />
                   </div>
-                  <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                  <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
                     <span>{fmtTs(evt.ts)}</span>
                     {evt.by && <span>by {evt.by}</span>}
+                    {evt.days_in_stage != null && (
+                      <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded font-medium">
+                        {evt.days_in_stage}d in prev stage
+                      </span>
+                    )}
                   </div>
                   {evt.notes && (
                     <div className="text-xs text-gray-500 mt-1 italic">"{evt.notes}"</div>
@@ -1018,6 +1030,65 @@ function BatchHistory({ batch }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function StageTimeline({ batch }) {
+  const history = batch.phase_history ?? [];
+  if (history.length === 0 && !batch.current_stage_days) return null;
+
+  const stages = history.map(ph => ({
+    status: ph.from_status,
+    days: ph.days_in_stage,
+  })).filter(s => s.status && s.days != null);
+
+  const isActive = batch.status !== 'closed';
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Stage Timeline</h2>
+        {batch.plant_age_days != null && (
+          <span className="text-xs text-gray-500">
+            Total age: <span className="font-semibold text-gray-700">{batch.plant_age_days}d</span>
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {stages.map((s, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className="text-center">
+              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5">
+                {STATUS_LABELS[s.status] ?? s.status}
+              </div>
+              <div className="bg-gray-100 text-gray-600 text-xs font-bold px-2.5 py-1 rounded-lg font-mono">
+                {s.days}d
+              </div>
+            </div>
+            <span className="text-gray-300 text-sm">→</span>
+          </div>
+        ))}
+        {isActive && (
+          <div className="text-center">
+            <div className="text-[10px] font-semibold text-green-700 uppercase tracking-wide leading-none mb-0.5">
+              {STATUS_LABELS[batch.status] ?? batch.status}
+            </div>
+            <div className="bg-green-100 text-green-800 text-xs font-bold px-2.5 py-1 rounded-lg font-mono flex items-center gap-1">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              {batch.current_stage_days ?? 0}d
+            </div>
+          </div>
+        )}
+        {!isActive && (
+          <div className="text-center">
+            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none mb-0.5">
+              {STATUS_LABELS[batch.status] ?? batch.status}
+            </div>
+            <div className="bg-gray-50 text-gray-400 text-xs font-bold px-2.5 py-1 rounded-lg">—</div>
+          </div>
+        )}
       </div>
     </div>
   );

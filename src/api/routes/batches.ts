@@ -152,7 +152,10 @@ const BATCH_SELECT = `
          ) AS active_assignment_count,
          CAST(
            ROUND(julianday('now') - julianday(COALESCE(b.current_stage_since, b.sow_date)))
-         AS INTEGER) AS days_in_stage
+         AS INTEGER) AS days_in_stage,
+         CAST(
+           ROUND(julianday('now') - julianday(b.sow_date))
+         AS INTEGER) AS plant_age_days
   FROM cv_batches b
   LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
   LEFT JOIN cv_locations loc ON loc.location_id = b.current_location_id
@@ -247,13 +250,27 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY bsr.effective_from DESC
       `).all(id) as Array<Record<string, unknown>>;
 
-      const phaseHistory = db.prepare(`
+      const rawPhaseHistory = db.prepare(`
         SELECT ph.*, u.name AS transitioned_by_name
         FROM cv_batch_phase_history ph
         LEFT JOIN cv_users u ON u.id = ph.transitioned_by
         WHERE ph.batch_id = ?
         ORDER BY ph.transitioned_at ASC
       `).all(id) as Array<Record<string, unknown>>;
+
+      const batchSowDate = row['sow_date'] as string | null;
+      const phaseHistory = rawPhaseHistory.map((ph, idx) => {
+        const stageStart = idx === 0
+          ? batchSowDate
+          : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
+        const stageEnd = ph['transitioned_at'] as string | null;
+        const daysInStage = (stageStart && stageEnd)
+          ? Math.round(
+              (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
+            )
+          : null;
+        return { ...ph, days_in_stage: daysInStage };
+      });
 
       const locationHistory = db.prepare(`
         SELECT lh.*,
@@ -267,6 +284,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         WHERE lh.batch_id = ?
         ORDER BY lh.moved_at ASC
       `).all(id) as Array<Record<string, unknown>>;
+
+      const currentStageSince = row['current_stage_since'] as string | null;
+      const currentStageDays = currentStageSince
+        ? Math.round((Date.now() - new Date(currentStageSince).getTime()) / 86400000)
+        : null;
 
       const fertigationCount = (
         db.prepare('SELECT COUNT(*) as n FROM cv_applications_fertigation WHERE batch_id = ?').get(id) as { n: number } | undefined
@@ -295,6 +317,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       return reply.send(enrichBatch({
         ...row,
         plant_count_current: resolvedPlantCount(row),
+        current_stage_days: currentStageDays,
         recipe_history: recipeHistory,
         phase_history: phaseHistory,
         location_history: locationHistory,
@@ -663,13 +686,27 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY bsr.effective_from DESC
       `).all(id) as Array<Record<string, unknown>>;
 
-      const phaseHistory = db.prepare(`
+      const rawPhaseHistory = db.prepare(`
         SELECT ph.*, u.name AS transitioned_by_name
         FROM cv_batch_phase_history ph
         LEFT JOIN cv_users u ON u.id = ph.transitioned_by
         WHERE ph.batch_id = ?
         ORDER BY ph.transitioned_at ASC
       `).all(id) as Array<Record<string, unknown>>;
+
+      const batchSowDate = row['sow_date'] as string | null;
+      const phaseHistory = rawPhaseHistory.map((ph, idx) => {
+        const stageStart = idx === 0
+          ? batchSowDate
+          : (rawPhaseHistory[idx - 1]['transitioned_at'] as string | null);
+        const stageEnd = ph['transitioned_at'] as string | null;
+        const daysInStage = (stageStart && stageEnd)
+          ? Math.round(
+              (new Date(stageEnd).getTime() - new Date(stageStart).getTime()) / 86400000
+            )
+          : null;
+        return { ...ph, days_in_stage: daysInStage };
+      });
 
       const locationHistory = db.prepare(`
         SELECT lh.*,

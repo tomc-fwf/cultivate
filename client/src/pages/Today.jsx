@@ -223,8 +223,9 @@ function BatchCard({ batch, onClick }) {
           {STATUS_LABELS[batch.status] ?? batch.status}
         </span>
       </div>
-      <div className="text-xs text-gray-400 flex items-center gap-3">
+      <div className="text-xs text-gray-400 flex items-center gap-3 flex-wrap">
         <span>Day {batch.days_in_stage ?? 0} in stage</span>
+        {batch.plant_age_days != null && <span>Age {batch.plant_age_days}d</span>}
         <span>{batch.plant_count_current ?? batch.plant_count_initial} plants</span>
         {batch.active_recipe_name && <span>Recipe: {batch.active_recipe_name}</span>}
       </div>
