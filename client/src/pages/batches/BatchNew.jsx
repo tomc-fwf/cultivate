@@ -208,17 +208,9 @@ export default function BatchNew() {
       {/* ── Source Package (seed only) ────────────────────────────── */}
       {plantType === 'seed' && (
         <div className="mb-5">
-          <div className="flex items-baseline justify-between mb-1.5">
-            <label className="text-sm font-semibold text-gray-800">
-              Source Package <span className="text-red-500">*</span>
-            </label>
-            <button
-              onClick={() => navigate('/seed-vault?add=1')}
-              className="text-xs text-green-700 underline hover:text-green-900"
-            >
-              + Add package
-            </button>
-          </div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1.5">
+            Source Package <span className="text-red-500">*</span>
+          </label>
 
           {seedPackagesLoading ? (
             <div className="text-sm text-gray-400 italic px-1">Loading…</div>
@@ -232,7 +224,39 @@ export default function BatchNew() {
                 Add one in Seed Vault →
               </button>
             </div>
+          ) : selectedPackage && presetSeedPackageId ? (
+            /* Pre-selected from seed vault card — show confirmed state, no picker */
+            <div className="border-2 border-green-700 bg-green-50 rounded-xl px-4 py-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">
+                    {selectedPackage.package_name || selectedPackage.lot_number || `Package #${selectedPackage.package_id}`}
+                  </p>
+                  <p className="text-xs text-gray-600 mt-0.5">
+                    {selectedPackage.strain_name}
+                    <span className={`ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      selectedPackage.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
+                    }`}>
+                      {selectedPackage.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
+                    </span>
+                    {selectedPackage.seed_sex === 'feminized' && (
+                      <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-pink-100 text-pink-700">♀ FEM</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1.5">
+                    {Number(selectedPackage.weight_g_remaining).toFixed(2)}g remaining
+                  </p>
+                </div>
+                <button
+                  onClick={() => { setSelectedPackageId(''); navigate('/batches/new'); }}
+                  className="text-xs text-gray-400 hover:text-gray-700 underline shrink-0 mt-0.5"
+                >
+                  Change
+                </button>
+              </div>
+            </div>
           ) : (
+            /* Manual entry — show full picker */
             <div className="flex flex-col gap-2">
               {seedPackages.map(p => {
                 const isSelected = String(p.package_id) === selectedPackageId;
@@ -256,7 +280,7 @@ export default function BatchNew() {
                         </span>
                         <span className="text-xs text-gray-500">
                           {p.strain_name} · {p.strain_type === 'auto' ? 'Auto' : 'Photo'}
-                          {p.feminized ? ' · ♀ Fem' : ''}
+                          {p.seed_sex === 'feminized' ? ' · ♀ Fem' : ''}
                         </span>
                       </div>
                       {isSelected && (
@@ -287,21 +311,6 @@ export default function BatchNew() {
             </div>
           )}
           {fieldErrors.package && <p className="text-red-500 text-xs mt-1">{fieldErrors.package}</p>}
-
-          {/* Strain display — auto-filled from package */}
-          {selectedPackage && (
-            <div className="mt-3 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-              <p className="text-xs font-semibold text-gray-500 mb-0.5">Strain (from METRC)</p>
-              <p className="text-sm font-semibold text-gray-900">
-                {selectedPackage.strain_name}
-                <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                  selectedPackage.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
-                }`}>
-                  {selectedPackage.strain_type === 'auto' ? 'AUTO' : 'PHOTO'}
-                </span>
-              </p>
-            </div>
-          )}
         </div>
       )}
 
