@@ -19,7 +19,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     try {
       batchRows = db.prepare(`
         SELECT b.batch_id, b.strain_id, s.name AS strain_name, b.status,
-               b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
+               b.plant_count_initial AS plant_count_current, b.plant_count_initial, b.sub_zone_id,
                b.sow_date, b.field_move_date,
                lh.to_location_id AS location_id,
                loc.name AS current_location_name,
@@ -302,7 +302,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     try {
       batchRows = db.prepare(`
         SELECT b.batch_id, b.name AS batch_name, b.strain_id, s.name AS strain_name, b.status,
-               b.plant_count_current, b.plant_count_initial, b.sub_zone_id,
+               b.plant_count_initial AS plant_count_current, b.plant_count_initial, b.sub_zone_id,
                b.sow_date, b.field_move_date,
                lh.to_location_id AS location_id,
                loc.name AS current_location_name,
