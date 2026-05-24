@@ -301,16 +301,17 @@ export default function BatchDetail() {
   const currentStatusIdx = LIFECYCLE_ORDER.indexOf(batch.status);
   const location = LOCATION_LABEL[batch.status];
 
-  async function handleTransition(toStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes) {
+  async function handleTransition(toStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes, moveDate) {
     try {
       // Set sub_zone before field transition if provided
       if (subZoneId) {
         await api.updateBatch(batch.batch_id, { sub_zone_id: subZoneId });
       }
       const body = { to_status: toStatus, notes };
-      if (plantsMoved != null) body.plants_moved = plantsMoved;
-      if (lossReason)          body.loss_reason   = lossReason;
-      if (lossNotes)           body.loss_notes    = lossNotes;
+      if (plantsMoved != null) body.plants_moved      = plantsMoved;
+      if (lossReason)          body.loss_reason        = lossReason;
+      if (lossNotes)           body.loss_notes         = lossNotes;
+      if (moveDate)            body.transitioned_at    = moveDate;
       const updated = await api.transitionBatch(id, body);
       setBatch(b => ({ ...b, ...updated, sub_zone_id: subZoneId || b.sub_zone_id }));
       setToast({ message: `Moved to ${STATUS_LABELS[toStatus] ?? toStatus} ✓`, type: 'success' });
@@ -866,9 +867,9 @@ export default function BatchDetail() {
           requiresSubZone={nextStatus === 'field-veg' && !batch.sub_zone_id}
           requiresNotes={nextStatus === 'harvesting'}
           onClose={() => setShowTransitionModal(false)}
-          onConfirm={(notes, subZoneId, plantsMoved, lossReason, lossNotes) => {
+          onConfirm={(notes, subZoneId, plantsMoved, lossReason, lossNotes, moveDate) => {
             setShowTransitionModal(false);
-            handleTransition(nextStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes);
+            handleTransition(nextStatus, notes, subZoneId, plantsMoved, lossReason, lossNotes, moveDate);
           }}
         />
       )}
@@ -1107,12 +1108,19 @@ const LOSS_REASONS = [
   { value: 'other',          label: 'Other' },
 ];
 
+function localDatetimeValue() {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  return now.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+}
+
 function TransitionModal({ currentStatus, nextStatus, nextLabel, actionLabel, plantCount, requiresSubZone, requiresNotes, onClose, onConfirm }) {
   const [notes, setNotes] = useState('');
   const [subZoneId, setSubZoneId] = useState('');
   const [plantsMovedStr, setPlantsMovedStr] = useState(String(plantCount ?? ''));
   const [lossReason, setLossReason] = useState('');
   const [lossNotes, setLossNotes] = useState('');
+  const [moveDate, setMoveDate] = useState(localDatetimeValue);
   const [saving, setSaving] = useState(false);
 
   const showPlantsMoved = PRE_FIELD_FROM.has(currentStatus);
@@ -1139,6 +1147,19 @@ function TransitionModal({ currentStatus, nextStatus, nextLabel, actionLabel, pl
         <p className="text-sm text-gray-500 mb-4">
           This will move the batch to <strong>{nextLabel}</strong> and log the transaction.
         </p>
+
+        {/* Move date — defaults to now, editable for back-dating */}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Move date</label>
+          <input
+            type="datetime-local"
+            value={moveDate}
+            max={localDatetimeValue()}
+            onChange={e => setMoveDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+            style={{ minHeight: '56px' }}
+          />
+        </div>
 
         {/* Plants moved — shown for all pre-field transitions */}
         {showPlantsMoved && (
@@ -1264,6 +1285,7 @@ function TransitionModal({ currentStatus, nextStatus, nextLabel, actionLabel, pl
                 showPlantsMoved ? plantsMovedNum : null,
                 hasLoss ? lossReason : null,
                 hasLoss && lossNotes.trim() ? lossNotes.trim() : null,
+                moveDate ? new Date(moveDate).toISOString() : null,
               );
               setSaving(false);
             }}

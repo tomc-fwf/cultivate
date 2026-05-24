@@ -99,6 +99,8 @@ type BatchUpdateBody = z.infer<typeof BatchUpdateSchema>;
 const TransitionSchema = z.object({
   to_status: z.string().min(1),
   notes: z.string().nullable().optional(),
+  // Optional back-date for the transition (ISO-8601). Defaults to now.
+  transitioned_at: z.string().datetime({ offset: true }).nullable().optional(),
   // Pre-field transitions: how many plants actually moved to the next stage.
   // If omitted, assumed to equal plant_count_initial (no losses).
   plants_moved: z.number().int().positive().nullable().optional(),
@@ -490,7 +492,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
         throw e;
       }
-      const { to_status, notes, plants_moved, loss_reason, loss_notes } = transBody;
+      const { to_status, notes, transitioned_at, plants_moved, loss_reason, loss_notes } = transBody;
 
       const db = getDB();
 
@@ -543,6 +545,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const now = new Date().toISOString();
+      // Use caller-supplied date for the transition timestamp (back-dating support).
+      // created_at on audit records always uses server now.
+      const transitionAt = transitioned_at ?? now;
       const userId = request.user.id;
 
       const impliedMove = IMPLIED_LOCATION_MOVES[to_status];
@@ -563,22 +568,22 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const toLocName = (toLocRow?.['metrc_name'] ?? toLocRow?.['name'] ?? String(to_status)) as string;
 
       db.transaction(() => {
-        // Build batch UPDATE
+        // Build batch UPDATE — use transitionAt for stage timestamps, now for updated_at
         const updates: string[] = ['status = ?', 'current_stage_since = ?', 'updated_at = ?'];
-        const values: unknown[] = [to_status, now, now];
+        const values: unknown[] = [to_status, transitionAt, now];
 
         if (to_status === 'seedling') {
           updates.push('transplant_date = ?');
-          values.push(now);
+          values.push(transitionAt);
         } else if (to_status === 'field-veg') {
           updates.push('field_move_date = ?');
-          values.push(now);
+          values.push(transitionAt);
         } else if (to_status === 'harvesting') {
           updates.push('harvest_date = ?');
-          values.push(now);
+          values.push(transitionAt);
         } else if (to_status === 'closed') {
           updates.push('closed_date = ?');
-          values.push(now);
+          values.push(transitionAt);
         }
 
         // Update plant count if plants were lost pre-field
@@ -601,7 +606,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
             (batch_id, from_status, to_status, transitioned_at, transitioned_by,
              notes, metrc_sync_status, created_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, currentStatus, to_status, now, userId, notes ?? null, phaseMetrcStatus, now);
+        `).run(id, currentStatus, to_status, transitionAt, userId, notes ?? null, phaseMetrcStatus, now);
 
         // Location history record — only for transitions that imply a physical move
         if (impliedMove) {
@@ -611,7 +616,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
               (batch_id, from_location_id, to_location_id, moved_at, moved_by,
                trigger, metrc_sync_status, created_at)
             VALUES (?, ?, ?, ?, ?, 'phase_transition', ?, ?)
-          `).run(id, fromLocationId ?? null, impliedMove.to_location_id, now, userId, locationMetrcStatus, now);
+          `).run(id, fromLocationId ?? null, impliedMove.to_location_id, transitionAt, userId, locationMetrcStatus, now);
         }
 
         // METRC todos for pre-field location moves
