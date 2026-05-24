@@ -157,7 +157,7 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
     `).run(
       resolvedStrainId,
       body.location_id ?? null,
-      body.lot_number?.trim() ?? null,
+      body.lot_number?.trim() || null,   // nullable after migration 029
       body.package_name ?? null,
       body.metrc_package_id ?? null,
       body.feminized ? 1 : 0,
@@ -165,8 +165,8 @@ const seedPackagesRoutes: FastifyPluginAsync = async (app) => {
       body.supplier ?? null,
       body.source_detail ?? null,
       body.received_date ?? null,
-      body.seed_count_initial != null ? Number(body.seed_count_initial) : null,
-      body.seed_count_initial != null ? Number(body.seed_count_initial) : null,
+      body.seed_count_initial != null ? Number(body.seed_count_initial) : 0,   // 0 = unset; nullable after migration 029
+      body.seed_count_initial != null ? Number(body.seed_count_initial) : 0,
       Number(body.weight_g_initial),
       Number(body.weight_g_initial),
       body.notes ?? null,
