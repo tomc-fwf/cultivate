@@ -23,6 +23,11 @@ const RecipeCreateSchema = z.object({
   mixing_order: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   ingredients: z.array(IngredientSchema).min(1, 'At least one ingredient is required'),
+  applicable_stages: z.array(z.string()).nullable().optional(),
+  day_min: z.number().int().nonnegative().nullable().optional(),
+  day_max: z.number().int().nonnegative().nullable().optional(),
+  is_base_recipe: z.boolean().optional().default(false),
+  usage_notes: z.string().nullable().optional(),
 });
 
 const RecipeVersionSchema = z.object({
@@ -33,6 +38,11 @@ const RecipeVersionSchema = z.object({
   mixing_order: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   ingredients: z.array(IngredientSchema).min(1, 'At least one ingredient is required'),
+  applicable_stages: z.array(z.string()).nullable().optional(),
+  day_min: z.number().int().nonnegative().nullable().optional(),
+  day_max: z.number().int().nonnegative().nullable().optional(),
+  is_base_recipe: z.boolean().optional().default(false),
+  usage_notes: z.string().nullable().optional(),
 });
 
 type RecipeCreateBody = z.infer<typeof RecipeCreateSchema>;
@@ -187,7 +197,8 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
         const issues = err instanceof z.ZodError ? err.issues : undefined;
         return reply.code(400).send({ error: 'Validation failed', issues });
       }
-      const { name, ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients } = body;
+      const { name, ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients,
+              applicable_stages, day_min, day_max, is_base_recipe, usage_notes } = body;
 
       const db = getDB();
       const existing = db
@@ -201,13 +212,17 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
 
       const now = new Date().toISOString();
       const userId = request.user.id;
+      const applicableStagesJson = (applicable_stages && applicable_stages.length > 0)
+        ? JSON.stringify(applicable_stages)
+        : null;
 
       const r = db
         .prepare(
           `INSERT INTO cv_fertigation_recipes
              (name, version, active, ec_target_low, ec_target_high, ph_target_low, ph_target_high,
-              mixing_order, notes, approved_by, approved_at, created_by, created_at)
-           VALUES (?, '1.0', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              mixing_order, notes, applicable_stages, day_min, day_max, is_base_recipe, usage_notes,
+              approved_by, approved_at, created_by, created_at)
+           VALUES (?, '1.0', 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           name,
@@ -217,6 +232,11 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
           ph_target_high ?? null,
           mixing_order ?? null,
           notes ?? null,
+          applicableStagesJson,
+          day_min ?? null,
+          day_max ?? null,
+          is_base_recipe ? 1 : 0,
+          usage_notes ?? null,
           userId,
           now,
           userId,
@@ -256,7 +276,8 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
         const issues = err instanceof z.ZodError ? err.issues : undefined;
         return reply.code(400).send({ error: 'Validation failed', issues });
       }
-      const { ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients } = body;
+      const { ec_target_low, ec_target_high, ph_target_low, ph_target_high, mixing_order, notes, ingredients,
+              applicable_stages, day_min, day_max, is_base_recipe, usage_notes } = body;
 
       const existing = db
         .prepare('SELECT * FROM cv_fertigation_recipes WHERE recipe_id=? AND active=1')
@@ -269,6 +290,9 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
       const newVersion = nextVersion(existing['version'] as string);
       const now = new Date().toISOString();
       const userId = request.user.id;
+      const applicableStagesJson = (applicable_stages && applicable_stages.length > 0)
+        ? JSON.stringify(applicable_stages)
+        : null;
 
       const insertAndSupersede = db.transaction(() => {
         // Supersede the existing recipe
@@ -281,8 +305,9 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
           .prepare(
             `INSERT INTO cv_fertigation_recipes
                (name, version, active, ec_target_low, ec_target_high, ph_target_low, ph_target_high,
-                mixing_order, notes, approved_by, approved_at, created_by, created_at)
-             VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                mixing_order, notes, applicable_stages, day_min, day_max, is_base_recipe, usage_notes,
+                approved_by, approved_at, created_by, created_at)
+             VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             existing['name'] as string,
@@ -293,6 +318,11 @@ const fertigationRecipesRoutes: FastifyPluginAsync = async (app) => {
             ph_target_high ?? null,
             mixing_order ?? null,
             notes ?? null,
+            applicableStagesJson,
+            day_min ?? null,
+            day_max ?? null,
+            is_base_recipe ? 1 : 0,
+            usage_notes ?? null,
             userId,
             now,
             userId,

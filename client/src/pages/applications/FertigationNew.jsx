@@ -96,6 +96,10 @@ export default function FertigationNew() {
   const [lockedBatch, setLockedBatch] = useState(null);
   const [lockedBatchLoading, setLockedBatchLoading] = useState(false);
 
+  // Recipes
+  const [recipes, setRecipes] = useState([]);
+  const [selectedRecipeId, setSelectedRecipeId] = useState(null);
+
   // Form fields
   const [appliedAt, setAppliedAt] = useState(toLocalDatetimeString());
   const [volumeGallons, setVolumeGallons] = useState('');
@@ -177,6 +181,54 @@ export default function FertigationNew() {
       .catch(() => { setLockedBatchLoading(false); });
   }, [batchIdParam]);
 
+  // --- Load all fertigation recipes ---
+  useEffect(() => {
+    api.getFertigationRecipes()
+      .then(data => {
+        // Parse applicable_stages JSON strings
+        const parsed = data.map(r => ({
+          ...r,
+          applicable_stages: (() => {
+            if (!r.applicable_stages) return null;
+            try { return typeof r.applicable_stages === 'string' ? JSON.parse(r.applicable_stages) : r.applicable_stages; }
+            catch { return null; }
+          })(),
+        }));
+        setRecipes(parsed);
+      })
+      .catch(() => {});
+  }, []);
+
+  // --- Pre-select recipe when batch changes ---
+  useEffect(() => {
+    const batch = lockedBatch ?? selectedBatch;
+    if (!batch) return;
+    const activeId = batch.active_recipe_id;
+    if (activeId && recipes.some(r => r.recipe_id === activeId)) {
+      setSelectedRecipeId(activeId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedBatch, selectedBatch, recipes]);
+
+  // --- Compute days since sow (calendar days, America/Chicago) ---
+  function daysSinceSow(batch) {
+    if (!batch?.sow_date) return null;
+    const sow = new Date(batch.sow_date.slice(0, 10) + 'T12:00:00');
+    const today = new Date();
+    const diff = Math.floor((today - sow) / (1000 * 60 * 60 * 24));
+    return diff >= 0 ? diff : null;
+  }
+
+  // --- Compute whether a recipe is recommended for current batch ---
+  function isRecommended(recipe, batchStatus, days) {
+    if (recipe.applicable_stages && recipe.applicable_stages.length > 0) {
+      if (!batchStatus || !recipe.applicable_stages.includes(batchStatus)) return false;
+    }
+    if (recipe.day_min != null && days != null && days < recipe.day_min) return false;
+    if (recipe.day_max != null && days != null && days > recipe.day_max) return false;
+    return true;
+  }
+
   // --- Restore draft from localStorage ---
   useEffect(() => {
     try {
@@ -195,6 +247,7 @@ export default function FertigationNew() {
         if (draft.notes) setNotes(draft.notes);
         if (draft.appliedAt) setAppliedAt(draft.appliedAt);
         if (draft.selectedBatchIds) setSelectedBatchIds(draft.selectedBatchIds);
+        if (draft.selectedRecipeId) setSelectedRecipeId(draft.selectedRecipeId);
       }
     } catch {
       // ignore
@@ -231,13 +284,14 @@ export default function FertigationNew() {
         notes,
         appliedAt,
         selectedBatchIds,
+        selectedRecipeId,
         savedAt: Date.now(),
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     } catch {
       // ignore storage errors
     }
-  }, [batchIdParam, volumeGallons, ecMeasured, phMeasured, solutionTempF, ambientTempF, ambientRh, notes, appliedAt, selectedBatchIds]);
+  }, [batchIdParam, volumeGallons, ecMeasured, phMeasured, solutionTempF, ambientTempF, ambientRh, notes, appliedAt, selectedBatchIds, selectedRecipeId]);
 
   useEffect(() => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -247,20 +301,20 @@ export default function FertigationNew() {
     };
   }, [saveDraft]);
 
-  // Determine the active batch for recipe display
+  // Determine the active batch for display context
   const activeBatch = lockedBatch ?? selectedBatch;
-  const activeRecipe = activeBatch ? {
-    id: activeBatch.active_recipe_id,
-    name: activeBatch.active_recipe_name,
-    version: activeBatch.active_recipe_version,
-    ecLow: activeBatch.active_recipe_ec_low,
-    ecHigh: activeBatch.active_recipe_ec_high,
-    phLow: activeBatch.active_recipe_ph_low,
-    phHigh: activeBatch.active_recipe_ph_high,
-  } : null;
 
-  const ecStatus = activeRecipe ? rangeStatus(ecMeasured, activeRecipe.ecLow, activeRecipe.ecHigh) : null;
-  const phStatus = activeRecipe ? rangeStatus(phMeasured, activeRecipe.phLow, activeRecipe.phHigh) : null;
+  // In bulk mode, use the first selected batch for reference display
+  const bulkRefBatch = bulkMode && selectedBatchIds.length > 0
+    ? batches.find(b => b.batch_id === selectedBatchIds[0])
+    : null;
+
+  const displayBatch = lockedBatch ?? (bulkMode ? bulkRefBatch : selectedBatch);
+
+  // Derive recipe targets from selected recipe (not from batch's active recipe)
+  const selectedRecipe = recipes.find(r => r.recipe_id === selectedRecipeId) ?? null;
+  const ecStatus = selectedRecipe ? rangeStatus(ecMeasured, selectedRecipe.ec_target_low, selectedRecipe.ec_target_high) : null;
+  const phStatus = selectedRecipe ? rangeStatus(phMeasured, selectedRecipe.ph_target_low, selectedRecipe.ph_target_high) : null;
 
   // Determine batch_ids for submission
   function getSubmitBatchIds() {
@@ -271,35 +325,34 @@ export default function FertigationNew() {
   }
 
   const submitBatchIds = getSubmitBatchIds();
-  const hasRecipe = activeBatch?.active_recipe_id != null;
 
-  // In bulk mode, use the first selected batch's recipe for reference display
-  const bulkRefBatch = bulkMode && selectedBatchIds.length > 0
-    ? batches.find(b => b.batch_id === selectedBatchIds[0])
-    : null;
+  // Compute days since sow for the current batch context
+  const daysForBatch = daysSinceSow(displayBatch);
+  const batchStatus = displayBatch?.status ?? null;
 
-  const displayBatch = lockedBatch ?? (bulkMode ? bulkRefBatch : selectedBatch);
+  // Partition recipes into recommended + rest
+  const recommendedRecipes = recipes.filter(r => isRecommended(r, batchStatus, daysForBatch));
+  const otherRecipes = recipes.filter(r => !isRecommended(r, batchStatus, daysForBatch));
 
   const canSave =
     submitBatchIds.length > 0 &&
     volumeGallons !== '' &&
     ecMeasured !== '' &&
     phMeasured !== '' &&
-    (lockedBatch?.active_recipe_id || (displayBatch?.active_recipe_id));
+    selectedRecipeId != null;
 
   // --- Save ---
   async function handleSave() {
     setSaveError('');
 
-    const recipeId = displayBatch?.active_recipe_id;
-    if (!recipeId) {
-      setSaveError('No recipe assigned to this batch. Assign a recipe first.');
+    if (!selectedRecipeId) {
+      setSaveError('Select a recipe before saving.');
       return;
     }
 
     const payload = {
       batch_ids: submitBatchIds,
-      recipe_id: recipeId,
+      recipe_id: selectedRecipeId,
       applied_at: new Date(appliedAt).toISOString(),
       volume_gallons: parseFloat(volumeGallons),
       ec_measured: parseFloat(ecMeasured),
@@ -455,53 +508,79 @@ export default function FertigationNew() {
           </div>
         )}
 
-        {/* ── RECIPE DISPLAY ── */}
-        {displayBatch && (
-          <div className="mb-4">
-            {displayBatch.active_recipe_id ? (
-              <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3">
-                <div className="flex items-center justify-between gap-2 mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-green-900" style={{ fontFamily: 'Fraunces, serif' }}>
-                      {displayBatch.active_recipe_name}
-                    </span>
-                    <span className="text-xs bg-green-200 text-green-800 px-1.5 py-0.5 rounded-full font-semibold">
-                      v{displayBatch.active_recipe_version}
-                    </span>
+        {/* ── RECIPE PICKER ── */}
+        <div className="mb-4">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Recipe
+          </label>
+
+          {recipes.length === 0 ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-sm text-amber-700">
+              No recipes available. <button onClick={() => navigate('/recipes/fertigation')} className="underline font-medium">Create a recipe →</button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {/* Recommended group */}
+              {displayBatch && recommendedRecipes.length > 0 && (
+                <>
+                  <div className="text-xs text-green-700 font-semibold uppercase tracking-wide px-1 mt-1">
+                    Recommended for this stage
                   </div>
-                  {displayBatch.active_recipe_id && (
-                    <Link
-                      to={`/recipes/calculator?recipe_type=fertigation&recipe_id=${displayBatch.active_recipe_id}&return_to=fertigation${batchIdParam ? `&batch_id=${batchIdParam}` : ''}`}
-                      className="text-xs text-green-700 underline font-medium hover:text-green-900 flex-shrink-0"
-                    >
-                      Calculate mix →
-                    </Link>
+                  {recommendedRecipes.map(recipe => (
+                    <RecipeCard
+                      key={recipe.recipe_id}
+                      recipe={recipe}
+                      selected={selectedRecipeId === recipe.recipe_id}
+                      onSelect={() => setSelectedRecipeId(recipe.recipe_id)}
+                      batchIdParam={batchIdParam}
+                    />
+                  ))}
+                  {otherRecipes.length > 0 && (
+                    <div className="text-xs text-gray-400 font-semibold uppercase tracking-wide px-1 mt-2">
+                      All recipes
+                    </div>
                   )}
-                </div>
-                <div className="flex gap-4 text-xs text-green-700" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                  {(displayBatch.active_recipe_ec_low != null || displayBatch.active_recipe_ec_high != null) && (
-                    <span>EC {displayBatch.active_recipe_ec_low ?? '?'}–{displayBatch.active_recipe_ec_high ?? '?'} mS/cm</span>
-                  )}
-                  {(displayBatch.active_recipe_ph_low != null || displayBatch.active_recipe_ph_high != null) && (
-                    <span>pH {displayBatch.active_recipe_ph_low ?? '?'}–{displayBatch.active_recipe_ph_high ?? '?'}</span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-amber-700 font-medium">No recipe assigned to this batch</span>
-                {!batchIdParam ? null : (
-                  <button
-                    onClick={() => navigate(`/batches/${batchIdParam}`)}
-                    className="text-xs text-amber-700 font-semibold underline hover:text-amber-900"
-                  >
-                    Assign Recipe →
-                  </button>
+                </>
+              )}
+
+              {/* All recipes (or remaining) */}
+              {(displayBatch ? otherRecipes : recipes).map(recipe => (
+                <RecipeCard
+                  key={recipe.recipe_id}
+                  recipe={recipe}
+                  selected={selectedRecipeId === recipe.recipe_id}
+                  onSelect={() => setSelectedRecipeId(recipe.recipe_id)}
+                  batchIdParam={batchIdParam}
+                />
+              ))}
+
+              {/* If no batch selected yet, show all recipes without grouping */}
+              {!displayBatch && recipes.length === 0 && (
+                <div className="text-xs text-gray-400 px-1">Select a batch to see recommendations.</div>
+              )}
+            </div>
+          )}
+
+          {/* Selected recipe targets reference */}
+          {selectedRecipe && (
+            <div className="mt-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-2.5 flex items-center justify-between gap-2">
+              <div className="flex gap-4 text-xs text-green-700" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                {(selectedRecipe.ec_target_low != null || selectedRecipe.ec_target_high != null) && (
+                  <span>EC {selectedRecipe.ec_target_low ?? '?'}–{selectedRecipe.ec_target_high ?? '?'} mS/cm</span>
+                )}
+                {(selectedRecipe.ph_target_low != null || selectedRecipe.ph_target_high != null) && (
+                  <span>pH {selectedRecipe.ph_target_low ?? '?'}–{selectedRecipe.ph_target_high ?? '?'}</span>
                 )}
               </div>
-            )}
-          </div>
-        )}
+              <Link
+                to={`/recipes/calculator?recipe_type=fertigation&recipe_id=${selectedRecipe.recipe_id}&return_to=fertigation${batchIdParam ? `&batch_id=${batchIdParam}` : ''}`}
+                className="text-xs text-green-700 underline font-medium hover:text-green-900 flex-shrink-0"
+              >
+                Calculate mix →
+              </Link>
+            </div>
+          )}
+        </div>
 
         {/* ── MEASUREMENT FIELDS ── */}
         <div className="mb-4">
@@ -540,9 +619,9 @@ export default function FertigationNew() {
                 className={`w-full border rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent transition-colors ${inputBorderClass(ecStatus)}`}
                 style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
               />
-              {activeRecipe?.ecLow != null && ecMeasured !== '' && (
+              {selectedRecipe?.ec_target_low != null && ecMeasured !== '' && (
                 <div className={`text-xs mt-1 font-medium ${ecStatus === 'in' ? 'text-green-700' : 'text-amber-600'}`}>
-                  {ecStatus === 'in' ? '✓ In range' : `⚠ Target: ${activeRecipe.ecLow}–${activeRecipe.ecHigh}`}
+                  {ecStatus === 'in' ? '✓ In range' : `⚠ Target: ${selectedRecipe.ec_target_low}–${selectedRecipe.ec_target_high}`}
                 </div>
               )}
             </div>
@@ -559,9 +638,9 @@ export default function FertigationNew() {
                 className={`w-full border rounded-2xl px-4 text-lg text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-green-400 focus:border-transparent transition-colors ${inputBorderClass(phStatus)}`}
                 style={{ minHeight: '56px', fontFamily: 'JetBrains Mono, monospace' }}
               />
-              {activeRecipe?.phLow != null && phMeasured !== '' && (
+              {selectedRecipe?.ph_target_low != null && phMeasured !== '' && (
                 <div className={`text-xs mt-1 font-medium ${phStatus === 'in' ? 'text-green-700' : 'text-amber-600'}`}>
-                  {phStatus === 'in' ? '✓ In range' : `⚠ Target: ${activeRecipe.phLow}–${activeRecipe.phHigh}`}
+                  {phStatus === 'in' ? '✓ In range' : `⚠ Target: ${selectedRecipe.ph_target_low}–${selectedRecipe.ph_target_high}`}
                 </div>
               )}
             </div>
@@ -713,4 +792,43 @@ export default function FertigationNew() {
 
 function LockedBatchCard({ batch }) {
   return <BatchSummaryCard batch={batch} />;
+}
+
+function RecipeCard({ recipe, selected, onSelect }) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`text-left w-full px-4 py-3 rounded-2xl border-2 transition-colors ${
+        selected
+          ? 'border-green-600 bg-green-50'
+          : 'border-gray-200 bg-white hover:border-green-300'
+      }`}
+      style={{ minHeight: '56px' }}
+    >
+      <div className="flex items-center gap-2 flex-wrap mb-0.5">
+        <span className="font-semibold text-gray-900 text-sm" style={{ fontFamily: 'Fraunces, serif' }}>
+          {recipe.name}
+        </span>
+        <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full font-semibold">
+          v{recipe.version}
+        </span>
+        {!!recipe.is_base_recipe && (
+          <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium border border-gray-200">
+            Base
+          </span>
+        )}
+      </div>
+      {recipe.usage_notes && (
+        <div className="text-xs text-gray-400 mb-1">{recipe.usage_notes}</div>
+      )}
+      <div className="flex gap-3 text-xs text-gray-500" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+        {(recipe.ec_target_low != null || recipe.ec_target_high != null) && (
+          <span>EC {recipe.ec_target_low ?? '?'}–{recipe.ec_target_high ?? '?'}</span>
+        )}
+        {(recipe.ph_target_low != null || recipe.ph_target_high != null) && (
+          <span>pH {recipe.ph_target_low ?? '?'}–{recipe.ph_target_high ?? '?'}</span>
+        )}
+      </div>
+    </button>
+  );
 }

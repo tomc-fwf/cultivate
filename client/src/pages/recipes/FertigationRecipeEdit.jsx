@@ -34,6 +34,28 @@ export default function FertigationRecipeEdit() {
   const [mixingOrder, setMixingOrder] = useState('');
   const [notes, setNotes] = useState('');
   const [ingredients, setIngredients] = useState([emptyIngredient(0)]);
+
+  // "When to use" metadata
+  const [applicableStages, setApplicableStages] = useState([]);
+  const [dayMin, setDayMin] = useState('');
+  const [dayMax, setDayMax] = useState('');
+  const [isBaseRecipe, setIsBaseRecipe] = useState(false);
+  const [usageNotes, setUsageNotes] = useState('');
+
+  const STAGE_OPTIONS = [
+    { value: 'germ', label: 'Germination' },
+    { value: 'seedling', label: 'Seedling' },
+    { value: 'cult-hoop', label: 'Cult-Hoop' },
+    { value: 'field-veg', label: 'Veg' },
+    { value: 'field-flower', label: 'Flower' },
+    { value: 'flush', label: 'Flush' },
+  ];
+
+  function toggleStage(value) {
+    setApplicableStages(prev =>
+      prev.includes(value) ? prev.filter(s => s !== value) : [...prev, value]
+    );
+  }
   const [catalogItems, setCatalogItems] = useState([]);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [errors, setErrors] = useState({});
@@ -61,10 +83,12 @@ export default function FertigationRecipeEdit() {
       localStorage.setItem(draftKey, JSON.stringify({
         ...(isVersioning ? {} : { name }),
         ecLow, ecHigh, phLow, phHigh, mixingOrder, notes, ingredients,
+        applicableStages, dayMin, dayMax, isBaseRecipe, usageNotes,
         savedAt: Date.now(),
       }));
     } catch { /* ignore */ }
-  }, [id, isVersioning, name, ecLow, ecHigh, phLow, phHigh, mixingOrder, notes, ingredients]);
+  }, [id, isVersioning, name, ecLow, ecHigh, phLow, phHigh, mixingOrder, notes, ingredients,
+      applicableStages, dayMin, dayMax, isBaseRecipe, usageNotes]);
 
   useEffect(() => {
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -92,6 +116,11 @@ export default function FertigationRecipeEdit() {
         if (draft.mixingOrder !== undefined) setMixingOrder(draft.mixingOrder);
         if (draft.notes !== undefined) setNotes(draft.notes);
         if (draft.ingredients && draft.ingredients.length > 0) setIngredients(draft.ingredients);
+        if (draft.applicableStages) setApplicableStages(draft.applicableStages);
+        if (draft.dayMin !== undefined) setDayMin(draft.dayMin);
+        if (draft.dayMax !== undefined) setDayMax(draft.dayMax);
+        if (draft.isBaseRecipe !== undefined) setIsBaseRecipe(draft.isBaseRecipe);
+        if (draft.usageNotes !== undefined) setUsageNotes(draft.usageNotes);
       } catch { /* ignore */ }
       return;
     }
@@ -116,6 +145,19 @@ export default function FertigationRecipeEdit() {
             })),
           );
         }
+        // Populate "when to use" metadata from existing recipe (for versioning pre-fill)
+        if (recipe.applicable_stages) {
+          try {
+            const stages = typeof recipe.applicable_stages === 'string'
+              ? JSON.parse(recipe.applicable_stages)
+              : recipe.applicable_stages;
+            setApplicableStages(Array.isArray(stages) ? stages : []);
+          } catch { setApplicableStages([]); }
+        }
+        setDayMin(recipe.day_min != null ? String(recipe.day_min) : '');
+        setDayMax(recipe.day_max != null ? String(recipe.day_max) : '');
+        setIsBaseRecipe(!!recipe.is_base_recipe);
+        setUsageNotes(recipe.usage_notes ?? '');
         setLoading(false);
         // Restore in-progress draft on top of API-loaded values
         try {
@@ -129,6 +171,11 @@ export default function FertigationRecipeEdit() {
           if (draft.mixingOrder !== undefined) setMixingOrder(draft.mixingOrder);
           if (draft.notes !== undefined) setNotes(draft.notes);
           if (draft.ingredients && draft.ingredients.length > 0) setIngredients(draft.ingredients);
+          if (draft.applicableStages) setApplicableStages(draft.applicableStages);
+          if (draft.dayMin !== undefined) setDayMin(draft.dayMin);
+          if (draft.dayMax !== undefined) setDayMax(draft.dayMax);
+          if (draft.isBaseRecipe !== undefined) setIsBaseRecipe(draft.isBaseRecipe);
+          if (draft.usageNotes !== undefined) setUsageNotes(draft.usageNotes);
         } catch { /* ignore */ }
       })
       .catch((e) => {
@@ -206,6 +253,11 @@ export default function FertigationRecipeEdit() {
         order_index: i + 1,
         notes: ing.notes || null,
       })),
+      applicable_stages: applicableStages.length > 0 ? applicableStages : null,
+      day_min: dayMin !== '' ? Number(dayMin) : null,
+      day_max: dayMax !== '' ? Number(dayMax) : null,
+      is_base_recipe: isBaseRecipe,
+      usage_notes: usageNotes || null,
     };
 
     setSaving(true);
@@ -519,6 +571,106 @@ export default function FertigationRecipeEdit() {
         >
           + Add Ingredient
         </button>
+      </div>
+
+      {/* When to use */}
+      <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          When to Use
+          <span className="text-gray-400 font-normal ml-1">(optional)</span>
+        </label>
+        <p className="text-xs text-gray-400 mb-3">
+          Set stage and day constraints to help auto-select the right recipe in the application form.
+        </p>
+
+        {/* Stage chips */}
+        <div className="mb-3">
+          <label className="text-xs text-gray-500 mb-2 block font-medium">Applicable stages</label>
+          <div className="flex flex-wrap gap-2">
+            {STAGE_OPTIONS.map(({ value, label }) => {
+              const selected = applicableStages.includes(value);
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => toggleStage(value)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                    selected
+                      ? 'bg-green-800 text-white border-green-800'
+                      : 'bg-gray-100 text-gray-700 border-gray-200 hover:border-green-400'
+                  }`}
+                  style={{ minHeight: '36px' }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {applicableStages.length === 0 && (
+            <p className="text-xs text-gray-400 mt-1.5">No selection = any stage</p>
+          )}
+        </div>
+
+        {/* Day range */}
+        <div className="mb-3">
+          <label className="text-xs text-gray-500 mb-1 block font-medium">Days since sow (optional)</label>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs text-gray-400 mb-0.5 block">From day</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={dayMin}
+                onChange={e => setDayMin(e.target.value)}
+                placeholder="e.g. 1"
+                className="w-full rounded-xl border border-gray-300 px-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-700"
+                style={{ minHeight: '48px', fontSize: '16px', fontFamily: 'JetBrains Mono, monospace' }}
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-xs text-gray-400 mb-0.5 block">To day</label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="0"
+                value={dayMax}
+                onChange={e => setDayMax(e.target.value)}
+                placeholder="e.g. 21"
+                className="w-full rounded-xl border border-gray-300 px-3 text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-700"
+                style={{ minHeight: '48px', fontSize: '16px', fontFamily: 'JetBrains Mono, monospace' }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Base recipe toggle */}
+        <div className="mb-3">
+          <label className="flex items-center gap-3 cursor-pointer" style={{ minHeight: '44px' }}>
+            <input
+              type="checkbox"
+              checked={isBaseRecipe}
+              onChange={e => setIsBaseRecipe(e.target.checked)}
+              className="w-5 h-5 rounded border-gray-300 text-green-800 focus:ring-green-700 cursor-pointer"
+            />
+            <span className="text-sm text-gray-700">
+              Base recipe — can be used as a standalone base or combined with other mixes
+            </span>
+          </label>
+        </div>
+
+        {/* Usage notes */}
+        <div>
+          <label className="text-xs text-gray-500 mb-1 block font-medium">Usage notes</label>
+          <input
+            type="text"
+            value={usageNotes}
+            onChange={e => setUsageNotes(e.target.value)}
+            placeholder="e.g. Use first week of germ before switching to Seedling"
+            className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-green-700"
+            style={{ minHeight: '44px' }}
+          />
+        </div>
       </div>
 
       {/* Mixing order */}
