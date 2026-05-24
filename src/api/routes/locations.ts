@@ -411,8 +411,10 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       };
     }
 
-    // Attach batches to their location node
+    // Attach field batches to their location node by location_id (reliable for sub-zones)
+    const FIELD_STATUSES = new Set(['field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting']);
     for (const batch of batchRows) {
+      if (!FIELD_STATUSES.has(batch['status'] as string)) continue;
       const locId = batch['location_id'] as number | null;
       if (locId != null && byId[locId]) {
         byId[locId].batches.push({
@@ -425,27 +427,6 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
           days_in_stage: batch['days_in_stage'],
           sub_zone_id: batch['sub_zone_id'],
         });
-      }
-    }
-
-    // Attach seed package summary to locations (for Seed Vault cards)
-    let seedPkgRows: Array<Record<string, unknown>> = [];
-    try {
-      seedPkgRows = db.prepare(`
-        SELECT location_id,
-               COUNT(*) AS package_count,
-               SUM(COALESCE(weight_g_remaining, 0)) AS total_weight_g
-        FROM cv_seed_packages
-        WHERE active = 1
-        GROUP BY location_id
-      `).all() as Array<Record<string, unknown>>;
-    } catch { /* table may not exist */ }
-
-    for (const sp of seedPkgRows) {
-      const locId = sp['location_id'] as number | null;
-      if (locId != null && byId[locId]) {
-        byId[locId].seed_package_count = Number(sp['package_count'] ?? 0);
-        byId[locId].seed_package_weight_g = Number(sp['total_weight_g'] ?? 0);
       }
     }
 
@@ -514,6 +495,75 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       const cat = (root['location_category'] as string | null) ?? 'outdoor';
       if (cat in tree) tree[cat].push(root);
     }
+
+    // ── Pre-field batch routing by status/name ────────────────────────────────
+    // Route germ/seedling/cult-hoop batches to the right indoor or hoop-house
+    // location by matching the batch status against the location name. This is
+    // more robust than location_id matching because it handles:
+    //   - the seeded Germ-01 (id=1) vs. user-created "Indoor Germination" cards
+    //   - operators who rename or recreate indoor locations
+    const PRE_FIELD_TERMS: Record<string, { cats: string[]; terms: string[] }> = {
+      'germ':      { cats: ['indoor'],               terms: ['germ'] },
+      'seedling':  { cats: ['indoor', 'hoop_house'], terms: ['seedling'] },
+      'cult-hoop': { cats: ['hoop_house', 'indoor'], terms: ['cult', 'hoop'] },
+    };
+
+    // Build status → best-matching location lookup (first match wins per status)
+    const statusToLoc = new Map<string, LocationNode>();
+    for (const [status, cfg] of Object.entries(PRE_FIELD_TERMS)) {
+      for (const cat of cfg.cats) {
+        if (statusToLoc.has(status)) break;
+        for (const loc of (tree[cat] ?? [])) {
+          const n = (loc['name'] as string ?? '').toLowerCase();
+          if (n.includes('seed') && (n.includes('vault') || n.includes('package'))) continue;
+          if (cfg.terms.some(t => n.includes(t))) {
+            statusToLoc.set(status, loc);
+            break;
+          }
+        }
+      }
+    }
+
+    // Assign pre-field batches to their matching location (deduplication guard)
+    for (const batch of batchRows) {
+      const status = batch['status'] as string;
+      if (!PRE_FIELD_TERMS[status]) continue;
+      const target = statusToLoc.get(status);
+      if (!target) continue;
+      if (!target.batches.some(b => b['batch_id'] === batch['batch_id'])) {
+        target.batches.push({
+          batch_id: batch['batch_id'],
+          batch_name: batch['batch_name'],
+          strain_name: batch['strain_name'],
+          status: batch['status'],
+          plant_count_current: batch['plant_count_current'],
+          plant_count_initial: batch['plant_count_initial'],
+          days_in_stage: batch['days_in_stage'],
+          sub_zone_id: batch['sub_zone_id'],
+        });
+      }
+    }
+
+    // ── Seed package summary for Seed Vault locations ─────────────────────────
+    // Packages may not have location_id set, so we count all active packages
+    // and assign the total to any location whose name suggests it's a seed vault.
+    try {
+      const spRow = db.prepare(`
+        SELECT COUNT(*) AS cnt, SUM(COALESCE(weight_g_remaining, 0)) AS wt
+        FROM cv_seed_packages WHERE active = 1
+      `).get() as Record<string, unknown> | undefined;
+      const totalPkgs = Number(spRow?.['cnt'] ?? 0);
+      const totalWt   = Number(spRow?.['wt']  ?? 0);
+      if (totalPkgs > 0) {
+        for (const loc of (tree['indoor'] ?? [])) {
+          const n = (loc['name'] as string ?? '').toLowerCase();
+          if (n.includes('seed') && (n.includes('vault') || n.includes('package'))) {
+            loc.seed_package_count    = totalPkgs;
+            loc.seed_package_weight_g = totalWt;
+          }
+        }
+      }
+    } catch { /* cv_seed_packages may not exist yet */ }
 
     // Bubble REI up to parent zone cards
     for (const zone of tree['outdoor']) {
