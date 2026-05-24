@@ -126,8 +126,6 @@ const STAGE_GUIDE_CFG = {
     recipe: 'BASE',
     appNote: 'Tray-level',
     transitionAt: 7,
-    metrcDay0: 'Day 0: Create this Plant Batch in METRC, then enter the 24-character UID in the field above.',
-    metrcMove: 'METRC: Record "Move Plants" → Seedlings room when physically moving trays.',
     colors: { bg: 'bg-gray-50', border: 'border-gray-200', bar: 'bg-gray-200', fill: 'bg-gray-500', title: 'text-gray-800', row: 'border-gray-200' },
   },
   seedling: {
@@ -136,8 +134,6 @@ const STAGE_GUIDE_CFG = {
     recipe: 'SEEDLING',
     appNote: 'Sub-location drip',
     transitionAt: 10,
-    metrcDay0: null,
-    metrcMove: 'METRC: Record "Move Plants" → Cult-Hoop room when physically moving.',
     colors: { bg: 'bg-lime-50', border: 'border-lime-200', bar: 'bg-lime-200', fill: 'bg-lime-600', title: 'text-lime-900', row: 'border-lime-200' },
   },
   'cult-hoop': {
@@ -146,8 +142,6 @@ const STAGE_GUIDE_CFG = {
     recipe: 'SEEDLING',
     appNote: 'Sub-location drip',
     transitionAt: 8,
-    metrcDay0: null,
-    metrcMove: 'METRC: Record "Move Plants" → Field room when transplanting.',
     colors: { bg: 'bg-green-50', border: 'border-green-200', bar: 'bg-green-200', fill: 'bg-green-600', title: 'text-green-900', row: 'border-green-200' },
   },
 };
@@ -184,30 +178,9 @@ function StageGuide({ batch, onOpenFertiPanel, onOpenTransitionModal, isSupervis
         <div className={`${c.fill} h-1.5 rounded-full`} style={{ width: `${pct}%` }} />
       </div>
 
-      {/* METRC UID reminder — germ Day 0 only */}
-      {batch.status === 'germ' && cfg.metrcDay0 && (
-        <div className={`flex items-start gap-2 text-xs mb-4 px-3 py-2.5 rounded-xl ${
-          batch.metrc_plant_batch_uid
-            ? 'bg-green-50 border border-green-200 text-green-800'
-            : 'bg-amber-50 border border-amber-200 text-amber-800'
-        }`}>
-          <span className="mt-0.5 flex-shrink-0">{batch.metrc_plant_batch_uid ? '✓' : '⚠'}</span>
-          <span>
-            {batch.metrc_plant_batch_uid
-              ? <><strong>METRC Plant Batch UID recorded.</strong> You're set for this stage.</>
-              : cfg.metrcDay0
-            }
-          </span>
-        </div>
-      )}
-
       {/* Transition block — shown when day threshold reached */}
       {isTransitionReady && isSupervisor && nextStatus && (
         <div className="mb-4">
-          <div className="flex items-start gap-2 text-xs mb-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
-            <span className="mt-0.5 flex-shrink-0">📋</span>
-            <span>{cfg.metrcMove}</span>
-          </div>
           <button
             onClick={onOpenTransitionModal}
             className="w-full py-3.5 bg-green-800 text-white font-semibold rounded-xl hover:bg-green-900 transition-colors text-sm"
@@ -395,9 +368,8 @@ export default function BatchDetail() {
     return n >= batch.active_recipe_ph_low && n <= batch.active_recipe_ph_high ? 'in' : 'out';
   })();
 
-  // ── METRC phase helpers ─────────────────────────────────────────────────
-  const metrcPhase = batch.metrc_phase ?? 'Immature';
-  const METRC_PHASE_CHIP = {
+  const growthPhase = batch.metrc_phase ?? 'Immature';
+  const GROWTH_PHASE_CHIP = {
     'Immature':   'bg-lime-100 text-lime-800',
     'Vegetative': 'bg-green-100 text-green-800',
     'Flowering':  'bg-purple-100 text-purple-800',
@@ -413,7 +385,7 @@ export default function BatchDetail() {
         ← Plant Batches
       </button>
 
-      {/* ── METRC Identity Card ──────────────────────────────────────────── */}
+      {/* ── Identity Card ────────────────────────────────────────────────── */}
       <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
 
         {/* Batch name (primary) + status badges */}
@@ -443,26 +415,13 @@ export default function BatchDetail() {
           )}
         </div>
 
-        {/* METRC batch name */}
-        {batch.metrc_batch_name && (
-          <button
-            onClick={() => navigator.clipboard?.writeText(batch.metrc_batch_name)}
-            className="w-full text-left bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 mb-3 hover:bg-gray-100 transition-colors group"
-            title="Tap to copy"
-          >
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">METRC Plant Batch Name</div>
-            <div className="font-mono text-sm font-bold text-gray-800">{batch.metrc_batch_name}</div>
-            <div className="text-[10px] text-gray-400 mt-0.5 group-hover:text-green-600">tap to copy</div>
-          </button>
-        )}
-
         {/* Phase · Count · Location row */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-gray-50 rounded-xl p-3 text-center">
-            <span className={`text-xs font-bold px-2 py-1 rounded-full block mb-1 ${METRC_PHASE_CHIP[metrcPhase] ?? 'bg-gray-100 text-gray-600'}`}>
-              {metrcPhase}
+            <span className={`text-xs font-bold px-2 py-1 rounded-full block mb-1 ${GROWTH_PHASE_CHIP[growthPhase] ?? 'bg-gray-100 text-gray-600'}`}>
+              {growthPhase}
             </span>
-            <div className="text-[10px] text-gray-400 uppercase tracking-wide">METRC phase</div>
+            <div className="text-[10px] text-gray-400 uppercase tracking-wide">Growth Phase</div>
           </div>
           <div className="bg-gray-50 rounded-xl p-3 text-center">
             <div className="text-xl font-bold text-gray-900" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
@@ -495,12 +454,7 @@ export default function BatchDetail() {
         </div>
       </div>
 
-      {/* METRC UID edit */}
-      {batch.status !== 'closed' && isSupervisor && (
-        <MetrcEditInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
-      )}
-
-      {/* Stage Guide — germ / seedling / cult-hoop day context + METRC reminders */}
+      {/* Stage Guide — germ / seedling / cult-hoop day context */}
       <StageGuide
         batch={batch}
         onOpenFertiPanel={() => {
@@ -1133,81 +1087,6 @@ function BatchNameInline({ batch, onSaved }) {
           {saving ? 'Saving…' : 'Save'}
         </button>
         <button onClick={() => setEditing(false)} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
-      </div>
-    </div>
-  );
-}
-
-function MetrcEditInline({ batch, onSaved }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState(batch.metrc_plant_batch_uid ?? '');
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
-  const isValid = value.length === 0 || /^[A-Za-z0-9]{24}$/.test(value.trim());
-
-  if (!editing) {
-    return (
-      <button onClick={() => setEditing(true)}
-        className="w-full flex items-center justify-between mb-4 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 hover:border-green-400 transition-colors text-left"
-      >
-        <div>
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-0.5">METRC Plant Batch UID</div>
-          {batch.metrc_plant_batch_uid ? (
-            <span className="font-mono text-sm text-gray-700 tracking-wide">{batch.metrc_plant_batch_uid}</span>
-          ) : (
-            <span className="text-sm text-amber-600 font-medium">Not set — required before harvest</span>
-          )}
-        </div>
-        <span className="text-xs text-green-700 font-semibold ml-3 flex-shrink-0">Edit</span>
-      </button>
-    );
-  }
-
-  return (
-    <div className="mb-4 bg-gray-50 border border-green-300 rounded-xl px-4 py-3">
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">METRC Plant Batch UID</div>
-      <input
-        className={`w-full border rounded-lg px-3 py-2.5 text-sm font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-green-600 bg-white ${
-          !isValid && value.length > 0 ? 'border-red-400' : value.length === 24 ? 'border-green-500' : 'border-gray-300'
-        }`}
-        placeholder="e.g. 1A4FF0300000222000001234"
-        value={value}
-        onChange={e => { setValue(e.target.value.trim()); setErr(''); }}
-        maxLength={24}
-        autoCapitalize="characters"
-        spellCheck={false}
-      />
-      <div className="flex items-center justify-between mt-1 mb-3">
-        {!isValid && value.length > 0 ? (
-          <span className="text-red-600 text-xs">Must be exactly 24 alphanumeric characters</span>
-        ) : value.length === 24 ? (
-          <span className="text-green-700 text-xs font-medium">✓ Valid format</span>
-        ) : (
-          <span className="text-gray-400 text-xs">{24 - value.length} characters remaining</span>
-        )}
-        <span className="text-xs text-gray-400 font-mono">{value.length}/24</span>
-      </div>
-      {err && <p className="text-red-600 text-xs mb-2">{err}</p>}
-      <div className="flex gap-2">
-        <button
-          onClick={async () => {
-            if (value.length > 0 && !isValid) { setErr('Must be exactly 24 alphanumeric characters'); return; }
-            setSaving(true);
-            try {
-              const updated = await api.updateBatch(batch.batch_id, { metrc_plant_batch_uid: value.trim() || null });
-              onSaved(updated);
-              setEditing(false);
-            } catch (e) { setErr(e.message); }
-            setSaving(false);
-          }}
-          disabled={saving || (value.length > 0 && !isValid)}
-          className="flex-1 bg-green-800 text-white text-sm font-semibold px-3 py-2.5 rounded-lg hover:bg-green-900 disabled:opacity-50"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        <button onClick={() => { setEditing(false); setValue(batch.metrc_plant_batch_uid ?? ''); setErr(''); }} className="text-sm text-gray-500 hover:text-gray-700 px-3">
-          Cancel
-        </button>
       </div>
     </div>
   );
