@@ -171,6 +171,8 @@ export const api = {
 
   // OCM Compliance
   getPendingActions: () => req('GET', '/exports/pending-actions'),
+  getTodayTasks: () => req('GET', '/tasks/today'),
+  getProtocols: () => req('GET', '/tasks/protocols'),
   getComplianceDashboard: () => req('GET', '/exports/compliance-dashboard'),
   getPlantInventory: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/plant-inventory${q ? '?' + q : ''}`); },
   getTagVerification: (params = {}) => { const q = new URLSearchParams(params).toString(); return req('GET', `/exports/tag-verification${q ? '?' + q : ''}`); },

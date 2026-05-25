@@ -53,6 +53,7 @@ export default function Today() {
   const [batchesLoading, setBatchesLoading] = useState(true);
   const [conditionsExpanded, setConditionsExpanded] = useState(true);
   const [pendingActions, setPendingActions] = useState(null);
+  const [tasks, setTasks] = useState(null);
   const [loadError, setLoadError] = useState('');
 
   function loadData() {
@@ -71,6 +72,10 @@ export default function Today() {
     api.getPendingActions()
       .then(data => setPendingActions(data))
       .catch(() => setPendingActions(null));
+
+    api.getTodayTasks()
+      .then(data => setTasks(data))
+      .catch(() => setTasks([]));
   }
 
   useEffect(() => { loadData(); }, []);
@@ -115,6 +120,9 @@ export default function Today() {
           <div className="text-white text-lg flex-shrink-0">→</div>
         </button>
       )}
+
+      {/* ── TASK QUEUE ───────────────────────────────────────────────────── */}
+      <TaskQueueSection tasks={tasks} navigate={navigate} />
 
       {/* ── ACTIVE BATCHES ─────────────────────────────────────────────────── */}
       <div className="mb-5">
@@ -264,6 +272,87 @@ function RecentApplications() {
           <div className="text-xs text-gray-400 flex-shrink-0">{formatTime(app.applied_at)}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const TASK_ICONS = {
+  fertigation: '💧',
+  observation: '🔍',
+  foliar:      '🌿',
+  amendment:   '🪱',
+};
+
+function formatLastDone(lastPerformedAt, hoursSince) {
+  if (!lastPerformedAt) return 'Never done in this stage';
+  if (hoursSince < 1) return 'Just now';
+  if (hoursSince < 24) return `${hoursSince}h ago`;
+  const days = Math.floor(hoursSince / 24);
+  return `${days}d ago`;
+}
+
+function TaskCard({ task, navigate }) {
+  const isOverdue = task.urgency === 'overdue';
+  const borderColor = isOverdue ? 'border-red-300 bg-red-50' : 'border-amber-200 bg-amber-50';
+  const badgeColor  = isOverdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700';
+  const lastDone = formatLastDone(task.last_performed_at, task.hours_since);
+
+  return (
+    <button
+      onClick={() => navigate(task.action_path)}
+      className={`w-full text-left border-2 rounded-2xl px-4 py-3 flex items-center gap-3 transition-colors hover:opacity-90 active:scale-[0.99] ${borderColor}`}
+      style={{ minHeight: '64px' }}
+    >
+      <span className="text-xl flex-shrink-0">{TASK_ICONS[task.task_type] ?? '📋'}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap mb-0.5">
+          <span className="text-sm font-bold text-gray-900">{task.batch_name || task.strain_name}</span>
+          {task.sub_zone_id && (
+            <span className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full font-medium">
+              {task.sub_zone_id}
+            </span>
+          )}
+          {isOverdue && (
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-full ${badgeColor}`}>Overdue</span>
+          )}
+        </div>
+        <div className="text-xs font-semibold text-gray-700">{task.title}</div>
+        <div className="text-xs text-gray-500 mt-0.5">{lastDone}</div>
+      </div>
+      <span className="text-gray-400 text-sm flex-shrink-0">→</span>
+    </button>
+  );
+}
+
+function TaskQueueSection({ tasks, navigate }) {
+  if (tasks === null) return null; // still loading
+
+  const overdue = tasks.filter(t => t.urgency === 'overdue');
+  const due     = tasks.filter(t => t.urgency === 'due');
+  const total   = tasks.length;
+
+  if (total === 0) return null; // nothing due — no clutter
+
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">
+          Tasks Due
+          <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+            {total}
+          </span>
+          {overdue.length > 0 && (
+            <span className="ml-1 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              {overdue.length} overdue
+            </span>
+          )}
+        </h2>
+      </div>
+      <div className="flex flex-col gap-2">
+        {tasks.map(task => (
+          <TaskCard key={task.task_key} task={task} navigate={navigate} />
+        ))}
+      </div>
     </div>
   );
 }
