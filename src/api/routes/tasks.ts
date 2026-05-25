@@ -14,11 +14,14 @@ const ProtocolSchema = z.object({
   day_min:        z.number().int().nonnegative().nullable().optional(),
   day_max:        z.number().int().nonnegative().nullable().optional(),
   description:    z.string().max(300).nullable().optional(),
+  sop_text:       z.string().nullable().optional(),
   order_index:    z.number().int().nonnegative().optional().default(0),
   active:         z.number().int().min(0).max(1).optional().default(1),
   sample_count:   z.number().int().min(1).max(20).nullable().optional(),
   record_fields:  z.string().nullable().optional(), // JSON: [{key,label,unit,type}]
 });
+
+const POSTPONE_REASONS = ['weather','staffing','equipment','priority','other'] as const;
 
 // Hours of grace before a task flips from 'due' to 'overdue'.
 // A daily task becomes 'overdue' after 30 hours (24h threshold + 6h grace).
@@ -40,6 +43,8 @@ interface TodayTask {
   last_performed_at: string | null;
   hours_since: number | null;
   urgency: 'overdue' | 'due';
+  has_sop: boolean;
+  has_checklist: boolean;
   action_path: string;
 }
 
@@ -65,6 +70,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
   app.get('/today', { preHandler: requireAuth }, async (_request, reply) => {
     const db = getDB();
     const now = Date.now();
+    const nowIso = new Date().toISOString();
 
     // All active (non-closed) batches with days_in_stage computed
     const batches = db.prepare(`
@@ -77,7 +83,14 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       ORDER BY b.name
     `).all() as Array<Record<string, unknown>>;
 
-    if (batches.length === 0) return reply.send([]);
+    if (batches.length === 0) return reply.send({ tasks: [], postponed_count: 0 });
+
+    // Active postponements: (protocol_id, batch_id) pairs with snooze still in window
+    const postponed = db.prepare(`
+      SELECT protocol_id, batch_id FROM cv_task_postponements
+      WHERE snooze_until IS NULL OR snooze_until > ?
+    `).all(nowIso) as Array<{ protocol_id: number; batch_id: number }>;
+    const postponedSet = new Set(postponed.map(p => `${p.protocol_id}-${p.batch_id}`));
 
     // All active protocols, keyed by stage for quick lookup
     const allProtocols = db.prepare(`
@@ -106,6 +119,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
     );
 
     const tasks: TodayTask[] = [];
+    let postponedCount = 0;
 
     for (const batch of batches) {
       const batchId    = batch['batch_id'] as number;
@@ -154,13 +168,27 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
         const isDue = hoursSince === null || hoursSince >= hoursThreshold;
         if (!isDue) continue;
 
+        const protocolId = protocol['protocol_id'] as number;
+        const taskKey    = `${batchId}-${protocolId}`;
+
+        // Skip tasks with an active postponement
+        if (postponedSet.has(taskKey)) {
+          postponedCount++;
+          continue;
+        }
+
         const isOverdue = hoursSince === null
           ? false  // never done — show as 'due' not 'overdue' (first time)
           : hoursSince >= hoursThreshold + OVERDUE_GRACE_HOURS;
 
+        const hasChecklist = db.prepare(
+          `SELECT COUNT(*) AS n FROM cv_protocol_checklist_items WHERE protocol_id = ?`
+        ).get(protocolId) as { n: number };
+        const hasSop = !!(protocol['sop_text'] as string | null);
+
         tasks.push({
-          task_key: `${batchId}-${protocol['protocol_id']}`,
-          protocol_id: protocol['protocol_id'] as number,
+          task_key: taskKey,
+          protocol_id: protocolId,
           batch_id: batchId,
           batch_name: batch['batch_name'] as string | null,
           strain_name: batch['strain_name'] as string | null,
@@ -174,7 +202,9 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
           last_performed_at: lastPerformedAt,
           hours_since: hoursSince != null ? Math.round(hoursSince) : null,
           urgency: isOverdue ? 'overdue' : 'due',
-          action_path: actionPath(taskType, batchId, protocol['protocol_id'] as number),
+          has_sop: hasSop,
+          has_checklist: hasChecklist.n > 0,
+          action_path: actionPath(taskType, batchId, protocolId),
         });
       }
     }
@@ -185,7 +215,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       return (a.batch_name ?? '').localeCompare(b.batch_name ?? '');
     });
 
-    return reply.send(tasks);
+    return reply.send({ tasks, postponed_count: postponedCount });
   });
 
   /** GET /protocols — all protocols ordered by stage then display order. */
@@ -197,7 +227,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(protocols);
   });
 
-  /** GET /protocols/:id — single protocol. */
+  /** GET /protocols/:id — single protocol with checklist items. */
   app.get<{ Params: { id: string } }>(
     '/protocols/:id', { preHandler: requireAuth },
     async (request, reply) => {
@@ -206,7 +236,55 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       const db = getDB();
       const protocol = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
       if (!protocol) return reply.code(404).send({ error: 'Protocol not found' });
-      return reply.send(protocol);
+      const checklist_items = db.prepare(
+        `SELECT * FROM cv_protocol_checklist_items WHERE protocol_id = ? ORDER BY order_index, item_id`
+      ).all(id);
+      return reply.send({ ...protocol as Record<string, unknown>, checklist_items });
+    },
+  );
+
+  /**
+   * PUT /protocols/:id/checklist — replace all checklist items atomically.
+   * Body: { items: [{label, required?, order_index?}] }
+   */
+  app.put<{ Params: { id: string } }>(
+    '/protocols/:id/checklist', { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const ItemSchema = z.array(z.object({
+        label:       z.string().min(1).max(200),
+        required:    z.number().int().min(0).max(1).optional().default(0),
+        order_index: z.number().int().nonnegative().optional(),
+      }));
+      let items: z.infer<typeof ItemSchema>;
+      try {
+        const body = request.body as { items?: unknown };
+        items = ItemSchema.parse(body.items ?? []);
+      } catch (err) {
+        return reply.code(400).send({ error: 'Validation failed' });
+      }
+
+      const db = getDB();
+      const existing = db.prepare(`SELECT protocol_id FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
+      if (!existing) return reply.code(404).send({ error: 'Protocol not found' });
+
+      const now = new Date().toISOString();
+      db.transaction(() => {
+        db.prepare(`DELETE FROM cv_protocol_checklist_items WHERE protocol_id = ?`).run(id);
+        items.forEach((item, i) => {
+          db.prepare(`
+            INSERT INTO cv_protocol_checklist_items (protocol_id, order_index, label, required, created_at)
+            VALUES (?, ?, ?, ?, ?)
+          `).run(id, item.order_index ?? i, item.label, item.required ?? 0, now);
+        });
+      })();
+
+      const saved = db.prepare(
+        `SELECT * FROM cv_protocol_checklist_items WHERE protocol_id = ? ORDER BY order_index, item_id`
+      ).all(id);
+      return reply.send(saved);
     },
   );
 
@@ -222,12 +300,13 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
     const now = new Date().toISOString();
     const r = db.prepare(`
       INSERT INTO cv_stage_protocols
-        (stage, task_type, title, frequency_days, day_min, day_max, description, order_index, active,
-         sample_count, record_fields, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (stage, task_type, title, frequency_days, day_min, day_max, description, sop_text,
+         order_index, active, sample_count, record_fields, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       body.stage, body.task_type, body.title, body.frequency_days,
       body.day_min ?? null, body.day_max ?? null, body.description ?? null,
+      body.sop_text ?? null,
       body.order_index ?? 0, body.active ?? 1,
       body.sample_count ?? null, body.record_fields ?? null, now,
     );
@@ -263,6 +342,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       if ('description'  in body)            { fields.push('description = ?');    vals.push(body.description ?? null); }
       if (body.order_index    !== undefined) { fields.push('order_index = ?');    vals.push(body.order_index); }
       if (body.active         !== undefined) { fields.push('active = ?');         vals.push(body.active); }
+      if ('sop_text'      in body)            { fields.push('sop_text = ?');      vals.push(body.sop_text ?? null); }
       if ('sample_count'  in body)            { fields.push('sample_count = ?');  vals.push(body.sample_count ?? null); }
       if ('record_fields' in body)            { fields.push('record_fields = ?'); vals.push(body.record_fields ?? null); }
 
@@ -285,6 +365,86 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       if (!existing) return reply.code(404).send({ error: 'Protocol not found' });
       db.prepare(`DELETE FROM cv_stage_protocols WHERE protocol_id = ?`).run(id);
       return reply.code(204).send();
+    },
+  );
+
+  // ── Postponements ─────────────────────────────────────────────────────────
+
+  /**
+   * POST /postpone — defer a task with a reason and optional snooze duration.
+   * Body: { protocol_id, batch_id, reason, reason_notes?, snooze_hours? }
+   * snooze_hours: omit or 0 for indefinite postponement.
+   */
+  app.post('/postpone', { preHandler: requireAuth }, async (request, reply) => {
+    const PostponeSchema = z.object({
+      protocol_id:  z.number().int().positive(),
+      batch_id:     z.number().int().positive(),
+      reason:       z.enum(POSTPONE_REASONS),
+      reason_notes: z.string().max(300).nullable().optional(),
+      snooze_hours: z.number().int().min(0).max(168).optional().default(0),
+    });
+    let body: z.infer<typeof PostponeSchema>;
+    try { body = PostponeSchema.parse(request.body); }
+    catch (err) {
+      const issues = err instanceof z.ZodError ? err.issues : undefined;
+      return reply.code(400).send({ error: 'Validation failed', issues });
+    }
+
+    const db     = getDB();
+    const userId = request.user.id;
+    const now    = new Date().toISOString();
+    const snoozeUntil = body.snooze_hours
+      ? new Date(Date.now() + body.snooze_hours * 3600000).toISOString()
+      : null;
+
+    // Remove any existing active postponement for this task first
+    db.prepare(
+      `DELETE FROM cv_task_postponements WHERE protocol_id = ? AND batch_id = ?`
+    ).run(body.protocol_id, body.batch_id);
+
+    const r = db.prepare(`
+      INSERT INTO cv_task_postponements
+        (protocol_id, batch_id, postponed_by, reason, reason_notes, snooze_until, postponed_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      body.protocol_id, body.batch_id, userId,
+      body.reason, body.reason_notes ?? null, snoozeUntil, now, now,
+    );
+
+    return reply.code(201).send(
+      db.prepare(`SELECT * FROM cv_task_postponements WHERE postponement_id = ?`).get(r.lastInsertRowid)
+    );
+  });
+
+  /** DELETE /postpone/:id — remove a postponement (resume the task). */
+  app.delete<{ Params: { id: string } }>(
+    '/postpone/:id', { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      db.prepare(`DELETE FROM cv_task_postponements WHERE postponement_id = ?`).run(id);
+      return reply.code(204).send();
+    },
+  );
+
+  /** GET /postpone?batch_id=X — list active postponements. */
+  app.get<{ Querystring: { batch_id?: string } }>(
+    '/postpone', { preHandler: requireAuth },
+    async (request, reply) => {
+      const db = getDB();
+      const nowIso = new Date().toISOString();
+      const { batch_id } = request.query;
+      const where = batch_id ? 'AND p.batch_id = ?' : '';
+      const vals: unknown[] = batch_id ? [nowIso, Number(batch_id)] : [nowIso];
+      const rows = db.prepare(`
+        SELECT p.*, pr.title, pr.task_type, pr.stage
+        FROM cv_task_postponements p
+        JOIN cv_stage_protocols pr ON pr.protocol_id = p.protocol_id
+        WHERE (p.snooze_until IS NULL OR p.snooze_until > ?) ${where}
+        ORDER BY p.postponed_at DESC
+      `).all(...vals);
+      return reply.send(rows);
     },
   );
 

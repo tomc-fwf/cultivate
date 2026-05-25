@@ -54,6 +54,7 @@ export default function Today() {
   const [conditionsExpanded, setConditionsExpanded] = useState(true);
   const [pendingActions, setPendingActions] = useState(null);
   const [tasks, setTasks] = useState(null);
+  const [postponedCount, setPostponedCount] = useState(0);
   const [loadError, setLoadError] = useState('');
 
   function loadData() {
@@ -74,7 +75,15 @@ export default function Today() {
       .catch(() => setPendingActions(null));
 
     api.getTodayTasks()
-      .then(data => setTasks(data))
+      .then(data => {
+        // API returns { tasks, postponed_count }
+        if (data && Array.isArray(data.tasks)) {
+          setTasks(data.tasks);
+          setPostponedCount(data.postponed_count ?? 0);
+        } else {
+          setTasks(Array.isArray(data) ? data : []);
+        }
+      })
       .catch(() => setTasks([]));
   }
 
@@ -122,7 +131,7 @@ export default function Today() {
       )}
 
       {/* ── TASK QUEUE ───────────────────────────────────────────────────── */}
-      <TaskQueueSection tasks={tasks} navigate={navigate} />
+      <TaskQueueSection tasks={tasks} postponedCount={postponedCount} navigate={navigate} />
 
       {/* ── ACTIVE BATCHES ─────────────────────────────────────────────────── */}
       <div className="mb-5">
@@ -281,6 +290,7 @@ const TASK_ICONS = {
   observation: '🔍',
   foliar:      '🌿',
   amendment:   '🪱',
+  record:      '📋',
 };
 
 function formatLastDone(lastPerformedAt, hoursSince) {
@@ -297,9 +307,16 @@ function TaskCard({ task, navigate }) {
   const badgeColor  = isOverdue ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700';
   const lastDone = formatLastDone(task.last_performed_at, task.hours_since);
 
+  function handleClick() {
+    navigate(
+      `/tasks/detail?protocol_id=${task.protocol_id}&batch_id=${task.batch_id}`,
+      { state: { task } },
+    );
+  }
+
   return (
     <button
-      onClick={() => navigate(task.action_path)}
+      onClick={handleClick}
       className={`w-full text-left border-2 rounded-2xl px-4 py-3 flex items-center gap-3 transition-colors hover:opacity-90 active:scale-[0.99] ${borderColor}`}
       style={{ minHeight: '64px' }}
     >
@@ -317,42 +334,58 @@ function TaskCard({ task, navigate }) {
           )}
         </div>
         <div className="text-xs font-semibold text-gray-700">{task.title}</div>
-        <div className="text-xs text-gray-500 mt-0.5">{lastDone}</div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-gray-500">{lastDone}</span>
+          {task.has_sop && <span className="text-xs text-blue-500 font-medium">SOP</span>}
+          {task.has_checklist && <span className="text-xs text-green-600 font-medium">Checklist</span>}
+        </div>
       </div>
       <span className="text-gray-400 text-sm flex-shrink-0">→</span>
     </button>
   );
 }
 
-function TaskQueueSection({ tasks, navigate }) {
+function TaskQueueSection({ tasks, postponedCount, navigate }) {
   if (tasks === null) return null; // still loading
 
   const overdue = tasks.filter(t => t.urgency === 'overdue');
-  const due     = tasks.filter(t => t.urgency === 'due');
   const total   = tasks.length;
 
-  if (total === 0) return null; // nothing due — no clutter
+  if (total === 0 && postponedCount === 0) return null; // nothing due — no clutter
 
   return (
     <div className="mb-5">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-bold text-gray-500 uppercase tracking-wide">
           Tasks Due
-          <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
-            {total}
-          </span>
+          {total > 0 && (
+            <span className="ml-2 bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full">
+              {total}
+            </span>
+          )}
           {overdue.length > 0 && (
             <span className="ml-1 bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">
               {overdue.length} overdue
             </span>
           )}
+          {postponedCount > 0 && (
+            <span className="ml-1 text-xs font-normal text-gray-400 normal-case">
+              · {postponedCount} postponed
+            </span>
+          )}
         </h2>
       </div>
-      <div className="flex flex-col gap-2">
-        {tasks.map(task => (
-          <TaskCard key={task.task_key} task={task} navigate={navigate} />
-        ))}
-      </div>
+      {total > 0 ? (
+        <div className="flex flex-col gap-2">
+          {tasks.map(task => (
+            <TaskCard key={task.task_key} task={task} navigate={navigate} />
+          ))}
+        </div>
+      ) : (
+        <div className="bg-white border border-gray-200 rounded-2xl px-4 py-4 text-sm text-gray-400 text-center">
+          All tasks postponed.
+        </div>
+      )}
     </div>
   );
 }

@@ -79,6 +79,7 @@ import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 import ProtocolsAdmin from './pages/admin/ProtocolsAdmin';
 import Tasks from './pages/tasks/Tasks';
+import TaskDetail from './pages/tasks/TaskDetail';
 import SamplingSession from './pages/tasks/SamplingSession';
 import ApplicatorMetrics from './pages/analytics/ApplicatorMetrics';
 import PesticideSummary from './pages/analytics/PesticideSummary';
@@ -217,6 +218,7 @@ export default function App() {
               <Route path="/planting-plans/new" element={<Protected minRole="supervisor"><PlantingPlanNew /></Protected>} />
               <Route path="/planting-plans/:id" element={<Protected minRole="supervisor"><PlantingPlanDetail /></Protected>} />
               <Route path="/tasks" element={<Protected><Tasks /></Protected>} />
+              <Route path="/tasks/detail" element={<Protected><TaskDetail /></Protected>} />
               <Route path="/tasks/sampling/new" element={<Protected><SamplingSession /></Protected>} />
               <Route path="/locations" element={<Protected><LocationView /></Protected>} />
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />

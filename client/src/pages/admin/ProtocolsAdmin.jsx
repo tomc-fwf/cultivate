@@ -63,10 +63,12 @@ const BLANK_FORM = {
   day_min: '',
   day_max: '',
   description: '',
+  sop_text: '',
   order_index: 0,
   active: 1,
   sample_count: 3,
   record_fields: [],
+  checklist_items: [],
 };
 
 function parseIntOrNull(val) {
@@ -150,6 +152,48 @@ function RecordFieldsEditor({ fields, onChange }) {
   );
 }
 
+function ChecklistItemsEditor({ items, onChange }) {
+  function add() {
+    onChange([...items, { label: '', required: 0 }]);
+  }
+  function remove(i) { onChange(items.filter((_, j) => j !== i)); }
+  function update(i, k, v) {
+    onChange(items.map((item, j) => j === i ? { ...item, [k]: v } : item));
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-600">Checklist items</label>
+        <button type="button" onClick={add} className="text-xs text-green-700 font-medium">+ Add item</button>
+      </div>
+      {items.length === 0 && (
+        <p className="text-xs text-gray-400 italic">No items. Add steps for the cultivator to work through.</p>
+      )}
+      {items.map((item, i) => (
+        <div key={i} className="flex gap-2 items-center">
+          <input
+            className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
+            placeholder="Step description"
+            value={item.label}
+            onChange={e => update(i, 'label', e.target.value)}
+          />
+          <label className="flex items-center gap-1 text-xs text-gray-600 shrink-0 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!item.required}
+              onChange={e => update(i, 'required', e.target.checked ? 1 : 0)}
+              className="w-3 h-3"
+            />
+            Required
+          </label>
+          <button type="button" onClick={() => remove(i)} className="text-red-400 px-1 text-sm leading-none">×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
   const [form, setForm] = useState(initial);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -163,10 +207,12 @@ function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
       day_max: form.day_max === '' ? null : parseIntOrNull(form.day_max),
       order_index: parseInt(form.order_index, 10) || 0,
       active: form.active ? 1 : 0,
+      sop_text: form.sop_text?.trim() || null,
       sample_count: form.task_type === 'record' ? (parseInt(form.sample_count, 10) || 3) : null,
       record_fields: form.task_type === 'record'
         ? JSON.stringify(form.record_fields || [])
         : null,
+      checklist_items: form.checklist_items || [],
     });
   }
 
@@ -256,6 +302,24 @@ function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
           onChange={e => set('description', e.target.value)}
           maxLength={300}
           placeholder="Brief note on what to check or why"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-600 mb-1">Standard Operating Procedure (SOP)</label>
+        <textarea
+          className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm font-mono"
+          rows={4}
+          value={form.sop_text}
+          onChange={e => set('sop_text', e.target.value)}
+          placeholder="Step-by-step instructions the cultivator reads before starting. Leave blank if none."
+        />
+      </div>
+
+      <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 space-y-2">
+        <ChecklistItemsEditor
+          items={form.checklist_items || []}
+          onChange={items => set('checklist_items', items)}
         />
       </div>
 
@@ -355,6 +419,7 @@ function ProtocolRow({ protocol, canEdit, onEdit, onToggleActive, onDelete }) {
               return fs.length > 0 ? <span>{fs.map(f => f.label).join(', ')}</span> : null;
             } catch { return null; }
           })()}
+          {protocol.sop_text && <span className="text-blue-500 font-medium">SOP</span>}
           {protocol.description && <span className="truncate max-w-xs">{protocol.description}</span>}
         </div>
       </div>
@@ -400,6 +465,7 @@ export default function ProtocolsAdmin() {
 
   // Editing state
   const [editingId, setEditingId] = useState(null); // protocol_id or 'new'
+  const [editingDetail, setEditingDetail] = useState(null); // full protocol with checklist_items
   const [addingStage, setAddingStage] = useState(null); // stage value for inline add
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState(null);
@@ -427,15 +493,21 @@ export default function ProtocolsAdmin() {
   }));
 
   async function handleSave(data) {
+    const { checklist_items: items = [], ...protocolData } = data;
     setSaving(true);
     setFormError(null);
     try {
+      let protocolId;
       if (editingId && editingId !== 'new') {
-        await api.updateProtocol(editingId, data);
+        await api.updateProtocol(editingId, protocolData);
+        protocolId = editingId;
       } else {
-        await api.createProtocol(data);
+        const created = await api.createProtocol(protocolData);
+        protocolId = created.protocol_id;
       }
+      await api.updateProtocolChecklist(protocolId, items);
       setEditingId(null);
+      setEditingDetail(null);
       setAddingStage(null);
       await load();
     } catch (e) {
@@ -473,20 +545,30 @@ export default function ProtocolsAdmin() {
     try { return JSON.parse(p.record_fields); } catch { return []; }
   }
 
-  function startEdit(protocol) {
+  async function startEdit(protocol) {
     setAddingStage(null);
     setEditingId(protocol.protocol_id);
+    setEditingDetail(null);
     setFormError(null);
+    try {
+      const detail = await api.getProtocol(protocol.protocol_id);
+      setEditingDetail(detail);
+    } catch {
+      // fall back — edit without checklist items
+      setEditingDetail({ ...protocol, checklist_items: [] });
+    }
   }
 
   function startAdd(stageValue) {
     setEditingId('new');
+    setEditingDetail(null);
     setAddingStage(stageValue);
     setFormError(null);
   }
 
   function cancelForm() {
     setEditingId(null);
+    setEditingDetail(null);
     setAddingStage(null);
     setFormError(null);
   }
@@ -552,28 +634,35 @@ export default function ProtocolsAdmin() {
 
               {visible.map(p => {
                 if (editingId === p.protocol_id) {
+                  const isLoadingDetail = !editingDetail || editingDetail.protocol_id !== p.protocol_id;
                   return (
                     <div key={p.protocol_id} className="py-3 border-b border-gray-100">
                       <p className="text-xs font-medium text-gray-500 mb-2">Editing: {p.title}</p>
-                      <ProtocolForm
-                        initial={{
-                          stage: p.stage,
-                          task_type: p.task_type,
-                          title: p.title,
-                          frequency_days: p.frequency_days,
-                          day_min: p.day_min ?? '',
-                          day_max: p.day_max ?? '',
-                          description: p.description ?? '',
-                          order_index: p.order_index ?? 0,
-                          active: p.active,
-                          sample_count: p.sample_count ?? 3,
-                          record_fields: parseRecordFields(p),
-                        }}
-                        onSave={handleSave}
-                        onCancel={cancelForm}
-                        saving={saving}
-                        error={formError}
-                      />
+                      {isLoadingDetail ? (
+                        <p className="text-xs text-gray-400 py-2">Loading…</p>
+                      ) : (
+                        <ProtocolForm
+                          initial={{
+                            stage: p.stage,
+                            task_type: p.task_type,
+                            title: p.title,
+                            frequency_days: p.frequency_days,
+                            day_min: p.day_min ?? '',
+                            day_max: p.day_max ?? '',
+                            description: p.description ?? '',
+                            sop_text: p.sop_text ?? '',
+                            order_index: p.order_index ?? 0,
+                            active: p.active,
+                            sample_count: p.sample_count ?? 3,
+                            record_fields: parseRecordFields(p),
+                            checklist_items: editingDetail.checklist_items ?? [],
+                          }}
+                          onSave={handleSave}
+                          onCancel={cancelForm}
+                          saving={saving}
+                          error={formError}
+                        />
+                      )}
                     </div>
                   );
                 }
