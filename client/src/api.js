@@ -11,7 +11,8 @@ async function req(method, path, body, params) {
     headers,
     body: body != null ? JSON.stringify(body) : undefined
   });
-  const data = await res.json();
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : {};
   if (!res.ok) {
     const detail = data.issues
       ? ': ' + data.issues.map(i => `${i.path.join('.')} — ${i.message}`).join('; ')

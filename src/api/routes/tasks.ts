@@ -310,11 +310,16 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
       const bId = Number(request.query.batch_id);
       if (isNaN(pId) || isNaN(bId)) return reply.code(400).send({ error: 'Invalid params' });
       const db = getDB();
-      const rows = db.prepare(`
-        SELECT item_id, checked, value_numeric, value_text, checked_at
-        FROM cv_task_checklist_progress
-        WHERE protocol_id = ? AND batch_id = ?
-      `).all(pId, bId);
+      let rows: unknown[] = [];
+      try {
+        rows = db.prepare(`
+          SELECT item_id, checked, value_numeric, value_text, checked_at
+          FROM cv_task_checklist_progress
+          WHERE protocol_id = ? AND batch_id = ?
+        `).all(pId, bId);
+      } catch {
+        // Table may not exist yet if migration is still pending — return empty.
+      }
       return reply.send(rows);
     },
   );
