@@ -1098,6 +1098,7 @@ function MetrcSyncBadge({ status }) {
 }
 
 function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
+  const navigate = useNavigate();
   const [showHistory, setShowHistory] = useState(false);
   const [showDates, setShowDates] = useState(false);
 
@@ -1189,7 +1190,11 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
             const loss = (enterCount != null && exitCount != null) ? enterCount - exitCount : 0;
             return (
               <div key={i} className="flex items-start">
-                <div className="flex flex-col items-center px-1.5">
+                <button
+                  onClick={() => navigate(`/batches/${batch.batch_id}/phase/${s.status}`)}
+                  className="flex flex-col items-center px-1.5 rounded-lg hover:bg-gray-100 transition-colors py-0.5"
+                  title={`View ${STATUS_LABELS[s.status] ?? s.status} phase detail`}
+                >
                   <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
                     {STATUS_LABELS[s.status] ?? s.status}
                   </div>
@@ -1207,7 +1212,7 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
                       {loss > 0 && <span className="text-red-500 ml-0.5">−{loss}</span>}
                     </div>
                   )}
-                </div>
+                </button>
                 <span className="text-gray-300 text-xs mt-2 flex-shrink-0">→</span>
               </div>
             );
@@ -1215,7 +1220,11 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
 
           {/* Current stage (active) or closed marker */}
           {isActive ? (
-            <div className="flex flex-col items-center px-1.5">
+            <button
+              onClick={() => navigate(`/batches/${batch.batch_id}/phase/${batch.status}`)}
+              className="flex flex-col items-center px-1.5 rounded-lg hover:bg-green-50 transition-colors py-0.5"
+              title={`View ${STATUS_LABELS[batch.status] ?? batch.status} phase detail`}
+            >
               <div className="text-[10px] font-semibold text-green-700 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
                 {STATUS_LABELS[batch.status] ?? batch.status}
               </div>
@@ -1233,7 +1242,7 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
                   {currentCount}
                 </div>
               )}
-            </div>
+            </button>
           ) : (
             <div className="flex flex-col items-center px-1.5">
               <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">

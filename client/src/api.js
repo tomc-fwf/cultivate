@@ -252,6 +252,7 @@ export const api = {
     return req('GET', `/batches${q ? '?' + q : ''}`);
   },
   getBatch: (id) => req('GET', `/batches/${id}`),
+  getBatchPhase: (batchId, status) => req('GET', `/batches/${batchId}/phase/${encodeURIComponent(status)}`),
   createBatch: (data) => req('POST', '/batches', data),
   transitionBatch: (id, data) => req('PATCH', `/batches/${id}/transition`, data),
   updateBatch: (id, data) => req('PATCH', `/batches/${id}`, data),

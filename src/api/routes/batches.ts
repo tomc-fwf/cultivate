@@ -345,6 +345,140 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
+   * GET /:id/phase/:status — all events scoped to one phase of a batch.
+   * Returns fertigation, foliar, pesticide, observations, amendments, losses
+   * bounded by the phase's entry and exit timestamps.
+   */
+  app.get<{ Params: { id: string; status: string } }>(
+    '/:id/phase/:status',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const batchId = Number(request.params.id);
+      const status = request.params.status;
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid batch id' });
+
+      const db = getDB();
+
+      const batch = db.prepare(`${BATCH_SELECT} WHERE b.batch_id = ?`).get(batchId) as Record<string, unknown> | undefined;
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      const rawPhaseHistory = db.prepare(`
+        SELECT ph.*, u.name AS transitioned_by_name
+        FROM cv_batch_phase_history ph
+        LEFT JOIN cv_users u ON u.id = ph.transitioned_by
+        WHERE ph.batch_id = ?
+        ORDER BY ph.phase_history_id ASC
+      `).all(batchId) as Array<Record<string, unknown>>;
+
+      // Phase start: for germ use sow_date; for others use the transitioned_at when we entered this status
+      const phaseEntryRow = rawPhaseHistory.find(ph => ph['to_status'] === status);
+      if (!phaseEntryRow && status !== 'germ') {
+        return reply.code(404).send({ error: `Phase "${status}" not found for this batch` });
+      }
+      const startedAt = status === 'germ'
+        ? (batch['sow_date'] as string)
+        : (phaseEntryRow?.['transitioned_at'] as string);
+
+      // Phase end: the transitioned_at of the entry where we left this status; null = still current
+      const phaseExitRow = rawPhaseHistory.find(ph => ph['from_status'] === status);
+      const endedAt = (phaseExitRow?.['transitioned_at'] as string) ?? null;
+      const isCurrentPhase = endedAt === null;
+
+      // For queries: use NOW as upper bound when phase is still active
+      const upperBound = endedAt ?? new Date().toISOString();
+
+      const days = startedAt
+        ? Math.floor((new Date(upperBound).getTime() - new Date(startedAt).getTime()) / 86400000)
+        : null;
+
+      // Plant count entering / exiting this phase
+      const plantCountEntering = phaseEntryRow?.['plant_count'] as number | null ?? null;
+      const plantCountExiting = phaseExitRow?.['plant_count'] as number | null ?? null;
+      const plantCountLost = (plantCountEntering != null && plantCountExiting != null)
+        ? plantCountEntering - plantCountExiting
+        : null;
+
+      const fertigation = db.prepare(`
+        SELECT af.*, u.name AS applicator_name,
+               fr.name AS recipe_name, fr.version AS recipe_version
+        FROM cv_applications_fertigation af
+        LEFT JOIN cv_users u ON u.id = af.applicator
+        LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = af.recipe_id
+        WHERE af.batch_id = ? AND af.applied_at >= ? AND af.applied_at <= ?
+        ORDER BY af.applied_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      const foliar = db.prepare(`
+        SELECT af.*, u.name AS applicator_name,
+               fr.name AS recipe_name,
+               ci.name AS input_name
+        FROM cv_applications_foliar af
+        LEFT JOIN cv_users u ON u.id = af.applicator
+        LEFT JOIN cv_foliar_recipes fr ON fr.foliar_recipe_id = af.foliar_recipe_id
+        LEFT JOIN cv_items ci ON ci.id = af.input_id
+        WHERE af.batch_id = ? AND af.applied_at >= ? AND af.applied_at <= ?
+        ORDER BY af.applied_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      const pesticide = db.prepare(`
+        SELECT ap.*, u.name AS applicator_name,
+               ci.name AS input_name
+        FROM cv_applications_pesticide ap
+        LEFT JOIN cv_users u ON u.id = ap.applicator
+        LEFT JOIN cv_items ci ON ci.id = ap.input_id
+        WHERE ap.batch_id = ? AND ap.applied_at >= ? AND ap.applied_at <= ?
+        ORDER BY ap.applied_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      const observations = db.prepare(`
+        SELECT o.*, u.name AS observer_name
+        FROM cv_observations o
+        LEFT JOIN cv_users u ON u.id = o.observer
+        WHERE o.batch_id = ? AND o.observed_at >= ? AND o.observed_at <= ?
+        ORDER BY o.observed_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      const amendments = db.prepare(`
+        SELECT ca.*, u.name AS applicator_name,
+               ci.name AS input_name
+        FROM cv_container_amendments ca
+        LEFT JOIN cv_users u ON u.id = ca.applicator
+        LEFT JOIN cv_items ci ON ci.id = ca.input_id
+        WHERE ca.batch_id = ? AND ca.applied_at >= ? AND ca.applied_at <= ?
+        ORDER BY ca.applied_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      const losses = db.prepare(`
+        SELECT pl.*, u.name AS reporter_name
+        FROM cv_plant_loss_events pl
+        LEFT JOIN cv_users u ON u.id = pl.reported_by
+        WHERE pl.batch_id = ? AND pl.occurred_at >= ? AND pl.occurred_at <= ?
+        ORDER BY pl.occurred_at DESC
+      `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
+
+      return reply.send({
+        batch: enrichBatch({ ...batch, plant_count_current: resolvedPlantCount(batch) }),
+        phase: {
+          status,
+          started_at: startedAt,
+          ended_at: endedAt,
+          is_current: isCurrentPhase,
+          days,
+          plant_count_entering: plantCountEntering,
+          plant_count_exiting: plantCountExiting,
+          plant_count_lost: plantCountLost,
+        },
+        fertigation,
+        foliar,
+        pesticide,
+        observations,
+        amendments,
+        losses,
+      });
+    },
+  );
+
+  /**
    * POST / — create a new batch. Requires supervisor role.
    * Writes the initial phase history (germ) and location history (Germ-01) records.
    */

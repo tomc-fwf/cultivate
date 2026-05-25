@@ -17,6 +17,7 @@ import CropInputs from './pages/inputs/CropInputs';
 import CropInputDetail from './pages/inputs/CropInputDetail';
 import Batches from './pages/batches/Batches';
 import BatchDetail from './pages/batches/BatchDetail';
+import BatchPhaseDetail from './pages/batches/BatchPhaseDetail';
 import BatchNew from './pages/batches/BatchNew';
 import Strains from './pages/strains/Strains';
 import ContainerDashboard from './pages/containers/ContainerDashboard';
@@ -160,6 +161,7 @@ export default function App() {
               <Route path="/inputs/:id" element={<Protected><CropInputDetail /></Protected>} />
               <Route path="/batches" element={<Protected><Batches /></Protected>} />
               <Route path="/batches/new" element={<Protected minRole="supervisor"><BatchNew /></Protected>} />
+              <Route path="/batches/:id/phase/:status" element={<Protected><BatchPhaseDetail /></Protected>} />
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />
               <Route path="/containers" element={<Protected><ContainerDashboard /></Protected>} />
