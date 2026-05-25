@@ -410,22 +410,18 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
 
       const foliar = db.prepare(`
         SELECT af.*, u.name AS applicator_name,
-               fr.name AS recipe_name,
-               ci.name AS input_name
+               fr.name AS recipe_name
         FROM cv_applications_foliar af
         LEFT JOIN cv_users u ON u.id = af.applicator
         LEFT JOIN cv_foliar_recipes fr ON fr.foliar_recipe_id = af.foliar_recipe_id
-        LEFT JOIN cv_items ci ON ci.id = af.input_id
         WHERE af.batch_id = ? AND af.applied_at >= ? AND af.applied_at <= ?
         ORDER BY af.applied_at DESC
       `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
 
       const pesticide = db.prepare(`
-        SELECT ap.*, u.name AS applicator_name,
-               ci.name AS input_name
+        SELECT ap.*, u.name AS applicator_name
         FROM cv_applications_pesticide ap
         LEFT JOIN cv_users u ON u.id = ap.applicator
-        LEFT JOIN cv_items ci ON ci.id = ap.input_id
         WHERE ap.batch_id = ? AND ap.applied_at >= ? AND ap.applied_at <= ?
         ORDER BY ap.applied_at DESC
       `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
@@ -439,11 +435,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
 
       const amendments = db.prepare(`
-        SELECT ca.*, u.name AS applicator_name,
-               ci.name AS input_name
+        SELECT ca.*, u.name AS applicator_name
         FROM cv_container_amendments ca
         LEFT JOIN cv_users u ON u.id = ca.applicator
-        LEFT JOIN cv_items ci ON ci.id = ca.input_id
         WHERE ca.batch_id = ? AND ca.applied_at >= ? AND ca.applied_at <= ?
         ORDER BY ca.applied_at DESC
       `).all(batchId, startedAt, upperBound) as Array<Record<string, unknown>>;
