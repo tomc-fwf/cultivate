@@ -453,9 +453,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         db.prepare(`
           INSERT INTO cv_batch_phase_history
             (batch_id, from_status, to_status, transitioned_at, transitioned_by,
-             notes, metrc_sync_status, created_at)
-          VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
-        `).run(newBatchId, effective_status, now, userId, notes ?? null, phaseMetrcStatus, now);
+             notes, metrc_sync_status, plant_count, created_at)
+          VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?)
+        `).run(newBatchId, effective_status, now, userId, notes ?? null, phaseMetrcStatus, plant_count_initial, now);
 
         // Initial location record — from_location_id null = initial placement
         db.prepare(`
@@ -671,9 +671,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         db.prepare(`
           INSERT INTO cv_batch_phase_history
             (batch_id, from_status, to_status, transitioned_at, transitioned_by,
-             notes, metrc_sync_status, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, currentStatus, to_status, transitionAt, userId, notes ?? null, phaseMetrcStatus, now);
+             notes, metrc_sync_status, plant_count, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, currentStatus, to_status, transitionAt, userId, notes ?? null, phaseMetrcStatus, effectivePlantsMovedCount, now);
 
         // Location history record — only for transitions that imply a physical move
         if (impliedMove) {

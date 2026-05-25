@@ -1113,6 +1113,14 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
     if (ph.to_status && ph.transitioned_at) stageStartDates[ph.to_status] = ph.transitioned_at;
   }
 
+  // Plant count when entering each stage (from migration 035 plant_count column)
+  const stageCountMap = {};
+  for (const ph of history) {
+    if (ph.to_status && ph.plant_count != null) stageCountMap[ph.to_status] = ph.plant_count;
+  }
+  // Current stage count falls back to batch's live plant_count_initial
+  const currentCount = stageCountMap[batch.status] ?? batch.plant_count_initial;
+
   const isActive = batch.status !== 'closed';
   const statusIdx = DATES_STATUS_ORDER.indexOf(batch.status);
 
@@ -1134,6 +1142,7 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
     by: p.transitioned_by_name,
     notes: p.notes,
     metrc_sync_status: p.metrc_sync_status,
+    plant_count: p.plant_count ?? null,
   }));
   const locationEvents = (batch.location_history ?? [])
     .map(l => ({
@@ -1172,24 +1181,37 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
         </div>
 
         <div className="flex items-start gap-0.5 flex-wrap">
-          {stages.map((s, i) => (
-            <div key={i} className="flex items-start">
-              <div className="flex flex-col items-center px-1.5">
-                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
-                  {STATUS_LABELS[s.status] ?? s.status}
-                </div>
-                <div className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-lg" style={mono}>
-                  {s.days}d
-                </div>
-                {stageStartDates[s.status] && (
-                  <div className="text-[10px] text-gray-400 mt-0.5 leading-none" style={mono}>
-                    {fmtDateShort(stageStartDates[s.status])}
+          {stages.map((s, i) => {
+            const enterCount = stageCountMap[s.status];
+            // Count that entered the *next* stage (next completed stage, or current if last)
+            const nextStatus = stages[i + 1]?.status ?? batch.status;
+            const exitCount = stageCountMap[nextStatus] ?? currentCount;
+            const loss = (enterCount != null && exitCount != null) ? enterCount - exitCount : 0;
+            return (
+              <div key={i} className="flex items-start">
+                <div className="flex flex-col items-center px-1.5">
+                  <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
+                    {STATUS_LABELS[s.status] ?? s.status}
                   </div>
-                )}
+                  <div className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-lg" style={mono}>
+                    {s.days}d
+                  </div>
+                  {stageStartDates[s.status] && (
+                    <div className="text-[10px] text-gray-400 mt-0.5 leading-none" style={mono}>
+                      {fmtDateShort(stageStartDates[s.status])}
+                    </div>
+                  )}
+                  {enterCount != null && (
+                    <div className="text-[10px] mt-0.5 leading-none text-center" style={mono}>
+                      <span className="text-gray-500">{enterCount}</span>
+                      {loss > 0 && <span className="text-red-500 ml-0.5">−{loss}</span>}
+                    </div>
+                  )}
+                </div>
+                <span className="text-gray-300 text-xs mt-2 flex-shrink-0">→</span>
               </div>
-              <span className="text-gray-300 text-xs mt-2 flex-shrink-0">→</span>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Current stage (active) or closed marker */}
           {isActive ? (
@@ -1206,6 +1228,11 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
                   {fmtDateShort(stageStartDates[batch.status])}
                 </div>
               )}
+              {currentCount != null && (
+                <div className="text-[10px] text-green-600 mt-0.5 leading-none font-semibold" style={mono}>
+                  {currentCount}
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col items-center px-1.5">
@@ -1213,6 +1240,11 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
                 {STATUS_LABELS[batch.status] ?? batch.status}
               </div>
               <div className="bg-gray-50 text-gray-400 text-xs px-2 py-0.5 rounded-lg" style={mono}>—</div>
+              {currentCount != null && (
+                <div className="text-[10px] text-gray-400 mt-0.5 leading-none" style={mono}>
+                  {currentCount}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1274,6 +1306,11 @@ function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
                             </span>
                           )}
                           {!phaseChanged && toPhase && <span className="text-xs text-gray-400">{toPhase}</span>}
+                          {evt.plant_count != null && (
+                            <span className="text-xs bg-gray-100 text-gray-600 font-semibold px-1.5 py-0.5 rounded" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                              {evt.plant_count} plants
+                            </span>
+                          )}
                           <MetrcSyncBadge status={evt.metrc_sync_status} />
                         </div>
                         <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
