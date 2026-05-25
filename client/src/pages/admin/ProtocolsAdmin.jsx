@@ -154,15 +154,25 @@ function RecordFieldsEditor({ fields, onChange }) {
 
 function ChecklistItemsEditor({ items, onChange }) {
   function add() {
-    onChange([...items, { label: '', required: 0 }]);
+    onChange([...items, { label: '', required: 0, field_type: 'boolean', field_unit: '', min_value: '', max_value: '' }]);
   }
   function remove(i) { onChange(items.filter((_, j) => j !== i)); }
   function update(i, k, v) {
-    onChange(items.map((item, j) => j === i ? { ...item, [k]: v } : item));
+    onChange(items.map((item, j) => {
+      if (j !== i) return item;
+      const updated = { ...item, [k]: v };
+      // Clearing range fields when switching away from number type
+      if (k === 'field_type' && v !== 'number') {
+        updated.field_unit = '';
+        updated.min_value = '';
+        updated.max_value = '';
+      }
+      return updated;
+    }));
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <label className="text-xs font-medium text-gray-600">Checklist items</label>
         <button type="button" onClick={add} className="text-xs text-green-700 font-medium">+ Add item</button>
@@ -170,26 +180,71 @@ function ChecklistItemsEditor({ items, onChange }) {
       {items.length === 0 && (
         <p className="text-xs text-gray-400 italic">No items. Add steps for the cultivator to work through.</p>
       )}
-      {items.map((item, i) => (
-        <div key={i} className="flex gap-2 items-center">
-          <input
-            className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
-            placeholder="Step description"
-            value={item.label}
-            onChange={e => update(i, 'label', e.target.value)}
-          />
-          <label className="flex items-center gap-1 text-xs text-gray-600 shrink-0 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={!!item.required}
-              onChange={e => update(i, 'required', e.target.checked ? 1 : 0)}
-              className="w-3 h-3"
-            />
-            Required
-          </label>
-          <button type="button" onClick={() => remove(i)} className="text-red-400 px-1 text-sm leading-none">×</button>
-        </div>
-      ))}
+      {items.map((item, i) => {
+        const fieldType = item.field_type ?? 'boolean';
+        return (
+          <div key={i} className="space-y-1.5 border border-gray-200 rounded-lg p-2 bg-white">
+            {/* Row 1: label + type + required + remove */}
+            <div className="flex gap-2 items-center">
+              <input
+                className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
+                placeholder="Step description"
+                value={item.label}
+                onChange={e => update(i, 'label', e.target.value)}
+              />
+              <select
+                className="w-20 border border-gray-300 rounded px-1 py-1 text-xs"
+                value={fieldType}
+                onChange={e => update(i, 'field_type', e.target.value)}
+              >
+                <option value="boolean">Check</option>
+                <option value="number">Number</option>
+                <option value="text">Text</option>
+              </select>
+              <label className="flex items-center gap-1 text-xs text-gray-600 shrink-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!item.required}
+                  onChange={e => update(i, 'required', e.target.checked ? 1 : 0)}
+                  className="w-3 h-3"
+                />
+                Req
+              </label>
+              <button type="button" onClick={() => remove(i)} className="text-red-400 px-1 text-sm leading-none">×</button>
+            </div>
+            {/* Row 2: number-type config (unit + min + max) */}
+            {fieldType === 'number' && (
+              <div className="flex gap-2 items-center pl-1">
+                <span className="text-xs text-gray-400 shrink-0">Unit</span>
+                <input
+                  className="w-20 border border-gray-300 rounded px-2 py-1 text-xs"
+                  placeholder="e.g. mS/cm"
+                  value={item.field_unit ?? ''}
+                  onChange={e => update(i, 'field_unit', e.target.value)}
+                />
+                <span className="text-xs text-gray-400 shrink-0">Min</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  className="w-16 border border-gray-300 rounded px-2 py-1 text-xs"
+                  placeholder="any"
+                  value={item.min_value ?? ''}
+                  onChange={e => update(i, 'min_value', e.target.value === '' ? '' : Number(e.target.value))}
+                />
+                <span className="text-xs text-gray-400 shrink-0">Max</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  className="w-16 border border-gray-300 rounded px-2 py-1 text-xs"
+                  placeholder="any"
+                  value={item.max_value ?? ''}
+                  onChange={e => update(i, 'max_value', e.target.value === '' ? '' : Number(e.target.value))}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -212,7 +267,12 @@ function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
       record_fields: form.task_type === 'record'
         ? JSON.stringify(form.record_fields || [])
         : null,
-      checklist_items: form.checklist_items || [],
+      checklist_items: (form.checklist_items || []).map(item => ({
+        ...item,
+        min_value: item.min_value === '' || item.min_value == null ? null : Number(item.min_value),
+        max_value: item.max_value === '' || item.max_value == null ? null : Number(item.max_value),
+        field_unit: item.field_unit?.trim() || null,
+      })),
     });
   }
 

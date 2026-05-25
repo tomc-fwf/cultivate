@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '../../api';
 
@@ -32,10 +32,100 @@ function formatHoursAgo(hours) {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function ChecklistItem({ label, required, checked, onToggle }) {
+function formatTimeAgo(isoStr) {
+  if (!isoStr) return null;
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 2) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function isItemSatisfied(item, prog) {
+  if (!prog) return false;
+  const fieldType = item.field_type ?? 'boolean';
+  if (fieldType === 'number') {
+    const v = prog.value_saved;
+    if (v == null || isNaN(Number(v))) return false;
+    const n = Number(v);
+    if (item.min_value != null && n < item.min_value) return false;
+    if (item.max_value != null && n > item.max_value) return false;
+    return true;
+  }
+  return !!prog.checked;
+}
+
+function rangeLabel(item) {
+  if (item.min_value != null && item.max_value != null)
+    return `${item.min_value}–${item.max_value}`;
+  if (item.min_value != null) return `≥ ${item.min_value}`;
+  if (item.max_value != null) return `≤ ${item.max_value}`;
+  return null;
+}
+
+function ChecklistItem({ item, prog, onToggle, onValueChange, onValueBlur }) {
+  const fieldType = item.field_type ?? 'boolean';
+  const checked   = prog?.checked ?? false;
+
+  if (fieldType === 'number') {
+    const displayVal = prog?.value_display ?? '';
+    const numVal  = displayVal !== '' ? parseFloat(displayVal) : null;
+    const hasVal  = numVal != null && !isNaN(numVal);
+    const inRange = hasVal &&
+      (item.min_value == null || numVal >= item.min_value) &&
+      (item.max_value == null || numVal <= item.max_value);
+    const outOfRange = hasVal && !inRange;
+    const range = rangeLabel(item);
+
+    return (
+      <div className="flex items-center gap-3 py-3 px-1 border-b border-gray-100 last:border-0" style={{ minHeight: '56px' }}>
+        <div className={`w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center ${
+          inRange ? 'bg-green-600 border-green-600' : 'border-gray-300'
+        }`}>
+          {inRange && <span className="text-white text-xs font-bold">✓</span>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm flex-1 min-w-0 leading-snug ${inRange ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+              {item.label}
+              {item.required === 1 && !inRange && <span className="ml-1 text-red-400 text-xs">*</span>}
+            </span>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <input
+                type="number"
+                inputMode="decimal"
+                className={`w-20 text-right border rounded-lg px-2 py-1.5 text-sm font-mono ${
+                  outOfRange ? 'border-red-400 bg-red-50 text-red-700' :
+                  inRange    ? 'border-green-400 bg-green-50 text-green-800' :
+                               'border-gray-300 bg-white'
+                }`}
+                value={displayVal}
+                onChange={e => onValueChange(item.item_id, e.target.value)}
+                onBlur={() => onValueBlur(item.item_id)}
+                placeholder="—"
+                style={{ minHeight: '40px' }}
+              />
+              {item.field_unit && (
+                <span className="text-xs text-gray-500 w-10">{item.field_unit}</span>
+              )}
+            </div>
+          </div>
+          {outOfRange && range && (
+            <p className="text-xs text-red-500 mt-0.5">
+              Target: {range}{item.field_unit ? ` ${item.field_unit}` : ''}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Boolean (default)
   return (
     <button
-      onClick={onToggle}
+      onClick={() => onToggle(item.item_id)}
       className={`w-full flex items-start gap-3 py-3 px-1 text-left border-b border-gray-100 last:border-0 transition-colors ${checked ? 'opacity-60' : ''}`}
       style={{ minHeight: '52px' }}
     >
@@ -45,19 +135,19 @@ function ChecklistItem({ label, required, checked, onToggle }) {
         {checked && <span className="text-white text-xs font-bold">✓</span>}
       </div>
       <span className={`text-sm flex-1 ${checked ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-        {label}
-        {required === 1 && !checked && <span className="ml-1 text-red-400 text-xs">*</span>}
+        {item.label}
+        {item.required === 1 && !checked && <span className="ml-1 text-red-400 text-xs">*</span>}
       </span>
     </button>
   );
 }
 
 function PostponeSheet({ task, onClose, onPostponed }) {
-  const [reason, setReason]     = useState('');
-  const [notes, setNotes]       = useState('');
-  const [snooze, setSnooze]     = useState(24);
-  const [saving, setSaving]     = useState(false);
-  const [error, setError]       = useState(null);
+  const [reason, setReason] = useState('');
+  const [notes,  setNotes]  = useState('');
+  const [snooze, setSnooze] = useState(24);
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState(null);
 
   async function handlePostpone() {
     if (!reason) return;
@@ -151,34 +241,107 @@ export default function TaskDetail() {
   const protocolId = Number(searchParams.get('protocol_id'));
   const batchId    = Number(searchParams.get('batch_id'));
 
-  // Task data passed via router state from Today screen
   const task = location.state?.task ?? null;
 
-  const [protocol, setProtocol]     = useState(null);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState(null);
-  const [sopExpanded, setSopExpanded] = useState(false);
-  const [checked, setChecked]       = useState({});
+  const [protocol, setProtocol]         = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [error, setError]               = useState(null);
+  const [sopExpanded, setSopExpanded]   = useState(false);
   const [showPostpone, setShowPostpone] = useState(false);
+
+  // progress: { [item_id]: { checked, value_display, value_saved, checked_at } }
+  const [progress, setProgress]   = useState({});
+  const [resumedAt, setResumedAt] = useState(null); // most recent checked_at from saved progress
 
   useEffect(() => {
     if (!protocolId) { setError('Missing protocol_id'); setLoading(false); return; }
-    api.getProtocol(protocolId)
-      .then(p => { setProtocol(p); setLoading(false); })
+
+    Promise.all([
+      api.getProtocol(protocolId),
+      batchId ? api.getChecklistProgress(protocolId, batchId) : Promise.resolve([]),
+    ])
+      .then(([p, progressRows]) => {
+        setProtocol(p);
+
+        if (progressRows.length > 0) {
+          const map = {};
+          let latestAt = null;
+          for (const row of progressRows) {
+            map[row.item_id] = {
+              checked:       !!row.checked,
+              value_display: row.value_numeric != null ? String(row.value_numeric) : '',
+              value_saved:   row.value_numeric ?? null,
+              checked_at:    row.checked_at,
+            };
+            if (!latestAt || row.checked_at > latestAt) latestAt = row.checked_at;
+          }
+          setProgress(map);
+          setResumedAt(latestAt);
+        }
+
+        setLoading(false);
+      })
       .catch(e => { setError(e.message); setLoading(false); });
-  }, [protocolId]);
+  }, [protocolId, batchId]);
+
+  // Save a single item's progress (fire-and-forget)
+  const saveProgress = useCallback((itemId, checked, valueNumeric) => {
+    if (!batchId) return;
+    api.saveChecklistProgress({
+      protocol_id:   protocolId,
+      batch_id:      batchId,
+      item_id:       itemId,
+      checked:       checked ? 1 : 0,
+      value_numeric: valueNumeric ?? null,
+    }).catch(console.error);
+  }, [protocolId, batchId]);
 
   function toggleItem(itemId) {
-    setChecked(prev => ({ ...prev, [itemId]: !prev[itemId] }));
+    setProgress(prev => {
+      const newChecked = !(prev[itemId]?.checked ?? false);
+      saveProgress(itemId, newChecked, prev[itemId]?.value_saved ?? null);
+      return { ...prev, [itemId]: { ...prev[itemId], checked: newChecked } };
+    });
+  }
+
+  function handleValueChange(itemId, strVal) {
+    setProgress(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], value_display: strVal },
+    }));
+  }
+
+  function handleValueBlur(itemId) {
+    const item = (protocol?.checklist_items ?? []).find(i => i.item_id === itemId);
+    if (!item) return;
+    const strVal  = progress[itemId]?.value_display ?? '';
+    const numVal  = strVal !== '' ? parseFloat(strVal) : null;
+    const hasVal  = numVal != null && !isNaN(numVal);
+    const inRange = hasVal &&
+      (item.min_value == null || numVal >= item.min_value) &&
+      (item.max_value == null || numVal <= item.max_value);
+
+    setProgress(prev => ({
+      ...prev,
+      [itemId]: { ...prev[itemId], value_saved: hasVal ? numVal : null, checked: inRange },
+    }));
+    saveProgress(itemId, inRange, hasVal ? numVal : null);
+  }
+
+  async function clearProgress() {
+    if (!batchId) return;
+    setProgress({});
+    setResumedAt(null);
+    api.clearChecklistProgress(protocolId, batchId).catch(console.error);
   }
 
   const checklistItems = protocol?.checklist_items ?? [];
-  const requiredUnchecked = checklistItems.filter(
-    item => item.required === 1 && !checked[item.item_id]
+  const requiredUnsatisfied = checklistItems.filter(
+    item => item.required === 1 && !isItemSatisfied(item, progress[item.item_id])
   );
-  const canStart = requiredUnchecked.length === 0;
-  const allChecked = checklistItems.length > 0 &&
-    checklistItems.every(item => checked[item.item_id]);
+  const canStart    = requiredUnsatisfied.length === 0;
+  const allDone     = checklistItems.length > 0 &&
+    checklistItems.every(item => isItemSatisfied(item, progress[item.item_id]));
 
   const actionPath = task?.action_path ?? (protocol
     ? (() => {
@@ -206,13 +369,16 @@ export default function TaskDetail() {
     </div>
   );
 
-  const icon = TASK_TYPE_ICONS[protocol?.task_type] ?? '📋';
-  const urgency = task?.urgency;
+  const icon       = TASK_TYPE_ICONS[protocol?.task_type] ?? '📋';
+  const urgency    = task?.urgency;
   const batchLabel = task?.batch_name ?? task?.strain_name ?? `Batch ${batchId}`;
-  const subZone = task?.sub_zone_id;
+  const subZone    = task?.sub_zone_id;
+  const resumeAgo  = formatTimeAgo(resumedAt);
+  const hasResume  = resumedAt && Object.keys(progress).length > 0;
 
   return (
     <div className="max-w-xl mx-auto px-4 py-6 pb-32">
+
       {/* Header */}
       <div className="flex items-start justify-between gap-3 mb-5">
         <button onClick={() => navigate(-1)} className="text-gray-400 hover:text-gray-600 mt-1">←</button>
@@ -249,6 +415,22 @@ export default function TaskDetail() {
           Postpone
         </button>
       </div>
+
+      {/* Resume banner */}
+      {hasResume && (
+        <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-blue-700">
+            <span>↩</span>
+            <span>Resuming from {resumeAgo}</span>
+          </div>
+          <button
+            onClick={clearProgress}
+            className="text-xs text-blue-500 font-medium hover:text-blue-700 flex-shrink-0"
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {/* Description */}
       {protocol?.description && (
@@ -291,23 +473,24 @@ export default function TaskDetail() {
           {checklistItems.map(item => (
             <ChecklistItem
               key={item.item_id}
-              label={item.label}
-              required={item.required}
-              checked={!!checked[item.item_id]}
-              onToggle={() => toggleItem(item.item_id)}
+              item={item}
+              prog={progress[item.item_id]}
+              onToggle={toggleItem}
+              onValueChange={handleValueChange}
+              onValueBlur={handleValueBlur}
             />
           ))}
-          {allChecked && (
-            <p className="text-xs text-green-600 text-center py-2 font-medium">All items checked ✓</p>
+          {allDone && (
+            <p className="text-xs text-green-600 text-center py-2 font-medium">All items complete ✓</p>
           )}
         </div>
       )}
 
       {/* Required items warning */}
-      {requiredUnchecked.length > 0 && (
+      {requiredUnsatisfied.length > 0 && (
         <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-2.5 mb-4">
           <p className="text-xs text-red-600">
-            Complete {requiredUnchecked.length} required item{requiredUnchecked.length > 1 ? 's' : ''} before starting
+            Complete {requiredUnsatisfied.length} required item{requiredUnsatisfied.length > 1 ? 's' : ''} before starting
           </p>
         </div>
       )}
@@ -320,8 +503,8 @@ export default function TaskDetail() {
           className="w-full bg-green-700 text-white rounded-xl py-4 text-base font-semibold shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ minHeight: '56px' }}
         >
-          {checklistItems.length > 0 && !allChecked
-            ? `Start task (${Object.values(checked).filter(Boolean).length}/${checklistItems.length} checked)`
+          {checklistItems.length > 0 && !allDone
+            ? `Start task (${checklistItems.filter(i => isItemSatisfied(i, progress[i.item_id])).length}/${checklistItems.length} done)`
             : 'Start task →'
           }
         </button>

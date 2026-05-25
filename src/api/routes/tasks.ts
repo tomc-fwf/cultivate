@@ -245,7 +245,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
 
   /**
    * PUT /protocols/:id/checklist — replace all checklist items atomically.
-   * Body: { items: [{label, required?, order_index?}] }
+   * Body: { items: [{label, required?, order_index?, field_type?, field_unit?, min_value?, max_value?}] }
    */
   app.put<{ Params: { id: string } }>(
     '/protocols/:id/checklist', { preHandler: requireRole('supervisor') },
@@ -257,6 +257,10 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
         label:       z.string().min(1).max(200),
         required:    z.number().int().min(0).max(1).optional().default(0),
         order_index: z.number().int().nonnegative().optional(),
+        field_type:  z.enum(['boolean', 'number', 'text']).optional().default('boolean'),
+        field_unit:  z.string().max(20).nullable().optional(),
+        min_value:   z.number().nullable().optional(),
+        max_value:   z.number().nullable().optional(),
       }));
       let items: z.infer<typeof ItemSchema>;
       try {
@@ -275,9 +279,14 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
         db.prepare(`DELETE FROM cv_protocol_checklist_items WHERE protocol_id = ?`).run(id);
         items.forEach((item, i) => {
           db.prepare(`
-            INSERT INTO cv_protocol_checklist_items (protocol_id, order_index, label, required, created_at)
-            VALUES (?, ?, ?, ?, ?)
-          `).run(id, item.order_index ?? i, item.label, item.required ?? 0, now);
+            INSERT INTO cv_protocol_checklist_items
+              (protocol_id, order_index, label, required, field_type, field_unit, min_value, max_value, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            id, item.order_index ?? i, item.label, item.required ?? 0,
+            item.field_type ?? 'boolean', item.field_unit ?? null,
+            item.min_value ?? null, item.max_value ?? null, now,
+          );
         });
       })();
 
@@ -285,6 +294,84 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
         `SELECT * FROM cv_protocol_checklist_items WHERE protocol_id = ? ORDER BY order_index, item_id`
       ).all(id);
       return reply.send(saved);
+    },
+  );
+
+  // ── Checklist progress ─────────────────────────────────────────────────────
+
+  /**
+   * GET /checklist-progress?protocol_id=X&batch_id=Y
+   * Returns saved progress for all items in this task instance.
+   */
+  app.get<{ Querystring: { protocol_id: string; batch_id: string } }>(
+    '/checklist-progress', { preHandler: requireAuth },
+    async (request, reply) => {
+      const pId = Number(request.query.protocol_id);
+      const bId = Number(request.query.batch_id);
+      if (isNaN(pId) || isNaN(bId)) return reply.code(400).send({ error: 'Invalid params' });
+      const db = getDB();
+      const rows = db.prepare(`
+        SELECT item_id, checked, value_numeric, value_text, checked_at
+        FROM cv_task_checklist_progress
+        WHERE protocol_id = ? AND batch_id = ?
+      `).all(pId, bId);
+      return reply.send(rows);
+    },
+  );
+
+  /**
+   * PUT /checklist-progress — upsert progress for a single checklist item.
+   * Body: { protocol_id, batch_id, item_id, checked, value_numeric?, value_text? }
+   */
+  app.put('/checklist-progress', { preHandler: requireAuth }, async (request, reply) => {
+    const ProgressSchema = z.object({
+      protocol_id:   z.number().int().positive(),
+      batch_id:      z.number().int().positive(),
+      item_id:       z.number().int().positive(),
+      checked:       z.number().int().min(0).max(1),
+      value_numeric: z.number().nullable().optional(),
+      value_text:    z.string().nullable().optional(),
+    });
+    let body: z.infer<typeof ProgressSchema>;
+    try { body = ProgressSchema.parse(request.body); }
+    catch { return reply.code(400).send({ error: 'Validation failed' }); }
+
+    const db    = getDB();
+    const userId = request.user.id;
+    const now   = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO cv_task_checklist_progress
+        (protocol_id, batch_id, item_id, checked, value_numeric, value_text, checked_by, checked_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(protocol_id, batch_id, item_id) DO UPDATE SET
+        checked       = excluded.checked,
+        value_numeric = excluded.value_numeric,
+        value_text    = excluded.value_text,
+        checked_by    = excluded.checked_by,
+        checked_at    = excluded.checked_at
+    `).run(
+      body.protocol_id, body.batch_id, body.item_id,
+      body.checked, body.value_numeric ?? null, body.value_text ?? null,
+      userId, now,
+    );
+
+    return reply.send({ ok: true });
+  });
+
+  /**
+   * DELETE /checklist-progress?protocol_id=X&batch_id=Y
+   * Clears all saved progress for a task (start fresh).
+   */
+  app.delete<{ Querystring: { protocol_id: string; batch_id: string } }>(
+    '/checklist-progress', { preHandler: requireAuth },
+    async (request, reply) => {
+      const pId = Number(request.query.protocol_id);
+      const bId = Number(request.query.batch_id);
+      if (isNaN(pId) || isNaN(bId)) return reply.code(400).send({ error: 'Invalid params' });
+      const db = getDB();
+      db.prepare(`DELETE FROM cv_task_checklist_progress WHERE protocol_id = ? AND batch_id = ?`).run(pId, bId);
+      return reply.code(204).send();
     },
   );
 
