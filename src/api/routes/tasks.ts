@@ -1,6 +1,24 @@
 import { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { getDB } from '../../db/index.js';
-import { requireAuth } from '../middleware/auth.middleware.js';
+import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+
+const VALID_STAGES = ['germ','seedling','cult-hoop','field-veg','field-flower','flush','harvest_window','harvesting'] as const;
+const VALID_TASK_TYPES = ['fertigation','observation','foliar','amendment','record'] as const;
+
+const ProtocolSchema = z.object({
+  stage:          z.enum(VALID_STAGES),
+  task_type:      z.enum(VALID_TASK_TYPES),
+  title:          z.string().min(1).max(100),
+  frequency_days: z.number().int().min(1).max(30),
+  day_min:        z.number().int().nonnegative().nullable().optional(),
+  day_max:        z.number().int().nonnegative().nullable().optional(),
+  description:    z.string().max(300).nullable().optional(),
+  order_index:    z.number().int().nonnegative().optional().default(0),
+  active:         z.number().int().min(0).max(1).optional().default(1),
+  sample_count:   z.number().int().min(1).max(20).nullable().optional(),
+  record_fields:  z.string().nullable().optional(), // JSON: [{key,label,unit,type}]
+});
 
 // Hours of grace before a task flips from 'due' to 'overdue'.
 // A daily task becomes 'overdue' after 30 hours (24h threshold + 6h grace).
@@ -25,12 +43,13 @@ interface TodayTask {
   action_path: string;
 }
 
-function actionPath(taskType: string, batchId: number): string {
+function actionPath(taskType: string, batchId: number, protocolId?: number): string {
   switch (taskType) {
     case 'fertigation': return `/applications/fertigation/new?batch_id=${batchId}`;
     case 'observation':  return `/observations/new?batch_id=${batchId}`;
     case 'foliar':       return `/applications/foliar/new?batch_id=${batchId}`;
     case 'amendment':    return `/applications/amendments/new?batch_id=${batchId}`;
+    case 'record':       return `/tasks/sampling/new?protocol_id=${protocolId}&batch_id=${batchId}`;
     default:             return `/batches/${batchId}`;
   }
 }
@@ -120,6 +139,11 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
         } else if (taskType === 'amendment') {
           const row = lastAmendment.get(batchId) as Record<string, unknown> | undefined;
           lastPerformedAt = (row?.['last'] as string) ?? null;
+        } else if (taskType === 'record') {
+          const row = db.prepare(
+            `SELECT MAX(completed_at) AS last FROM cv_sampling_sessions WHERE batch_id = ? AND protocol_id = ?`
+          ).get(batchId, protocol['protocol_id'] as number) as Record<string, unknown> | undefined;
+          lastPerformedAt = (row?.['last'] as string) ?? null;
         }
 
         const lastMs = lastPerformedAt ? new Date(lastPerformedAt).getTime() : null;
@@ -150,7 +174,7 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
           last_performed_at: lastPerformedAt,
           hours_since: hoursSince != null ? Math.round(hoursSince) : null,
           urgency: isOverdue ? 'overdue' : 'due',
-          action_path: actionPath(taskType, batchId),
+          action_path: actionPath(taskType, batchId, protocol['protocol_id'] as number),
         });
       }
     }
@@ -164,16 +188,243 @@ const tasksRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(tasks);
   });
 
-  /**
-   * GET /protocols — list all stage protocols (read-only for now).
-   */
+  /** GET /protocols — all protocols ordered by stage then display order. */
   app.get('/protocols', { preHandler: requireAuth }, async (_request, reply) => {
     const db = getDB();
-    const protocols = db.prepare(`
-      SELECT * FROM cv_stage_protocols ORDER BY stage, order_index
-    `).all();
+    const protocols = db.prepare(
+      `SELECT * FROM cv_stage_protocols ORDER BY stage, order_index, protocol_id`
+    ).all();
     return reply.send(protocols);
   });
+
+  /** GET /protocols/:id — single protocol. */
+  app.get<{ Params: { id: string } }>(
+    '/protocols/:id', { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      const protocol = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
+      if (!protocol) return reply.code(404).send({ error: 'Protocol not found' });
+      return reply.send(protocol);
+    },
+  );
+
+  /** POST /protocols — create a new protocol. Supervisor+. */
+  app.post('/protocols', { preHandler: requireRole('supervisor') }, async (request, reply) => {
+    let body: z.infer<typeof ProtocolSchema>;
+    try { body = ProtocolSchema.parse(request.body); }
+    catch (err) {
+      const issues = err instanceof z.ZodError ? err.issues : undefined;
+      return reply.code(400).send({ error: 'Validation failed', issues });
+    }
+    const db = getDB();
+    const now = new Date().toISOString();
+    const r = db.prepare(`
+      INSERT INTO cv_stage_protocols
+        (stage, task_type, title, frequency_days, day_min, day_max, description, order_index, active,
+         sample_count, record_fields, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      body.stage, body.task_type, body.title, body.frequency_days,
+      body.day_min ?? null, body.day_max ?? null, body.description ?? null,
+      body.order_index ?? 0, body.active ?? 1,
+      body.sample_count ?? null, body.record_fields ?? null, now,
+    );
+    const created = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(r.lastInsertRowid);
+    return reply.code(201).send(created);
+  });
+
+  /** PATCH /protocols/:id — update a protocol. Supervisor+. */
+  app.patch<{ Params: { id: string } }>(
+    '/protocols/:id', { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      const existing = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
+      if (!existing) return reply.code(404).send({ error: 'Protocol not found' });
+
+      let body: Partial<z.infer<typeof ProtocolSchema>>;
+      try { body = ProtocolSchema.partial().parse(request.body); }
+      catch (err) {
+        const issues = err instanceof z.ZodError ? err.issues : undefined;
+        return reply.code(400).send({ error: 'Validation failed', issues });
+      }
+
+      const fields: string[] = [];
+      const vals: unknown[] = [];
+      if (body.stage          !== undefined) { fields.push('stage = ?');          vals.push(body.stage); }
+      if (body.task_type      !== undefined) { fields.push('task_type = ?');      vals.push(body.task_type); }
+      if (body.title          !== undefined) { fields.push('title = ?');          vals.push(body.title); }
+      if (body.frequency_days !== undefined) { fields.push('frequency_days = ?'); vals.push(body.frequency_days); }
+      if ('day_min'      in body)            { fields.push('day_min = ?');        vals.push(body.day_min ?? null); }
+      if ('day_max'      in body)            { fields.push('day_max = ?');        vals.push(body.day_max ?? null); }
+      if ('description'  in body)            { fields.push('description = ?');    vals.push(body.description ?? null); }
+      if (body.order_index    !== undefined) { fields.push('order_index = ?');    vals.push(body.order_index); }
+      if (body.active         !== undefined) { fields.push('active = ?');         vals.push(body.active); }
+      if ('sample_count'  in body)            { fields.push('sample_count = ?');  vals.push(body.sample_count ?? null); }
+      if ('record_fields' in body)            { fields.push('record_fields = ?'); vals.push(body.record_fields ?? null); }
+
+      if (fields.length === 0) return reply.code(400).send({ error: 'No fields to update' });
+      vals.push(id);
+      db.prepare(`UPDATE cv_stage_protocols SET ${fields.join(', ')} WHERE protocol_id = ?`).run(...vals);
+      const updated = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
+      return reply.send(updated);
+    },
+  );
+
+  /** DELETE /protocols/:id — delete a protocol. Admin only. */
+  app.delete<{ Params: { id: string } }>(
+    '/protocols/:id', { preHandler: requireRole('admin') },
+    async (request, reply) => {
+      const id = Number(request.params.id);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      const existing = db.prepare(`SELECT * FROM cv_stage_protocols WHERE protocol_id = ?`).get(id);
+      if (!existing) return reply.code(404).send({ error: 'Protocol not found' });
+      db.prepare(`DELETE FROM cv_stage_protocols WHERE protocol_id = ?`).run(id);
+      return reply.code(204).send();
+    },
+  );
+
+  // ── Sampling sessions ──────────────────────────────────────────────────────
+
+  /**
+   * GET /sampling/suggest?batch_id=X&count=N
+   * Returns N random active containers from the batch's sub-zone as suggested
+   * sample positions. Used by the SamplingSession page to pre-populate slots.
+   */
+  app.get<{ Querystring: { batch_id: string; count?: string } }>(
+    '/sampling/suggest', { preHandler: requireAuth },
+    async (request, reply) => {
+      const batchId = Number(request.query.batch_id);
+      const count   = Math.min(Number(request.query.count ?? 5), 20);
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid batch_id' });
+
+      const db = getDB();
+      const batch = db.prepare(`SELECT sub_zone_id FROM cv_batches WHERE batch_id = ?`).get(batchId) as Record<string, unknown> | undefined;
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      const subZoneId = batch['sub_zone_id'] as string | null;
+      if (!subZoneId) return reply.send([]);
+
+      const containers = db.prepare(`
+        SELECT c.container_id
+        FROM cv_containers c
+        JOIN cv_rows r ON r.row_id = c.row_id
+        WHERE r.sub_zone_id = ?
+        ORDER BY RANDOM()
+        LIMIT ?
+      `).all(subZoneId, count) as Array<{ container_id: string }>;
+
+      return reply.send(containers.map(c => c.container_id));
+    },
+  );
+
+  /**
+   * POST /sampling — create a completed sampling session with all readings.
+   * Body: { protocol_id, batch_id, notes?, samples: [{ container_label?, values: [{field_key, field_label, field_unit?, value_numeric?, value_text?}] }] }
+   */
+  app.post('/sampling', { preHandler: requireAuth }, async (request, reply) => {
+    const SamplingSchema = z.object({
+      protocol_id: z.number().int().positive(),
+      batch_id:    z.number().int().positive(),
+      notes:       z.string().nullable().optional(),
+      samples: z.array(z.object({
+        container_label: z.string().nullable().optional(),
+        values: z.array(z.object({
+          field_key:     z.string(),
+          field_label:   z.string(),
+          field_unit:    z.string().nullable().optional(),
+          value_numeric: z.number().nullable().optional(),
+          value_text:    z.string().nullable().optional(),
+        })),
+      })).min(1),
+    });
+
+    let body: z.infer<typeof SamplingSchema>;
+    try { body = SamplingSchema.parse(request.body); }
+    catch (err) {
+      const issues = err instanceof z.ZodError ? err.issues : undefined;
+      return reply.code(400).send({ error: 'Validation failed', issues });
+    }
+
+    const db   = getDB();
+    const userId = request.user.id;
+    const now  = new Date().toISOString();
+
+    const session = db.transaction(() => {
+      const r = db.prepare(`
+        INSERT INTO cv_sampling_sessions
+          (protocol_id, batch_id, sample_count_target, sample_count_actual, performed_by, notes, started_at, completed_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        body.protocol_id, body.batch_id,
+        body.samples.length, body.samples.length,
+        userId,
+        body.notes ?? null, now, now, now,
+      );
+
+      const sessionId = r.lastInsertRowid as number;
+
+      for (let i = 0; i < body.samples.length; i++) {
+        const sample = body.samples[i];
+        for (const v of sample.values) {
+          db.prepare(`
+            INSERT INTO cv_sampling_readings
+              (session_id, sequence_number, container_label, field_key, field_label, field_unit, value_numeric, value_text, recorded_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(
+            sessionId, i + 1,
+            sample.container_label ?? null,
+            v.field_key, v.field_label, v.field_unit ?? null,
+            v.value_numeric ?? null, v.value_text ?? null, now,
+          );
+        }
+      }
+
+      return sessionId;
+    })();
+
+    const created = db.prepare(`SELECT * FROM cv_sampling_sessions WHERE session_id = ?`).get(session) as Record<string, unknown>;
+    const readings = db.prepare(`SELECT * FROM cv_sampling_readings WHERE session_id = ? ORDER BY sequence_number, reading_id`).all(session);
+    return reply.code(201).send({ ...created, readings });
+  });
+
+  /** GET /sampling/:sessionId — session with readings. */
+  app.get<{ Params: { sessionId: string } }>(
+    '/sampling/:sessionId', { preHandler: requireAuth },
+    async (request, reply) => {
+      const id = Number(request.params.sessionId);
+      if (isNaN(id)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+      const session = db.prepare(`SELECT * FROM cv_sampling_sessions WHERE session_id = ?`).get(id);
+      if (!session) return reply.code(404).send({ error: 'Session not found' });
+      const readings = db.prepare(
+        `SELECT * FROM cv_sampling_readings WHERE session_id = ? ORDER BY sequence_number, reading_id`
+      ).all(id);
+      return reply.send({ ...session, readings });
+    },
+  );
+
+  /** GET /sampling?batch_id=X — sampling sessions for a batch. */
+  app.get<{ Querystring: { batch_id?: string; protocol_id?: string; limit?: string } }>(
+    '/sampling', { preHandler: requireAuth },
+    async (request, reply) => {
+      const db = getDB();
+      const { batch_id, protocol_id, limit = '20' } = request.query;
+      const conditions: string[] = [];
+      const vals: unknown[] = [];
+      if (batch_id)    { conditions.push('batch_id = ?');    vals.push(Number(batch_id)); }
+      if (protocol_id) { conditions.push('protocol_id = ?'); vals.push(Number(protocol_id)); }
+      const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+      const sessions = db.prepare(
+        `SELECT * FROM cv_sampling_sessions ${where} ORDER BY started_at DESC LIMIT ?`
+      ).all(...vals, Number(limit));
+      return reply.send(sessions);
+    },
+  );
 };
 
 export default tasksRoutes;

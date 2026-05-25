@@ -19,6 +19,7 @@ const TASK_TYPES = [
   { value: 'observation', label: 'Observation',  icon: '🔍' },
   { value: 'foliar',      label: 'Foliar',       icon: '🌿' },
   { value: 'amendment',   label: 'Amendment',    icon: '🪱' },
+  { value: 'record',      label: 'Record',       icon: '📋' },
 ];
 
 const TASK_TYPE_COLORS = {
@@ -26,7 +27,33 @@ const TASK_TYPE_COLORS = {
   observation: 'bg-yellow-100 text-yellow-800',
   foliar:      'bg-green-100 text-green-800',
   amendment:   'bg-orange-100 text-orange-800',
+  record:      'bg-purple-100 text-purple-800',
 };
+
+const RECORD_TEMPLATES = [
+  {
+    label: 'Substrate readings',
+    fields: [
+      { key: 'moisture_pct',  label: 'Soil moisture', unit: '%',      type: 'number' },
+      { key: 'substrate_ph',  label: 'Substrate pH',  unit: '',       type: 'number' },
+      { key: 'substrate_ec',  label: 'Substrate EC',  unit: 'mS/cm', type: 'number' },
+    ],
+  },
+  {
+    label: 'Plant height',
+    fields: [
+      { key: 'height_in', label: 'Plant height', unit: 'in', type: 'number' },
+    ],
+  },
+  {
+    label: 'Pest monitoring',
+    fields: [
+      { key: 'pest_type',     label: 'Pest type',            unit: '',  type: 'text' },
+      { key: 'pest_count',    label: 'Count per plant',      unit: '',  type: 'number' },
+      { key: 'severity',      label: 'Severity (1–5)',        unit: '',  type: 'number' },
+    ],
+  },
+];
 
 const BLANK_FORM = {
   stage: 'germ',
@@ -38,11 +65,89 @@ const BLANK_FORM = {
   description: '',
   order_index: 0,
   active: 1,
+  sample_count: 3,
+  record_fields: [],
 };
 
 function parseIntOrNull(val) {
   const n = parseInt(val, 10);
   return isNaN(n) ? null : n;
+}
+
+function toKey(label) {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'field';
+}
+
+function RecordFieldsEditor({ fields, onChange }) {
+  function add() {
+    onChange([...fields, { key: '', label: '', unit: '', type: 'number' }]);
+  }
+  function remove(i) { onChange(fields.filter((_, j) => j !== i)); }
+  function update(i, k, v) {
+    onChange(fields.map((f, j) => {
+      if (j !== i) return f;
+      const updated = { ...f, [k]: v };
+      // Auto-derive key from label if key is empty or was auto-derived
+      if (k === 'label' && (!f.key || f.key === toKey(f.label))) {
+        updated.key = toKey(v);
+      }
+      return updated;
+    }));
+  }
+  function applyTemplate(tpl) { onChange(tpl.fields.map(f => ({ ...f }))); }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-600">Record fields</label>
+        <button type="button" onClick={add} className="text-xs text-purple-700 font-medium">+ Add field</button>
+      </div>
+
+      {/* Templates */}
+      <div className="flex gap-1 flex-wrap">
+        {RECORD_TEMPLATES.map(tpl => (
+          <button
+            key={tpl.label}
+            type="button"
+            onClick={() => applyTemplate(tpl)}
+            className="text-xs px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded hover:bg-purple-100"
+          >
+            {tpl.label}
+          </button>
+        ))}
+      </div>
+
+      {fields.length === 0 && (
+        <p className="text-xs text-gray-400 italic">No fields. Pick a template or add manually.</p>
+      )}
+
+      {fields.map((f, i) => (
+        <div key={i} className="flex gap-1 items-center">
+          <input
+            className="flex-1 border border-gray-300 rounded px-2 py-1 text-xs"
+            placeholder="Label (e.g. Soil moisture)"
+            value={f.label}
+            onChange={e => update(i, 'label', e.target.value)}
+          />
+          <input
+            className="w-14 border border-gray-300 rounded px-2 py-1 text-xs"
+            placeholder="Unit"
+            value={f.unit}
+            onChange={e => update(i, 'unit', e.target.value)}
+          />
+          <select
+            className="w-20 border border-gray-300 rounded px-1 py-1 text-xs"
+            value={f.type}
+            onChange={e => update(i, 'type', e.target.value)}
+          >
+            <option value="number">Number</option>
+            <option value="text">Text</option>
+          </select>
+          <button type="button" onClick={() => remove(i)} className="text-red-400 px-1 text-sm">×</button>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
@@ -58,6 +163,10 @@ function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
       day_max: form.day_max === '' ? null : parseIntOrNull(form.day_max),
       order_index: parseInt(form.order_index, 10) || 0,
       active: form.active ? 1 : 0,
+      sample_count: form.task_type === 'record' ? (parseInt(form.sample_count, 10) || 3) : null,
+      record_fields: form.task_type === 'record'
+        ? JSON.stringify(form.record_fields || [])
+        : null,
     });
   }
 
@@ -150,6 +259,28 @@ function ProtocolForm({ initial, onSave, onCancel, saving, error }) {
         />
       </div>
 
+      {/* Record-type specific fields */}
+      {form.task_type === 'record' && (
+        <div className="border border-purple-200 rounded-lg p-3 bg-purple-50 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-purple-700 mb-1">Containers to sample</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              className="w-24 border border-purple-300 rounded px-2 py-1.5 text-sm bg-white"
+              value={form.sample_count}
+              onChange={e => set('sample_count', e.target.value)}
+              min={1} max={20}
+            />
+            <p className="text-xs text-purple-500 mt-0.5">Random containers will be suggested from the batch's sub-zone</p>
+          </div>
+          <RecordFieldsEditor
+            fields={form.record_fields || []}
+            onChange={fields => set('record_fields', fields)}
+          />
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 items-center">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Display order</label>
@@ -215,6 +346,15 @@ function ProtocolRow({ protocol, canEdit, onEdit, onToggleActive, onDelete }) {
           {(protocol.day_min != null || protocol.day_max != null) && (
             <span>Days {protocol.day_min ?? '0'}–{protocol.day_max ?? '∞'}</span>
           )}
+          {protocol.task_type === 'record' && protocol.sample_count != null && (
+            <span>{protocol.sample_count} samples</span>
+          )}
+          {protocol.task_type === 'record' && protocol.record_fields && (() => {
+            try {
+              const fs = JSON.parse(protocol.record_fields);
+              return fs.length > 0 ? <span>{fs.map(f => f.label).join(', ')}</span> : null;
+            } catch { return null; }
+          })()}
           {protocol.description && <span className="truncate max-w-xs">{protocol.description}</span>}
         </div>
       </div>
@@ -328,6 +468,11 @@ export default function ProtocolsAdmin() {
     }
   }
 
+  function parseRecordFields(p) {
+    if (!p.record_fields) return [];
+    try { return JSON.parse(p.record_fields); } catch { return []; }
+  }
+
   function startEdit(protocol) {
     setAddingStage(null);
     setEditingId(protocol.protocol_id);
@@ -421,6 +566,8 @@ export default function ProtocolsAdmin() {
                           description: p.description ?? '',
                           order_index: p.order_index ?? 0,
                           active: p.active,
+                          sample_count: p.sample_count ?? 3,
+                          record_fields: parseRecordFields(p),
                         }}
                         onSave={handleSave}
                         onCancel={cancelForm}
