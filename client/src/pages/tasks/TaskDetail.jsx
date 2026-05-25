@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { api } from '../../api';
 
@@ -252,6 +252,12 @@ export default function TaskDetail() {
   // progress: { [item_id]: { checked, value_display, value_saved, checked_at } }
   const [progress, setProgress]   = useState({});
   const [resumedAt, setResumedAt] = useState(null); // most recent checked_at from saved progress
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimerRef = useRef(null);
+
+  useEffect(() => {
+    return () => clearTimeout(savedTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (!protocolId) { setError('Missing protocol_id'); setLoading(false); return; }
@@ -284,7 +290,7 @@ export default function TaskDetail() {
       .catch(e => { setError(e.message); setLoading(false); });
   }, [protocolId, batchId]);
 
-  // Save a single item's progress (fire-and-forget)
+  // Save a single item's progress and flash the "Saved" indicator
   const saveProgress = useCallback((itemId, checked, valueNumeric) => {
     if (!batchId) return;
     api.saveChecklistProgress({
@@ -293,6 +299,10 @@ export default function TaskDetail() {
       item_id:       itemId,
       checked:       checked ? 1 : 0,
       value_numeric: valueNumeric ?? null,
+    }).then(() => {
+      setSavedFlash(true);
+      clearTimeout(savedTimerRef.current);
+      savedTimerRef.current = setTimeout(() => setSavedFlash(false), 1500);
     }).catch(console.error);
   }, [protocolId, batchId]);
 
@@ -466,9 +476,17 @@ export default function TaskDetail() {
         <div className="bg-white border border-gray-200 rounded-xl px-4 mb-4">
           <div className="flex items-center justify-between pt-3 pb-1">
             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Checklist</p>
-            {checklistItems.some(i => i.required === 1) && (
-              <p className="text-xs text-gray-400"><span className="text-red-400">*</span> required to start</p>
-            )}
+            <div className="flex items-center gap-2">
+              <span
+                className="text-xs text-green-600 font-medium transition-opacity duration-300"
+                style={{ opacity: savedFlash ? 1 : 0 }}
+              >
+                ✓ Saved
+              </span>
+              {checklistItems.some(i => i.required === 1) && (
+                <p className="text-xs text-gray-400"><span className="text-red-400">*</span> required to start</p>
+              )}
+            </div>
           </div>
           {checklistItems.map(item => (
             <ChecklistItem
@@ -508,6 +526,15 @@ export default function TaskDetail() {
             : 'Start task →'
           }
         </button>
+        {checklistItems.length > 0 && (
+          <button
+            onClick={() => navigate(-1)}
+            className="w-full bg-white border border-gray-300 text-gray-700 rounded-xl py-3 text-sm font-medium shadow-sm"
+            style={{ minHeight: '48px' }}
+          >
+            Save &amp; Exit — resume later
+          </button>
+        )}
       </div>
 
       {/* Postpone sheet */}
