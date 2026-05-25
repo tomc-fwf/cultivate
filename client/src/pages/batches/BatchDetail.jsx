@@ -385,92 +385,6 @@ const DATES_STATUS_ORDER = [
   'flush', 'harvest_window', 'harvesting', 'closed',
 ];
 
-function BatchDatesSection({ batch, isSupervisor, onUpdated }) {
-  const [expanded, setExpanded] = useState(false);
-
-  const statusIdx = DATES_STATUS_ORDER.indexOf(batch.status);
-  const isActive = batch.status !== 'closed';
-
-  const dateFields = [
-    {
-      key: 'sow_date',
-      label: 'Sow Date',
-      value: batch.sow_date,
-      show: true,
-      // sow_date is always editable but warn if batch has phase history
-      disabled: false,
-    },
-    {
-      key: 'transplant_date',
-      label: 'Transplant',
-      value: batch.transplant_date,
-      show: statusIdx >= DATES_STATUS_ORDER.indexOf('seedling'),
-      disabled: false,
-    },
-    {
-      key: 'field_move_date',
-      label: 'Field Move',
-      value: batch.field_move_date,
-      show: statusIdx >= DATES_STATUS_ORDER.indexOf('field-veg'),
-      disabled: false,
-    },
-    {
-      key: 'current_stage_since',
-      label: 'Stage Since',
-      value: batch.current_stage_since,
-      show: isActive,
-      disabled: false,
-    },
-    {
-      key: 'harvest_date',
-      label: 'Harvest Start',
-      value: batch.harvest_date,
-      show: statusIdx >= DATES_STATUS_ORDER.indexOf('harvest_window'),
-      disabled: false,
-    },
-    {
-      key: 'closed_date',
-      label: 'Closed',
-      value: batch.closed_date,
-      show: batch.status === 'closed',
-      disabled: false,
-    },
-  ].filter(f => f.show);
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl mb-4 overflow-hidden">
-      <button
-        onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center justify-between px-5 py-3.5 text-left"
-        style={{ minHeight: '48px' }}
-      >
-        <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">Batch Dates</span>
-        <span className={`text-gray-400 text-xs transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
-      </button>
-      {expanded && (
-        <div className="px-5 pb-4 pt-0 border-t border-gray-100">
-          {isSupervisor && (
-            <p className="text-[10px] text-amber-600 mb-3 mt-2">
-              Editing dates also updates the lifecycle timeline. Use to correct dates entered incorrectly during setup.
-            </p>
-          )}
-          {dateFields.map(f => (
-            <InlineDateField
-              key={f.key}
-              label={f.label}
-              value={f.value}
-              patchKey={f.key}
-              batchId={batch.batch_id}
-              isSupervisor={isSupervisor}
-              disabled={f.disabled}
-              onUpdated={onUpdated}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2500); return () => clearTimeout(t); }, [onDone]);
@@ -713,8 +627,8 @@ export default function BatchDetail() {
         </div>
       </div>
 
-      {/* ── Batch Dates — collapsed section for reviewing / correcting lifecycle dates ── */}
-      <BatchDatesSection batch={batch} isSupervisor={isSupervisor} onUpdated={load} />
+      {/* ── Lifecycle: stage timeline, transition history, date editing ── */}
+      <BatchLifecycle batch={batch} isSupervisor={isSupervisor} onUpdated={load} />
 
       {/* Stage Guide — germ / seedling / cult-hoop day context */}
       <StageGuide
@@ -1049,12 +963,6 @@ export default function BatchDetail() {
         </div>
       )}
 
-      {/* ── Stage Timeline ───────────────────────────────────────────────── */}
-      <StageTimeline batch={batch} />
-
-      {/* ── Phase & Location History ─────────────────────────────────────── */}
-      <BatchHistory batch={batch} />
-
       {/* ── Advance Phase ────────────────────────────────────────────────── */}
       {nextStatus && isSupervisor && batch.status !== 'closed' && (
         <div className="mb-4">
@@ -1158,14 +1066,21 @@ function toMetrcPhase(status) {
 function fmtTs(ts) {
   if (!ts) return '—';
   try {
-    // Date-only values stored as midnight UTC display as the previous day in CDT.
-    // Treat any timestamp that ends at midnight UTC as a date-only value and
-    // parse it at local noon so it renders on the correct calendar day.
     const s = String(ts);
     const isDateOnly = s.length <= 10 || s.endsWith('T00:00:00.000Z') || s.endsWith('T00:00:00Z');
     const d = isDateOnly ? new Date(s.slice(0, 10) + 'T12:00:00') : new Date(s);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch { return String(ts).slice(0, 10); }
+}
+
+function fmtDateShort(ts) {
+  if (!ts) return '';
+  try {
+    const s = String(ts);
+    const isDateOnly = s.length <= 10 || s.endsWith('T00:00:00.000Z') || s.endsWith('T00:00:00Z');
+    const d = isDateOnly ? new Date(s.slice(0, 10) + 'T12:00:00') : new Date(s);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch { return ''; }
 }
 
 function MetrcSyncBadge({ status }) {
@@ -1182,11 +1097,36 @@ function MetrcSyncBadge({ status }) {
   );
 }
 
-function BatchHistory({ batch }) {
-  // Phase events are returned in phase_history_id (insertion) order from the API.
-  // We preserve that order as the authoritative sequence — date corrections can push
-  // transitioned_at backwards, and re-sorting by ts would scramble the logical flow.
-  const phaseEvents = (batch.phase_history ?? []).map(p => ({
+function BatchLifecycle({ batch, isSupervisor, onUpdated }) {
+  const [showHistory, setShowHistory] = useState(false);
+  const [showDates, setShowDates] = useState(false);
+
+  const history = batch.phase_history ?? [];
+  const stages = history
+    .map(ph => ({ status: ph.from_status, days: ph.days_in_stage }))
+    .filter(s => s.status && s.days != null);
+
+  // Start date for each stage — germ uses sow_date; subsequent stages use phase_history transitioned_at
+  const stageStartDates = {};
+  if (batch.sow_date) stageStartDates['germ'] = batch.sow_date;
+  for (const ph of history) {
+    if (ph.to_status && ph.transitioned_at) stageStartDates[ph.to_status] = ph.transitioned_at;
+  }
+
+  const isActive = batch.status !== 'closed';
+  const statusIdx = DATES_STATUS_ORDER.indexOf(batch.status);
+
+  const dateFields = [
+    { key: 'sow_date',            label: 'Sow Date',     value: batch.sow_date,            show: true },
+    { key: 'transplant_date',     label: 'Transplant',   value: batch.transplant_date,     show: statusIdx >= DATES_STATUS_ORDER.indexOf('seedling') },
+    { key: 'field_move_date',     label: 'Field Move',   value: batch.field_move_date,     show: statusIdx >= DATES_STATUS_ORDER.indexOf('field-veg') },
+    { key: 'current_stage_since', label: 'Stage Since',  value: batch.current_stage_since, show: isActive },
+    { key: 'harvest_date',        label: 'Harvest Start',value: batch.harvest_date,        show: statusIdx >= DATES_STATUS_ORDER.indexOf('harvest_window') },
+    { key: 'closed_date',         label: 'Closed',       value: batch.closed_date,         show: batch.status === 'closed' },
+  ].filter(f => f.show);
+
+  // Merged phase + location timeline (phase events in insertion order; location events spliced by ts)
+  const phaseEvents = history.map(p => ({
     type: 'phase',
     ts: p.transitioned_at,
     from_status: p.from_status,
@@ -1194,10 +1134,7 @@ function BatchHistory({ batch }) {
     by: p.transitioned_by_name,
     notes: p.notes,
     metrc_sync_status: p.metrc_sync_status,
-    days_in_stage: p.days_in_stage,
   }));
-
-  // Location events are interleaved into the phase event list by their ts.
   const locationEvents = (batch.location_history ?? [])
     .map(l => ({
       type: 'location',
@@ -1209,9 +1146,6 @@ function BatchHistory({ batch }) {
       metrc_sync_status: l.metrc_sync_status,
     }))
     .sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
-
-  // Merge: keep phase events in insertion order; splice location events before the
-  // first phase event whose ts is strictly later.
   const timeline = [...phaseEvents];
   for (const loc of locationEvents) {
     const insertAt = timeline.findIndex(e => e.type === 'phase' && (e.ts ?? '') > (loc.ts ?? ''));
@@ -1219,147 +1153,190 @@ function BatchHistory({ batch }) {
     else timeline.splice(insertAt, 0, loc);
   }
 
-  if (timeline.length === 0) return null;
+  if (stages.length === 0 && !batch.days_in_stage && timeline.length === 0) return null;
+
+  const mono = { fontFamily: 'JetBrains Mono, monospace' };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-4">
-      <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide mb-4">Phase & Location History</h2>
-      <div className="flex flex-col gap-0">
-        {timeline.map((evt, i) => {
-          const isLast = i === timeline.length - 1;
-          if (evt.type === 'phase') {
-            const fromPhase = evt.from_status ? toMetrcPhase(evt.from_status) : null;
-            const toPhase = toMetrcPhase(evt.to_status);
-            const phaseChanged = fromPhase && fromPhase !== toPhase;
-            return (
-              <div key={i} className="flex gap-3">
-                <div className="flex flex-col items-center flex-shrink-0">
-                  <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${
-                    isLast ? 'bg-green-700' : 'bg-gray-300'
-                  }`} />
-                  {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
-                </div>
-                <div className="pb-4 flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-gray-800">
-                      {evt.from_status ? STATUS_LABELS[evt.from_status] ?? evt.from_status : 'Created'}
-                      {evt.from_status ? ` → ${STATUS_LABELS[evt.to_status] ?? evt.to_status}` : `: ${STATUS_LABELS[evt.to_status] ?? evt.to_status}`}
-                    </span>
-                    {phaseChanged && (
-                      <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-1.5 py-0.5 rounded">
-                        {fromPhase} → {toPhase}
-                      </span>
-                    )}
-                    {!phaseChanged && toPhase && (
-                      <span className="text-xs text-gray-400">{toPhase}</span>
-                    )}
-                    <MetrcSyncBadge status={evt.metrc_sync_status} />
-                  </div>
-                  <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                    <span>{fmtTs(evt.ts)}</span>
-                    {evt.by && <span>by {evt.by}</span>}
-                  </div>
-                  {evt.notes && (
-                    <div className="text-xs text-gray-500 mt-1 italic">"{evt.notes}"</div>
-                  )}
-                </div>
-              </div>
-            );
-          }
+    <div className="bg-white border border-gray-200 rounded-2xl mb-4 overflow-hidden">
 
-          // location event
-          return (
-            <div key={i} className="flex gap-3">
-              <div className="flex flex-col items-center flex-shrink-0">
-                <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${
-                  isLast ? 'bg-blue-500' : 'bg-gray-200'
-                }`} />
-                {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
-              </div>
-              <div className="pb-4 flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-gray-800">
-                    📍 {evt.to_location}
-                  </span>
-                  {evt.from_location && (
-                    <span className="text-xs text-gray-400">from {evt.from_location}</span>
-                  )}
-                  <MetrcSyncBadge status={evt.metrc_sync_status} />
+      {/* Always-visible: stage chips with start dates beneath each */}
+      <div className="px-5 pt-4 pb-3">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Lifecycle</h2>
+          {batch.plant_age_days != null && (
+            <span className="text-xs text-gray-500">
+              Age <span className="font-semibold text-gray-700" style={mono}>{batch.plant_age_days}d</span>
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-start gap-0.5 flex-wrap">
+          {stages.map((s, i) => (
+            <div key={i} className="flex items-start">
+              <div className="flex flex-col items-center px-1.5">
+                <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
+                  {STATUS_LABELS[s.status] ?? s.status}
                 </div>
-                <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
-                  <span>{fmtTs(evt.ts)}</span>
-                  {evt.by && <span>by {evt.by}</span>}
-                  {evt.trigger && evt.trigger !== 'manual' && (
-                    <span className="capitalize">({evt.trigger.replace(/_/g, ' ')})</span>
-                  )}
+                <div className="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-0.5 rounded-lg" style={mono}>
+                  {s.days}d
                 </div>
+                {stageStartDates[s.status] && (
+                  <div className="text-[10px] text-gray-400 mt-0.5 leading-none" style={mono}>
+                    {fmtDateShort(stageStartDates[s.status])}
+                  </div>
+                )}
               </div>
+              <span className="text-gray-300 text-xs mt-2 flex-shrink-0">→</span>
             </div>
-          );
-        })}
+          ))}
+
+          {/* Current stage (active) or closed marker */}
+          {isActive ? (
+            <div className="flex flex-col items-center px-1.5">
+              <div className="text-[10px] font-semibold text-green-700 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
+                {STATUS_LABELS[batch.status] ?? batch.status}
+              </div>
+              <div className="bg-green-100 text-green-800 text-xs font-bold px-2 py-0.5 rounded-lg flex items-center gap-1" style={mono}>
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block flex-shrink-0" />
+                {batch.days_in_stage ?? 0}d
+              </div>
+              {stageStartDates[batch.status] && (
+                <div className="text-[10px] text-gray-400 mt-0.5 leading-none" style={mono}>
+                  {fmtDateShort(stageStartDates[batch.status])}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center px-1.5">
+              <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none mb-0.5 text-center whitespace-nowrap">
+                {STATUS_LABELS[batch.status] ?? batch.status}
+              </div>
+              <div className="bg-gray-50 text-gray-400 text-xs px-2 py-0.5 rounded-lg" style={mono}>—</div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Toggle bar */}
+      <div className="border-t border-gray-100 flex divide-x divide-gray-100">
+        <button
+          onClick={() => { setShowHistory(h => !h); setShowDates(false); }}
+          className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+            showHistory ? 'bg-green-50 text-green-800' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+          }`}
+          style={{ minHeight: '40px' }}
+        >
+          <span className="text-[10px]">{showHistory ? '▲' : '▼'}</span>
+          Transition history
+        </button>
+        {isSupervisor && (
+          <button
+            onClick={() => { setShowDates(d => !d); setShowHistory(false); }}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors ${
+              showDates ? 'bg-green-50 text-green-800' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'
+            }`}
+            style={{ minHeight: '40px' }}
+          >
+            ✏ Edit dates
+          </button>
+        )}
+      </div>
+
+      {/* Transition history panel */}
+      {showHistory && (
+        <div className="border-t border-gray-100 px-5 pt-4 pb-2">
+          {timeline.length === 0 ? (
+            <p className="text-sm text-gray-400 pb-2">No transition history yet.</p>
+          ) : (
+            <div className="flex flex-col">
+              {timeline.map((evt, i) => {
+                const isLast = i === timeline.length - 1;
+                if (evt.type === 'phase') {
+                  const fromPhase = evt.from_status ? toMetrcPhase(evt.from_status) : null;
+                  const toPhase = toMetrcPhase(evt.to_status);
+                  const phaseChanged = fromPhase && fromPhase !== toPhase;
+                  return (
+                    <div key={i} className="flex gap-3">
+                      <div className="flex flex-col items-center flex-shrink-0">
+                        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${isLast ? 'bg-green-700' : 'bg-gray-300'}`} />
+                        {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                      </div>
+                      <div className="pb-4 flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-800">
+                            {evt.from_status ? STATUS_LABELS[evt.from_status] ?? evt.from_status : 'Created'}
+                            {evt.from_status ? ` → ${STATUS_LABELS[evt.to_status] ?? evt.to_status}` : `: ${STATUS_LABELS[evt.to_status] ?? evt.to_status}`}
+                          </span>
+                          {phaseChanged && (
+                            <span className="text-xs bg-purple-100 text-purple-700 font-semibold px-1.5 py-0.5 rounded">
+                              {fromPhase} → {toPhase}
+                            </span>
+                          )}
+                          {!phaseChanged && toPhase && <span className="text-xs text-gray-400">{toPhase}</span>}
+                          <MetrcSyncBadge status={evt.metrc_sync_status} />
+                        </div>
+                        <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                          <span>{fmtTs(evt.ts)}</span>
+                          {evt.by && <span>by {evt.by}</span>}
+                        </div>
+                        {evt.notes && <div className="text-xs text-gray-500 mt-1 italic">"{evt.notes}"</div>}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div key={i} className="flex gap-3">
+                    <div className="flex flex-col items-center flex-shrink-0">
+                      <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${isLast ? 'bg-blue-500' : 'bg-gray-200'}`} />
+                      {!isLast && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                    </div>
+                    <div className="pb-4 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-800">📍 {evt.to_location}</span>
+                        {evt.from_location && <span className="text-xs text-gray-400">from {evt.from_location}</span>}
+                        <MetrcSyncBadge status={evt.metrc_sync_status} />
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-2">
+                        <span>{fmtTs(evt.ts)}</span>
+                        {evt.by && <span>by {evt.by}</span>}
+                        {evt.trigger && evt.trigger !== 'manual' && (
+                          <span className="capitalize">({evt.trigger.replace(/_/g, ' ')})</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Date editing panel — supervisor only */}
+      {showDates && isSupervisor && (
+        <div className="border-t border-gray-100 px-5 py-4">
+          <p className="text-[10px] text-amber-600 mb-3">
+            Editing dates updates the lifecycle timeline. Use to correct dates entered incorrectly during setup.
+          </p>
+          {dateFields.map(f => (
+            <InlineDateField
+              key={f.key}
+              label={f.label}
+              value={f.value}
+              patchKey={f.key}
+              batchId={batch.batch_id}
+              isSupervisor={isSupervisor}
+              disabled={false}
+              onUpdated={onUpdated}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
-function StageTimeline({ batch }) {
-  const history = batch.phase_history ?? [];
-  if (history.length === 0 && !batch.days_in_stage) return null;
-
-  const stages = history.map(ph => ({
-    status: ph.from_status,
-    days: ph.days_in_stage,
-  })).filter(s => s.status && s.days != null);
-
-  const isActive = batch.status !== 'closed';
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-2xl px-5 py-4 mb-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide">Stage Timeline</h2>
-        {batch.plant_age_days != null && (
-          <span className="text-xs text-gray-500">
-            Total age: <span className="font-semibold text-gray-700">{batch.plant_age_days}d</span>
-          </span>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {stages.map((s, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <div className="text-center">
-              <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide leading-none mb-0.5">
-                {STATUS_LABELS[s.status] ?? s.status}
-              </div>
-              <div className="bg-gray-100 text-gray-600 text-xs font-bold px-2.5 py-1 rounded-lg font-mono">
-                {s.days}d
-              </div>
-            </div>
-            <span className="text-gray-300 text-sm">→</span>
-          </div>
-        ))}
-        {isActive && (
-          <div className="text-center">
-            <div className="text-[10px] font-semibold text-green-700 uppercase tracking-wide leading-none mb-0.5">
-              {STATUS_LABELS[batch.status] ?? batch.status}
-            </div>
-            <div className="bg-green-100 text-green-800 text-xs font-bold px-2.5 py-1 rounded-lg font-mono flex items-center gap-1">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              {batch.days_in_stage ?? 0}d
-            </div>
-          </div>
-        )}
-        {!isActive && (
-          <div className="text-center">
-            <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide leading-none mb-0.5">
-              {STATUS_LABELS[batch.status] ?? batch.status}
-            </div>
-            <div className="bg-gray-50 text-gray-400 text-xs font-bold px-2.5 py-1 rounded-lg">—</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function MetricCard({ label, sub, mono }) {
   return (
