@@ -77,6 +77,7 @@ import InspectionMode from './pages/containers/InspectionMode';
 import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
+import ProtocolsAdmin from './pages/admin/ProtocolsAdmin';
 import Tasks from './pages/tasks/Tasks';
 import ApplicatorMetrics from './pages/analytics/ApplicatorMetrics';
 import PesticideSummary from './pages/analytics/PesticideSummary';
@@ -219,6 +220,7 @@ export default function App() {
               <Route path="/scan" element={<Protected><ContainerScanner /></Protected>} />
               <Route path="/tag-assignments" element={<Protected><TagAssignmentWalkthrough /></Protected>} />
               <Route path="/admin/container-labels" element={<Protected minRole="admin"><ContainerLabels /></Protected>} />
+              <Route path="/admin/protocols" element={<Protected minRole="supervisor"><ProtocolsAdmin /></Protected>} />
               <Route path="/inspect/:rowId" element={<Protected><InspectionMode /></Protected>} />
               <Route path="/audit" element={<Protected minRole="supervisor"><AuditMode /></Protected>} />
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />

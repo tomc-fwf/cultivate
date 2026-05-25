@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CheckCircle2 } from 'lucide-react';
 import { api } from '../../api';
+import { useAuth } from '../../App';
 
 function formatDate(d) {
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -57,6 +58,8 @@ function ActionCard({ children, onClick, variant = 'amber' }) {
 
 export default function Tasks() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canManageProtocols = user?.role === 'supervisor' || user?.role === 'admin';
   const today = formatDate(new Date());
 
   const [activeREIs, setActiveREIs] = useState([]);
@@ -257,6 +260,20 @@ export default function Tasks() {
             </span>
             <span className="text-amber-600 text-sm flex-shrink-0">View all →</span>
           </ActionCard>
+        </div>
+      )}
+
+      {/* ── ADMIN ───────────────────────────────────────────────────────────── */}
+      {canManageProtocols && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <button
+            onClick={() => navigate('/admin/protocols')}
+            className="flex items-center gap-2 text-sm text-gray-500 hover:text-green-700"
+          >
+            <span>⚙</span>
+            <span>Manage stage protocols</span>
+            <span className="text-gray-400">→</span>
+          </button>
         </div>
       )}
     </div>
