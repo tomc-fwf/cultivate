@@ -282,7 +282,7 @@ function SublocationsTab() {
       setSublocations(subs);
       // Flatten tree groups into a simple [{location_id, name}] list
       const flat = [];
-      for (const group of Object.values(tree)) {
+      for (const group of Object.values(tree.tree ?? tree)) {
         for (const loc of (group || [])) {
           flat.push({ location_id: loc.location_id, name: loc.name });
           for (const sub of (loc.sub_locations || [])) {
