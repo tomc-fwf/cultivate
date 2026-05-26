@@ -1578,7 +1578,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     const byStatus: Record<string, number> = {};
     for (const r of counts) byStatus[r.status] = r.count;
     const recent = db.prepare(
-      'SELECT tag, status, reserved_at, used_at FROM cv_metrc_available_plant_tags ORDER BY rowid DESC LIMIT 20'
+      'SELECT tag, status, reserved_at, used_at FROM cv_metrc_available_plant_tags ORDER BY tag ASC'
     ).all();
     return reply.send({ counts: { ...byStatus, total }, recent });
   });
@@ -1612,7 +1612,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     const byStatus: Record<string, number> = {};
     for (const r of counts) byStatus[r.status] = r.count;
     const recent = db.prepare(
-      'SELECT tag, status, used_at FROM cv_metrc_available_package_tags ORDER BY rowid DESC LIMIT 20'
+      'SELECT tag, status, used_at FROM cv_metrc_available_package_tags ORDER BY tag ASC'
     ).all();
     return reply.send({ counts: { ...byStatus, total }, recent });
   });

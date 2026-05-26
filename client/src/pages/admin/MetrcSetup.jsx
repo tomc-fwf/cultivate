@@ -674,15 +674,15 @@ function TagPoolSection({ title, description, prefix, onGetCounts, onImport, onR
         </form>
       </div>
 
-      {/* Recent tags — scrollable */}
+      {/* Full tag pool — sorted, scrollable */}
       {recent.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Tag pool ({recent.length} shown)
+              Tag pool — {recent.length} tags
             </span>
           </div>
-          <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: '240px' }}>
+          <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: '480px' }}>
             {recent.map((t) => (
               <div key={t.tag} className="flex items-center justify-between px-4 py-2">
                 <span className="font-mono text-xs text-gray-700">{t.tag}</span>
