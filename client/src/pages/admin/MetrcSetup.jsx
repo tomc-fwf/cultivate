@@ -268,7 +268,7 @@ function SublocationsTab() {
   const [sublocations, setSublocations] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ name: '', location_id: '', sub_zone_id: '' });
+  const [form, setForm] = useState({ name: '', location_id: '' });
   const [adding, setAdding] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -306,9 +306,8 @@ function SublocationsTab() {
       await api.createMetrcSublocation({
         name: form.name.trim(),
         location_id: form.location_id ? Number(form.location_id) : null,
-        sub_zone_id: form.sub_zone_id.trim() || null,
       });
-      setForm({ name: '', location_id: '', sub_zone_id: '' });
+      setForm({ name: '', location_id: '' });
       await load();
     } catch (error) {
       setErr(error.message);
@@ -398,7 +397,6 @@ function SublocationsTab() {
                 <ItemRow
                   key={s.sublocation_id}
                   label={s.name}
-                  sub={s.sub_zone_id ? `Sub-zone: ${s.sub_zone_id}` : null}
                   onDelete={() => handleDelete(s.sublocation_id)}
                 />
               ))}
@@ -424,33 +422,22 @@ function SublocationsTab() {
               style={{ minHeight: '44px' }}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Location</label>
-              <select
-                value={form.location_id}
-                onChange={(e) => setForm((p) => ({ ...p, location_id: e.target.value }))}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                style={{ minHeight: '44px' }}
-              >
-                <option value="">None</option>
-                {locations.map((l) => (
-                  <option key={l.location_id} value={l.location_id}>{l.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Sub-zone (opt.)</label>
-              <input
-                type="text"
-                value={form.sub_zone_id}
-                onChange={(e) => setForm((p) => ({ ...p, sub_zone_id: e.target.value }))}
-                placeholder="e.g. Z1A"
-                maxLength={10}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                style={{ minHeight: '44px' }}
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Location <span className="text-red-500">*</span>
+            </label>
+            <select
+              required
+              value={form.location_id}
+              onChange={(e) => setForm((p) => ({ ...p, location_id: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+              style={{ minHeight: '44px' }}
+            >
+              <option value="">Select a location…</option>
+              {locations.filter(l => !l.name.startsWith('  ')).map((l) => (
+                <option key={l.location_id} value={l.location_id}>{l.name}</option>
+              ))}
+            </select>
           </div>
           <button
             type="submit"
