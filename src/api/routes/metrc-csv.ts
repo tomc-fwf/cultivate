@@ -6,6 +6,10 @@ import {
   writeCsv,
   generateAdditiveTemplateCsv,
   generatePlantsWasteCsv,
+  generateCreatePlantingsCsv,
+  generatePlantingsFromPackageCsv,
+  generatePlantingsFromPlantCsv,
+  generateSplitPlantingCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -70,6 +74,68 @@ const CreateAdditiveTemplatesSchema = z.object({
   (data) => data.templates.reduce((sum, t) => sum + t.active_ingredients.length, 0) <= 500,
   { message: 'Total ingredient row count cannot exceed 500' },
 );
+
+// Create Plantings (#2)
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const CreatePlantingsSchema = z.object({
+  name: z.string().min(1).max(200),
+  type: z.enum(['Clone', 'Seed']),
+  count: z.number().int().positive(),
+  strain: z.string().min(1).max(200),
+  location: z.string().min(1).max(200),
+  sublocation: z.string().max(200).optional().nullable(),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+  ingredient_batch_names: z.array(z.string().min(1)).default([]),
+});
+
+// Plantings from Package (#17)
+const PlantingsFromPackageSchema = z.object({
+  package_label: z.string().regex(METRC_TAG_RE, 'package_label must be 24 alphanumeric characters'),
+  package_adjustment_amount: z.number().optional().nullable(),
+  package_adjustment_uom: z.string().max(50).optional().nullable(),
+  plant_batch_name: z.string().min(1).max(200),
+  plant_batch_type: z.string().min(1).max(50),
+  plant_count: z.number().int().positive(),
+  strain_name: z.string().min(1).max(200),
+  location_name: z.string().min(1).max(200),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  planted_date: z.string().regex(DATE_RE, 'planted_date must be YYYY-MM-DD'),
+  unpackaged_date: z.string().regex(DATE_RE, 'unpackaged_date must be YYYY-MM-DD'),
+}).refine(
+  (d) => {
+    const hasAmt = d.package_adjustment_amount != null;
+    const hasUom = d.package_adjustment_uom != null && d.package_adjustment_uom.trim() !== '';
+    return hasAmt === hasUom;
+  },
+  { message: 'package_adjustment_amount and package_adjustment_uom must both be present or both absent', path: ['package_adjustment_amount'] },
+);
+
+// Plantings from Plant (#18)
+const PlantingsFromPlantSchema = z.object({
+  plant_label: z.string().regex(METRC_TAG_RE, 'plant_label must be 24 alphanumeric characters'),
+  plant_batch_name: z.string().min(1).max(200),
+  plant_batch_type: z.string().min(1).max(50),
+  plant_count: z.number().int().positive(),
+  strain_name: z.string().min(1).max(200),
+  location_name: z.string().min(1).max(200),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+// Split Planting (#22)
+const SplitPlantingSchema = z.object({
+  plant_batch_id: z.number().int().positive(),
+  group_name: z.string().min(1).max(200),
+  count: z.number().int().positive(),
+  location_name: z.string().min(1).max(200),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
 
@@ -351,6 +417,440 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     const uploadId = insertFn();
 
     return reply.code(201).send({
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/create-plantings (#2) ────────────────────────────
+  fastify.post('/create-plantings', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = CreatePlantingsSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate location exists
+    const loc = db
+      .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+      .get(data.location) as { location_id: number } | undefined;
+    if (!loc) {
+      return reply.code(400).send({ error: `Unknown location — not in cv_locations.metrc_name: ${data.location}` });
+    }
+
+    const csvContent = generateCreatePlantingsCsv(data);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'create-plantings');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    let batchId: number;
+
+    const insertFn = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO cv_batches
+          (strain_id, sub_zone_id, metrc_plant_batch_uid, plant_count_initial, plant_count_current,
+           status, sow_date, notes, metrc_source_type, metrc_ingredient_batch_names,
+           metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at, updated_at)
+        SELECT
+          s.strain_id,
+          NULL,
+          NULL,
+          ?,
+          ?,
+          'germ',
+          ?,
+          NULL,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        FROM cv_strains s
+        WHERE s.name = ?
+        LIMIT 1
+      `).run(
+        data.count,
+        data.count,
+        data.actual_date,
+        data.ingredient_batch_names.length > 0 ? 'ingredient_batches' : 'none',
+        data.ingredient_batch_names.length > 0 ? JSON.stringify(data.ingredient_batch_names) : null,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+        data.strain,
+      );
+
+      if (result.changes === 0) {
+        throw new Error(`Strain not found: ${data.strain}`);
+      }
+      batchId = Number(result.lastInsertRowid);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('create-plantings', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    try {
+      uploadId = insertFn();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.startsWith('Strain not found')) {
+        return reply.code(400).send({ error: msg });
+      }
+      throw err;
+    }
+
+    return reply.code(201).send({
+      batch_id: batchId!,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+    });
+  });
+
+  // ── POST /api/metrc/csv/plantings-from-package (#17) ─────────────────────
+  fastify.post('/plantings-from-package', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = PlantingsFromPackageSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate package label exists in cv_metrc_packages
+    const pkg = db
+      .prepare('SELECT package_id, weight_amount FROM cv_metrc_packages WHERE package_tag = ?')
+      .get(data.package_label) as { package_id: number; weight_amount: number | null } | undefined;
+    if (!pkg) {
+      return reply.code(400).send({ error: `Package label not found in cv_metrc_packages: ${data.package_label}` });
+    }
+
+    const warnings: string[] = [];
+
+    // Validate location exists
+    const loc = db
+      .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+      .get(data.location_name) as { location_id: number } | undefined;
+    if (!loc) {
+      warnings.push(`location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`);
+    }
+
+    const csvContent = generatePlantingsFromPackageCsv(data);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'plantings-from-package');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    let batchId: number;
+
+    const insertFn = db.transaction(() => {
+      // Insert new batch
+      const result = db.prepare(`
+        INSERT INTO cv_batches
+          (strain_id, sub_zone_id, metrc_plant_batch_uid, plant_count_initial, plant_count_current,
+           status, sow_date, notes, metrc_source_type, metrc_source_package_label,
+           metrc_package_adjustment_amount, metrc_package_adjustment_uom,
+           metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at, updated_at)
+        SELECT
+          COALESCE(
+            (SELECT strain_id FROM cv_strains WHERE name = ? LIMIT 1),
+            (SELECT strain_id FROM cv_strains LIMIT 1)
+          ),
+          NULL,
+          NULL,
+          ?,
+          ?,
+          'germ',
+          ?,
+          NULL,
+          'package',
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+      `).run(
+        data.strain_name,
+        data.plant_count,
+        data.plant_count,
+        data.planted_date,
+        data.package_label,
+        data.package_adjustment_amount ?? null,
+        data.package_adjustment_uom ?? null,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+      );
+      batchId = Number(result.lastInsertRowid);
+
+      // Decrement package weight if adjustment provided
+      if (data.package_adjustment_amount != null) {
+        db.prepare(
+          `UPDATE cv_metrc_packages
+           SET weight_amount = COALESCE(weight_amount, 0) - ?
+           WHERE package_tag = ?`,
+        ).run(data.package_adjustment_amount, data.package_label);
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('plantings-from-package', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      batch_id: batchId!,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/plantings-from-plant (#18) ────────────────────────
+  fastify.post('/plantings-from-plant', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = PlantingsFromPlantSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate plant_label is a mother plant
+    const plant = db
+      .prepare(
+        'SELECT plant_state_id, batch_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND is_mother_plant = 1',
+      )
+      .get(data.plant_label) as { plant_state_id: number; batch_id: number } | undefined;
+    if (!plant) {
+      return reply.code(400).send({
+        error: `plant_label not found or is not a mother plant in cv_metrc_plant_state: ${data.plant_label}`,
+      });
+    }
+
+    const warnings: string[] = [];
+    const loc = db
+      .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+      .get(data.location_name) as { location_id: number } | undefined;
+    if (!loc) {
+      warnings.push(`location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`);
+    }
+
+    const csvContent = generatePlantingsFromPlantCsv(data);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'plantings-from-plant');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    let batchId: number;
+
+    const insertFn = db.transaction(() => {
+      const result = db.prepare(`
+        INSERT INTO cv_batches
+          (strain_id, sub_zone_id, metrc_plant_batch_uid, plant_count_initial, plant_count_current,
+           status, sow_date, notes, metrc_source_type, metrc_source_plant_label,
+           metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at, updated_at)
+        SELECT
+          COALESCE(
+            (SELECT strain_id FROM cv_strains WHERE name = ? LIMIT 1),
+            (SELECT strain_id FROM cv_strains LIMIT 1)
+          ),
+          NULL,
+          NULL,
+          ?,
+          ?,
+          'germ',
+          ?,
+          NULL,
+          'plant',
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+      `).run(
+        data.strain_name,
+        data.plant_count,
+        data.plant_count,
+        data.actual_date,
+        data.plant_label,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+      );
+      batchId = Number(result.lastInsertRowid);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('plantings-from-plant', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      batch_id: batchId!,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/split-planting (#22) ──────────────────────────────
+  fastify.post('/split-planting', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = SplitPlantingSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Fetch source batch
+    const source = db
+      .prepare(`
+        SELECT b.batch_id, b.name, b.plant_count_current, b.metrc_plant_batch_uid, s.name AS strain_name
+        FROM cv_batches b
+        JOIN cv_strains s ON s.strain_id = b.strain_id
+        WHERE b.batch_id = ?
+      `)
+      .get(data.plant_batch_id) as {
+        batch_id: number;
+        name: string | null;
+        plant_count_current: number;
+        metrc_plant_batch_uid: string | null;
+        strain_name: string;
+      } | undefined;
+
+    if (!source) {
+      return reply.code(404).send({ error: `Plant batch not found: ${data.plant_batch_id}` });
+    }
+    if (data.count > source.plant_count_current) {
+      return reply.code(400).send({
+        error: `count (${data.count}) exceeds source batch plant_count_current (${source.plant_count_current})`,
+      });
+    }
+
+    const warnings: string[] = [];
+    const loc = db
+      .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+      .get(data.location_name) as { location_id: number } | undefined;
+    if (!loc) {
+      warnings.push(`location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`);
+    }
+
+    // Use METRC batch UID as the CSV PlantBatch identifier, falling back to the batch name
+    const plantBatchName = source.metrc_plant_batch_uid ?? source.name ?? String(source.batch_id);
+
+    const csvContent = generateSplitPlantingCsv({
+      plant_batch_name: plantBatchName,
+      group_name: data.group_name,
+      count: data.count,
+      location_name: data.location_name,
+      sublocation_name: data.sublocation_name,
+      strain_name: source.strain_name,
+      patient_license_number: data.patient_license_number,
+      actual_date: data.actual_date,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'split-planting');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    let newBatchId: number;
+
+    const insertFn = db.transaction(() => {
+      // Decrement source batch count
+      db.prepare(
+        'UPDATE cv_batches SET plant_count_current = plant_count_current - ? WHERE batch_id = ?',
+      ).run(data.count, data.plant_batch_id);
+
+      // Insert new batch
+      const result = db.prepare(`
+        INSERT INTO cv_batches
+          (strain_id, sub_zone_id, metrc_plant_batch_uid, plant_count_initial, plant_count_current,
+           status, sow_date, notes, name, metrc_source_type, metrc_source_batch_name,
+           metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at, updated_at)
+        SELECT
+          b.strain_id,
+          NULL,
+          NULL,
+          ?,
+          ?,
+          'germ',
+          ?,
+          NULL,
+          ?,
+          'batch_split',
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?
+        FROM cv_batches b WHERE b.batch_id = ?
+      `).run(
+        data.count,
+        data.count,
+        data.actual_date,
+        data.group_name,
+        plantBatchName,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+        data.plant_batch_id,
+      );
+      newBatchId = Number(result.lastInsertRowid);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('split-planting', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      source_batch_id: data.plant_batch_id,
+      new_batch_id: newBatchId!,
       csv_file_path: filePath,
       row_count: rowCount,
       upload_id: uploadId,
