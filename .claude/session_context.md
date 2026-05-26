@@ -3505,3 +3505,87 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - Walk Row navigates to `/inspect/Z${zone}-${desig}-R1` — verify this route exists and accepts this format
 - The `/seed-vault?add=1` deep-link is now functional from the context menu
+
+---
+
+## Task: METRC CSV: Infrastructure, module scaffold, migrations 042-044
+**Completed:** 2026-05-26T00:00:00Z
+
+### What Was Done
+- Created `src/lib/metrc-csv/` module scaffold:
+  - `types.ts` — `CsvRow`, `CsvResult`, `CsvUploadType` (22 values)
+  - `writer.ts` — `writeCsv()`: atomic write (.tmp → .csv rename), UTF-8 no BOM, CRLF line endings, YYYYMMDD subdirectory, METRC_CSV_OUTPUT_DIR env var default
+  - `ref-data.ts` — 6 typed DB lookup functions (wasteMethods, plantWasteReasons, batchWasteReasons, unitsOfMeasure, locations, strains)
+  - `index.ts` — re-exports all public API
+  - `generators/.gitkeep` — empty directory for future generators
+- Created `src/api/routes/metrc-csv.ts` — Fastify plugin stub with `GET /health` (requireAuth)
+- Registered in `src/api/app.ts` at prefix `/api/metrc/csv`
+- Migration 042 (`042_metrc_core_tables.ts`): 9 new tables — cv_employees, cv_metrc_csv_uploads, cv_metrc_additive_templates, cv_metrc_additive_applications, cv_metrc_plant_state, cv_metrc_packages, cv_metrc_package_adjustments, cv_metrc_immature_waste_events, cv_metrc_immature_destruction_events
+- Migration 043 (`043_metrc_reference_tables.ts`): 12 reference tables with seed data for 3 static tables (additive_types, plant_types, growth_phases)
+- Migration 044 (`044_metrc_extend_existing_tables.ts`): ALTER TABLE ADD COLUMN on 5 existing tables; down() is a no-op (SQLite DROP COLUMN limitation documented in comment)
+
+### Key Decisions
+- `writeCsv` parameter `outputDir` defaults to `process.env.METRC_CSV_OUTPUT_DIR ?? './Metrc-csv-uploads'` inside the function; callers don't need to pass it
+- `cv_metrc_plant_state.sublocation` is stored as TEXT (not FK) to allow flexible mapping before sublocation admin UI is built
+- Migration 042 creates cv_employees first (before cv_metrc_package_adjustments needs the FK)
+- Migration 044 down() documents the SQLite limitation rather than silently doing nothing
+
+### Files Modified/Created
+- `src/lib/metrc-csv/types.ts` (new)
+- `src/lib/metrc-csv/writer.ts` (new)
+- `src/lib/metrc-csv/ref-data.ts` (new)
+- `src/lib/metrc-csv/index.ts` (new)
+- `src/lib/metrc-csv/generators/.gitkeep` (new)
+- `src/api/routes/metrc-csv.ts` (new)
+- `src/api/app.ts` (import + register added)
+- `src/db/migrations/042_metrc_core_tables.ts` (new)
+- `src/db/migrations/043_metrc_reference_tables.ts` (new)
+- `src/db/migrations/044_metrc_extend_existing_tables.ts` (new)
+
+### Notes for Next Tasks
+- Next tasks will add generators to `src/lib/metrc-csv/generators/` and routes to `src/api/routes/metrc-csv.ts`
+- `writeCsv` takes content as a pre-built CSV string — generators are responsible for building the header + rows
+- Railway Volume must be provisioned and METRC_CSV_OUTPUT_DIR set before Phase 1 ships (C6 from integration proposal)
+- `cv_metrc_plant_waste_methods`, `cv_metrc_plant_waste_reasons`, `cv_metrc_batch_waste_reasons`, `cv_metrc_units_of_measure` are empty — admin UI (Phase 2) populates them from MN METRC UI
+- `npx tsc --noEmit` passes clean; commit 1672b0d pushed to master
+
+---
+
+## Task: METRC CSV: Additive Template #1 end-to-end
+**Completed:** 2026-05-26
+
+### What Was Done
+- **Generator** (`src/lib/metrc-csv/generators/additive-template.ts`): `generateAdditiveTemplateCsv(templates)` — emits exact 11-column header, one row per active ingredient per template, CRLF line endings, csv-safe quoting
+- **Zod schemas** in `src/api/routes/metrc-csv.ts`: `ActiveIngredientSchema`, `AdditiveTemplateSchema` (with EPA-required-for-Pesticide and REI-pair-coherence refinements), `CreateAdditiveTemplatesSchema` (total ingredients ≤500 limit)
+- **Backend routes** added to `src/api/routes/metrc-csv.ts`:
+  - `POST /api/metrc/csv/additive-templates` — validates, dedupes names in-request + in-DB, generates CSV, writes file, transaction-inserts templates + upload log, returns `{template_ids, csv_file_path, row_count, upload_id}`
+  - `GET /api/metrc/csv/additive-templates` — returns all templates with `active_ingredients` parsed from JSON
+- **Migration 045** (`src/db/migrations/045_fix_additive_template_fk.ts`): fixed a bug in migration 042 where `cv_metrc_additive_templates.crop_input_id` had a FK reference to `cv_crop_inputs` (which belongs to farmstock, not cultivate). SQLite enforces FK table existence at prepare time when `foreign_keys=ON`, causing all INSERTs to fail with "no such table: main.cv_crop_inputs". Migration 045 recreates the table with `crop_input_id` as a plain integer.
+- **Frontend** (`client/src/pages/admin/MetrcAdditiveTemplates.jsx`): admin page at `/admin/metrc-additive-templates` (minRole=admin). Lists existing templates with name, type, ingredient count, file path. New Template form with dynamic active ingredients list; EPA field shown only when type=Pesticide; inline REI pair coherence warning.
+- **API client** (`client/src/api.js`): added `getAdditiveTemplates()` and `createAdditiveTemplates(body)`
+- **App.jsx**: import + route registered at `/admin/metrc-additive-templates` (minRole=admin)
+- **ApplicationsHub.jsx**: added "METRC Additive Templates" button in Admin section
+- **Tests** (`src/tests/metrc-csv/additive-template.test.ts`): 16 tests passing — 7 unit tests for generator (headers, CRLF, ingredient expansion, field repetition, multi-template, quoting, nulls), 7 integration tests for POST route, 2 for GET route
+
+### Key Decisions
+- Kept generator pure (no DB calls) — takes `AdditiveTemplateInput[]`, returns string
+- `crop_input_id` on additive templates is now a plain integer (no FK enforcement) — the actual cross-reference to farmstock products is advisory, enforced at UI layer only, not DB layer
+- Route uses `requireAuth` (grower+), not `requireRole('admin')` — creation is an operational task, not admin-only; admin minRole gate is on the frontend page only
+- Tests use `process.env.METRC_CSV_OUTPUT_DIR` set to `os.tmpdir()/metrc-csv-test-{pid}` via `beforeAll` to avoid writing to project root
+
+### Files Modified/Created
+- `src/lib/metrc-csv/generators/additive-template.ts` (new)
+- `src/lib/metrc-csv/index.ts` (export generator)
+- `src/api/routes/metrc-csv.ts` (full route implementation)
+- `src/db/migrations/045_fix_additive_template_fk.ts` (new)
+- `client/src/pages/admin/MetrcAdditiveTemplates.jsx` (new)
+- `client/src/api.js` (added 2 methods)
+- `client/src/App.jsx` (import + route)
+- `client/src/pages/applications/ApplicationsHub.jsx` (admin nav link)
+- `src/tests/metrc-csv/additive-template.test.ts` (new — 16 tests)
+
+### Notes for Next Tasks
+- Migration 045 drops and recreates `cv_metrc_additive_templates` — any data in the table on a live DB will be preserved (INSERT...SELECT copies rows)
+- The same FK-to-farmstock anti-pattern could affect other tables in 042 if `cv_metrc_additive_applications` has FKs that reference non-existent cultivate tables — check before building routes for those tables
+- Next METRC upload type is likely #21 Plants Waste (per Phase 1 spec in integration proposal) — needs `cv_metrc_plant_waste_methods` and `cv_metrc_plant_waste_reasons` populated first
+- The pre-existing foliar test failure (`foliar.test.ts:247` expects 422 but gets 400) is unrelated to this task — was failing before

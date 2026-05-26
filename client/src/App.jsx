@@ -78,6 +78,7 @@ import SoilSampleTracker from './pages/containers/SoilSampleTracker';
 import SensorManagement from './pages/admin/SensorManagement';
 import EnvironmentalHistory from './pages/admin/EnvironmentalHistory';
 import ProtocolsAdmin from './pages/admin/ProtocolsAdmin';
+import MetrcAdditiveTemplates from './pages/admin/MetrcAdditiveTemplates';
 import Tasks from './pages/tasks/Tasks';
 import TaskDetail from './pages/tasks/TaskDetail';
 import SamplingSession from './pages/tasks/SamplingSession';
@@ -229,6 +230,7 @@ export default function App() {
               <Route path="/audit" element={<Protected minRole="supervisor"><AuditMode /></Protected>} />
               <Route path="/admin/sensors" element={<Protected minRole="admin"><SensorManagement /></Protected>} />
               <Route path="/admin/environmental-history" element={<Protected minRole="admin"><EnvironmentalHistory /></Protected>} />
+              <Route path="/admin/metrc-additive-templates" element={<Protected minRole="admin"><MetrcAdditiveTemplates /></Protected>} />
               <Route path="/analytics/applicators" element={<Protected><ApplicatorMetrics /></Protected>} />
               <Route path="/analytics/pesticide-summary" element={<Protected><PesticideSummary /></Protected>} />
               <Route path="/analytics/annual" element={<Protected><AnnualTracker /></Protected>} />

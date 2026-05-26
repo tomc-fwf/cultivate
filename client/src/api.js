@@ -288,4 +288,8 @@ export const api = {
   getMetrcTodosPendingCount: () => req('GET', '/metrc-todos/pending-count'),
   markMetrcTodoDone: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'done' }),
   reopenMetrcTodo: (id) => req('PATCH', `/metrc-todos/${id}`, { status: 'pending' }),
+
+  // METRC CSV — additive templates
+  getAdditiveTemplates: () => req('GET', '/metrc/csv/additive-templates'),
+  createAdditiveTemplates: (body) => req('POST', '/metrc/csv/additive-templates', body),
 };
