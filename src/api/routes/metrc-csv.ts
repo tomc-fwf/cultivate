@@ -1137,7 +1137,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     // Fetch source batch — get name for PlantBatch column
     const batch = db
       .prepare(`
-        SELECT b.batch_id, b.name, b.metrc_plant_batch_uid, b.plant_count_initial, b.plant_count_current, b.status
+        SELECT b.batch_id, b.name, b.metrc_plant_batch_uid, b.plant_count_initial, b.status
         FROM cv_batches b
         WHERE b.batch_id = ?
       `)
@@ -1146,7 +1146,6 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
         name: string | null;
         metrc_plant_batch_uid: string | null;
         plant_count_initial: number;
-        plant_count_current: number | null;
         status: string;
       } | undefined;
 
@@ -1158,7 +1157,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     // Validate count against available plants
-    const currentCount = batch.plant_count_current ?? batch.plant_count_initial;
+    const currentCount = batch.plant_count_initial;
     if (data.count > currentCount) {
       return reply.code(400).send({
         error: `count (${data.count}) exceeds available plant count (${currentCount})`,
@@ -1218,19 +1217,17 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       );
       destructionId = Number(destrResult.lastInsertRowid);
 
-      // Decrement plant count; close batch if count reaches zero
+      // Close batch if count reaches zero
       if (newCount <= 0) {
         db.prepare(`
           UPDATE cv_batches
-          SET plant_count_current = 0, status = 'closed', closed_date = ?, updated_at = ?
+          SET status = 'closed', closed_date = ?, updated_at = ?
           WHERE batch_id = ?
         `).run(data.actual_date, now, data.plant_batch_id);
       } else {
         db.prepare(`
-          UPDATE cv_batches
-          SET plant_count_current = plant_count_current - ?, updated_at = ?
-          WHERE batch_id = ?
-        `).run(data.count, now, data.plant_batch_id);
+          UPDATE cv_batches SET updated_at = ? WHERE batch_id = ?
+        `).run(now, data.plant_batch_id);
       }
 
       const uploadResult = db.prepare(`

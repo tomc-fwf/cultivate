@@ -162,7 +162,7 @@ describe('Test 4 — Tag availability gate on plants-growth-phase', () => {
     const db = ctx.db;
 
     const strain = createTestStrain(db);
-    createTestBatch(db, strain.strain_id, { status: 'field-veg' });
+    const batch = createTestBatch(db, strain.strain_id, { status: 'field-veg' });
 
     // Seed an active plant in plant_state
     const loc = db
@@ -173,9 +173,9 @@ describe('Test 4 — Tag availability gate on plants-growth-phase', () => {
     const oldTag = 'AAAAAA000000000000000001';
     db.prepare(
       `INSERT INTO cv_metrc_plant_state
-         (plant_tag, batch_id, strain_id, growth_phase, location_id, status, created_at, updated_at)
-       VALUES (?, 1, ?, 'Vegetative', ?, 'active', ?, ?)`,
-    ).run(oldTag, strain.strain_id, locationId, now, now);
+         (plant_tag, batch_id, strain_id, growth_phase, location_id, phase_transition_date, status, created_at, updated_at)
+       VALUES (?, ?, ?, 'Vegetative', ?, ?, 'active', ?, ?)`,
+    ).run(oldTag, batch.batch_id, strain.strain_id, locationId, now, now, now);
 
     // Insert a 'used' tag as new_tag
     const usedTag = 'BBBBBB000000000000000001';
@@ -219,25 +219,11 @@ describe('Test 5 — Batch status gate on harvest-plants', () => {
   });
 
   it('rejects harvest-plants when cultivation batch status is field-flower', async () => {
-    const now = new Date().toISOString();
     const db = ctx.db;
 
-    db.prepare(
-      `INSERT INTO cv_strains (strain_id, name, type, created_at, updated_at)
-       VALUES (1, 'Test Strain', 'auto', ?, ?)`,
-    ).run(now, now);
-
-    db.prepare(
-      `INSERT INTO cv_batches (batch_id, strain_id, plant_count_initial, plant_count_current,
-       status, sow_date, created_by, created_at, updated_at)
-       VALUES (1, 1, 10, 10, 'field-flower', '2026-01-01', 1, ?, ?)`,
-    ).run(now, now);
-
-    db.prepare(
-      `INSERT INTO cv_harvest_batches
-         (harvest_batch_id, batch_id, sequence_number, status, started_at, started_by, created_at, updated_at)
-       VALUES (1, 1, 1, 'in_progress', ?, 1, ?, ?)`,
-    ).run(now, now, now);
+    const strain = createTestStrain(db);
+    const batch = createTestBatch(db, strain.strain_id, { status: 'field-flower' });
+    const { harvest_batch_id } = createHarvestBatch(db, batch.batch_id);
 
     const plantTag = 'CCCCCC000000000000000001';
     const res = await ctx.app.inject({
@@ -245,7 +231,7 @@ describe('Test 5 — Batch status gate on harvest-plants', () => {
       url: '/api/metrc/csv/harvest-plants',
       headers: authHeader(ctx.app, 'grower'),
       payload: {
-        harvest_batch_id: 1,
+        harvest_batch_id,
         plant_events: [
           {
             plant_tag: plantTag,
@@ -277,26 +263,17 @@ describe('Test 6 — Zero-waste destruction produces warning, not error', () => 
   });
 
   it('returns 201 with a warning when waste_weight = 0', async () => {
-    const now = new Date().toISOString();
     const db = ctx.db;
 
-    db.prepare(
-      `INSERT INTO cv_strains (strain_id, name, type, created_at, updated_at)
-       VALUES (1, 'Test Strain', 'auto', ?, ?)`,
-    ).run(now, now);
-
-    db.prepare(
-      `INSERT INTO cv_batches (batch_id, strain_id, plant_count_initial, plant_count_current,
-       status, sow_date, created_by, created_at, updated_at)
-       VALUES (1, 1, 10, 10, 'germ', '2026-01-01', 1, ?, ?)`,
-    ).run(now, now);
+    const strain = createTestStrain(db);
+    const batch = createTestBatch(db, strain.strain_id, { status: 'germ' });
 
     const res = await ctx.app.inject({
       method: 'POST',
       url: '/api/metrc/csv/destroy-immature',
       headers: authHeader(ctx.app, 'supervisor'),
       payload: {
-        plant_batch_id: 1,
+        plant_batch_id: batch.batch_id,
         count: 2,
         waste_reason_name: 'Disease',
         waste_weight: 0,

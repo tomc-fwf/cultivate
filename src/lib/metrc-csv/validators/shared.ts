@@ -85,8 +85,10 @@ export interface BatchRow {
 export function validateBatchExists(db: Database.Database, batchId: number): BatchRow {
   const batch = db
     .prepare(
-      `SELECT batch_id, status, name, metrc_plant_batch_uid, plant_count_current, plant_count_initial
-       FROM cv_batches WHERE batch_id = ?`,
+      `SELECT b.batch_id, b.status, b.name, b.metrc_plant_batch_uid, b.plant_count_initial,
+              (SELECT COUNT(*) FROM cv_plant_assignments pa
+               WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL) AS plant_count_current
+       FROM cv_batches b WHERE b.batch_id = ?`,
     )
     .get(batchId) as BatchRow | undefined;
   if (!batch) throw new MetrcBatchNotFoundError(batchId);

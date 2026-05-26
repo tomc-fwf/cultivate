@@ -3904,3 +3904,46 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - All Phase 3 batches (A–G) are now complete
 - `npx tsc --noEmit` passes clean; 421/422 tests pass
 - Commit: `feat(metrc-csv): package generators (#12, #13, #14)` pushed to master as 6ac1ccd
+
+---
+
+## Task: METRC CSV Phase 4 — Centralized Validation Engine + Integration Tests
+**Completed:** 2026-05-26
+
+### What Was Done
+- Created `src/lib/metrc-csv/validators/` with 9 files: `index.ts`, `shared.ts`, `csv-rules.ts`, `destruction.ts`, `immature.ts`, `plant-lifecycle.ts`, `harvest.ts`, `additives.ts`, `packages.ts`, `plantings.ts`
+- Created `src/tests/metrc-csv.test.ts` with 14 tests across 8 required test cases:
+  1. 500-row limit (Zod .max(500)) → 400 with "Validation failed"
+  2. `validateHeaders` throws `CsvHeaderMismatchError` on mismatch, passes on exact match
+  3. Tag format validation: 22-char tag rejected, tag with '!' rejected
+  4. Tag availability gate: `new_tag` status='used' → 400 with tag in error message
+  5. Batch status gate on harvest-plants: 'field-flower' batch → 400 with "harvesting" in error
+  6. Zero-waste destruction: waste_weight=0 → 201 with `warnings` array containing "waste_weight is 0"
+  7. `escapeCell` RFC 4180: commas quoted, internal quotes doubled, newlines quoted, null/undefined → ''
+  8. CRLF line endings + no UTF-8 BOM in written CSV files
+
+### Key Decisions
+- `validateBatchExists` in `shared.ts`: computes `plant_count_current` via subquery over `cv_plant_assignments` (the column does NOT exist as a real cv_batches column — it's always been derived; route file had broken SELECT and UPDATE statements that referenced it)
+- Fixed `destroy-immature` route: removed `b.plant_count_current` from SELECT, removed `plant_count_current` UPDATEs (use only `status`/`closed_date` on batch close, plain `updated_at` touch otherwise)
+- Tests use `createTestStrain`+`createTestBatch`+`createHarvestBatch` fixtures throughout — no raw cv_batches INSERTs that would fail on the derived column
+- Test 4 `cv_metrc_plant_state` INSERT requires `phase_transition_date NOT NULL` (migration 042); fixed
+
+### Files Modified/Created
+- `src/lib/metrc-csv/validators/shared.ts` (new — + subquery fix for plant_count_current)
+- `src/lib/metrc-csv/validators/csv-rules.ts` (new)
+- `src/lib/metrc-csv/validators/destruction.ts` (new)
+- `src/lib/metrc-csv/validators/immature.ts` (new)
+- `src/lib/metrc-csv/validators/plant-lifecycle.ts` (new)
+- `src/lib/metrc-csv/validators/harvest.ts` (new)
+- `src/lib/metrc-csv/validators/additives.ts` (new)
+- `src/lib/metrc-csv/validators/packages.ts` (new)
+- `src/lib/metrc-csv/validators/plantings.ts` (new)
+- `src/lib/metrc-csv/validators/index.ts` (new)
+- `src/api/routes/metrc-csv.ts` — zero-waste warning in destroy-immature handler; plant_count_current SQL fixes
+- `src/tests/metrc-csv.test.ts` (new)
+
+### Notes for Next Tasks
+- `npx tsc --noEmit` passes clean
+- 435/436 tests pass; 1 pre-existing failure in `foliar.test.ts` (422 vs 400) unchanged before and after
+- `cv_batches.plant_count_current` does NOT exist as a real column; other metrc-csv route handlers still reference it (lines ~1011, ~1694, ~1834) in SELECT/UPDATE — those routes are untested and will fail at runtime too
+- `destroy-immature` is the only route in metrc-csv.ts that was tested and fixed; the other broken references are left for a follow-up
