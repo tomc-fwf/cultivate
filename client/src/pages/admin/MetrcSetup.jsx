@@ -458,7 +458,9 @@ function SublocationsTab() {
 function TagPoolSection({ title, description, onGetCounts, onImport }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [textarea, setTextarea] = useState('');
+  const [prefix, setPrefix] = useState('');
+  const [startNum, setStartNum] = useState('');
+  const [count, setCount] = useState('');
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [err, setErr] = useState(null);
@@ -473,24 +475,36 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Parse and validate tags from textarea
-  const parsedTags = textarea
-    .split(/[\n,]+/)
-    .map((t) => t.trim().toUpperCase())
-    .filter((t) => t.length > 0);
-  const validTags = parsedTags.filter((t) => /^[A-Za-z0-9]{24}$/i.test(t));
-  const invalidTags = parsedTags.filter((t) => !/^[A-Za-z0-9]{24}$/i.test(t));
+  // Generate preview tags from prefix + range
+  const prefixClean = prefix.trim().toUpperCase();
+  const prefixValid = /^[A-Z0-9]{18}$/.test(prefixClean);
+  const startInt = parseInt(startNum, 10);
+  const countInt = parseInt(count, 10);
+  const rangeValid = !isNaN(startInt) && !isNaN(countInt) && startInt >= 1 && countInt >= 1 && countInt <= 10000;
+
+  function generateTags() {
+    if (!prefixValid || !rangeValid) return [];
+    return Array.from({ length: countInt }, (_, i) => {
+      const seq = String(startInt + i).padStart(6, '0');
+      return prefixClean + seq;
+    });
+  }
+
+  const generatedTags = generateTags();
+  const previewTags = generatedTags.slice(0, 3);
+  const lastTag = generatedTags.length > 1 ? generatedTags[generatedTags.length - 1] : null;
 
   async function handleImport(e) {
     e.preventDefault();
-    if (validTags.length === 0) return;
+    if (generatedTags.length === 0) return;
     setImporting(true);
     setErr(null);
     setImportResult(null);
     try {
-      const result = await onImport({ tags: validTags });
+      const result = await onImport({ tags: generatedTags });
       setImportResult(result);
-      setTextarea('');
+      setStartNum('');
+      setCount('');
       await load();
     } catch (error) {
       setErr(error.message);
@@ -530,34 +544,89 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
       {/* Import form */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4">
-        <h4 className="text-sm font-semibold text-gray-700 mb-2">Import Tags</h4>
-        <p className="text-xs text-gray-500 mb-3">
-          Enter one tag per line or comma-separated. Tags must be 24-character alphanumeric strings.
-          Duplicates are automatically skipped.
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Import Tags</h4>
+        <p className="text-xs text-gray-500 mb-4">
+          Enter your 18-character facility prefix, the first tag number in the range, and how many tags to import.
         </p>
-        <form onSubmit={handleImport}>
-          <textarea
-            value={textarea}
-            onChange={(e) => setTextarea(e.target.value)}
-            rows={5}
-            placeholder="1A4FF0100000001000000001&#10;1A4FF0100000001000000002&#10;..."
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 mb-2"
-          />
-          {parsedTags.length > 0 && (
-            <div className="flex gap-3 text-xs mb-3">
-              <span className="text-green-700">{validTags.length} valid tag{validTags.length !== 1 ? 's' : ''}</span>
-              {invalidTags.length > 0 && (
-                <span className="text-red-600">{invalidTags.length} invalid (will be skipped)</span>
-              )}
+        <form onSubmit={handleImport} className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Facility Prefix <span className="text-red-500">*</span>
+              <span className="ml-1 font-normal text-gray-400">(18 characters)</span>
+            </label>
+            <input
+              type="text"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+              placeholder="e.g. 1A4FF0100000001000"
+              maxLength={18}
+              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                prefix && !prefixValid ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              }`}
+              style={{ minHeight: '44px' }}
+            />
+            {prefix && !prefixValid && (
+              <p className="text-xs text-red-600 mt-1">Must be exactly 18 alphanumeric characters ({prefixClean.length}/18)</p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Starting Number <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={startNum}
+                onChange={(e) => setStartNum(e.target.value)}
+                placeholder="e.g. 1"
+                min={1}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Number of Tags <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+                placeholder="e.g. 500"
+                min={1}
+                max={10000}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ minHeight: '44px' }}
+              />
+            </div>
+          </div>
+
+          {/* Preview */}
+          {prefixValid && rangeValid && generatedTags.length > 0 && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
+              <div className="text-xs font-medium text-gray-500 mb-1">Preview — {generatedTags.length} tags</div>
+              <div className="font-mono text-xs text-gray-700 space-y-0.5">
+                {previewTags.map((t) => <div key={t}>{t}</div>)}
+                {lastTag && generatedTags.length > 3 && (
+                  <>
+                    <div className="text-gray-400">…</div>
+                    <div>{lastTag}</div>
+                  </>
+                )}
+              </div>
             </div>
           )}
+
           <button
             type="submit"
-            disabled={importing || validTags.length === 0}
+            disabled={importing || !prefixValid || !rangeValid}
             className="px-4 py-2.5 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50"
             style={{ minHeight: '44px' }}
           >
-            {importing ? 'Importing…' : `Import ${validTags.length} tag${validTags.length !== 1 ? 's' : ''}`}
+            {importing ? 'Importing…' : generatedTags.length > 0 ? `Import ${generatedTags.length} tags` : 'Import Tags'}
           </button>
         </form>
       </div>
