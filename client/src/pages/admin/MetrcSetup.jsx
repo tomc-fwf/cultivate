@@ -265,6 +265,7 @@ function RefDataTab() {
 // ── Tab 2: Sublocations ───────────────────────────────────────────────────────
 
 function SublocationsTab() {
+  const navigate = useNavigate();
   const [sublocations, setSublocations] = useState([]);
   const [locations, setLocations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -350,12 +351,12 @@ function SublocationsTab() {
                 The METRC Name column is written into every CSV — it must match your MN METRC account exactly.
               </div>
             </div>
-            <a
-              href="/admin/locations"
+            <button
+              onClick={() => navigate('/admin/locations')}
               className="text-xs font-semibold text-amber-800 underline whitespace-nowrap hover:text-amber-900"
             >
               Edit →
-            </a>
+            </button>
           </div>
           <div className="bg-white border-t border-amber-100">
             <div className="flex items-center px-3 py-1.5 bg-gray-50 border-b border-gray-100">
