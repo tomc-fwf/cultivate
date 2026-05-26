@@ -32,6 +32,7 @@ import locationsRoutes, { adminLocationsRoutes } from './routes/locations.js';
 import seedPackagesRoutes from './routes/seed-packages.js';
 import metrcTodosRoutes from './routes/metrc-todos.js';
 import tasksRoutes from './routes/tasks.js';
+import metrcCsvRoutes from './routes/metrc-csv.js';
 
 export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   const app = Fastify({ logger: true, trustProxy: true });
@@ -102,6 +103,7 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   await app.register(seedPackagesRoutes, { prefix: '/api/seed-packages' });
   await app.register(metrcTodosRoutes, { prefix: '/api/metrc-todos' });
   await app.register(tasksRoutes, { prefix: '/api/tasks' });
+  await app.register(metrcCsvRoutes, { prefix: '/api/metrc/csv' });
 
   app.get('/health', async () => ({ status: 'ok', app: 'cultivate' }));
 
