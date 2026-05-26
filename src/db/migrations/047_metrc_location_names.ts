@@ -26,12 +26,12 @@ export async function up(knex: Knex): Promise<void> {
     await knex('cv_locations').where({ name }).update({ metrc_name });
   }
 
-  // Add Zone 6 parent location
+  // Add Zone 6 parent location (metrc_name matches name; sub-zone Z6 is the actual METRC location)
   const [zone6Id] = await knex('cv_locations').insert({
     name: 'Zone 6',
     location_type: 'field',
     location_category: 'outdoor',
-    metrc_name: null,
+    metrc_name: 'Zone 6',
     display_order: 60,
     col_span: 1,
     active: 1,
