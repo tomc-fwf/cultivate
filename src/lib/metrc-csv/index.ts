@@ -23,3 +23,7 @@ export { generateImmaturePackagesCsv, IMMATURE_PACKAGES_HEADERS } from './genera
 export type { ImmaturePackagesInput } from './generators/immature-packages.js';
 export { generateImmatureWasteCsv, IMMATURE_WASTE_HEADERS } from './generators/immature-waste.js';
 export type { ImmatureWasteRow } from './generators/immature-waste.js';
+export { generatePlantsGrowthPhaseCsv, PLANTS_GROWTH_PHASE_HEADERS } from './generators/plants-growth-phase.js';
+export type { PlantsGrowthPhaseRow } from './generators/plants-growth-phase.js';
+export { generatePlantsLocationCsv, PLANTS_LOCATION_HEADERS } from './generators/plants-location.js';
+export type { PlantsLocationRow } from './generators/plants-location.js';

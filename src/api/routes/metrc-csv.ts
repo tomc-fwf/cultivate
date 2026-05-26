@@ -15,6 +15,8 @@ import {
   generateImmatureGrowthPhaseCsv,
   generateImmaturePackagesCsv,
   generateImmatureWasteCsv,
+  generatePlantsGrowthPhaseCsv,
+  generatePlantsLocationCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -211,6 +213,32 @@ const ImmatureWasteEventSchema = z.object({
 
 const CreateImmatureWasteSchema = z.object({
   events: z.array(ImmatureWasteEventSchema).min(1).max(500),
+});
+
+// Plants Growth Phase (#19)
+const PlantsGrowthPhaseItemSchema = z.object({
+  label: z.string().regex(METRC_TAG_RE, 'label must be 24 alphanumeric characters'),
+  new_tag: z.string().regex(METRC_TAG_RE, 'new_tag must be 24 alphanumeric characters'),
+  growth_phase: z.enum(['Vegetative', 'Flowering']),
+  new_location: z.string().min(1).max(200),
+  new_sublocation: z.string().max(200).optional().nullable(),
+  growth_date: z.string().regex(DATE_RE, 'growth_date must be YYYY-MM-DD'),
+});
+
+const PlantsGrowthPhaseSchema = z.object({
+  plants: z.array(PlantsGrowthPhaseItemSchema).min(1).max(500),
+});
+
+// Plants Location (#20)
+const PlantsLocationItemSchema = z.object({
+  label: z.string().regex(METRC_TAG_RE, 'label must be 24 alphanumeric characters'),
+  location: z.string().min(1).max(200),
+  sublocation: z.string().max(200).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+const PlantsLocationSchema = z.object({
+  plants: z.array(PlantsLocationItemSchema).min(1).max(500),
 });
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
@@ -1859,6 +1887,235 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
 
     return reply.code(201).send({
       waste_event_ids: wasteEventIds,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+    });
+  });
+  // ── POST /api/metrc/csv/plants-growth-phase (#19) ────────────────────────
+  fastify.post('/plants-growth-phase', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = PlantsGrowthPhaseSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { plants } = parse.data;
+    const db = getDB();
+
+    // Collect all errors before rejecting — validate labels and new_tags up front
+    const errors: string[] = [];
+
+    // Validate all label values exist in cv_metrc_plant_state with status='active'
+    const invalidLabels: string[] = [];
+    for (const p of plants) {
+      const state = db
+        .prepare(`SELECT plant_state_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND status = 'active'`)
+        .get(p.label);
+      if (!state) invalidLabels.push(p.label);
+    }
+    if (invalidLabels.length > 0) {
+      errors.push(`Plant tags not found or not active in cv_metrc_plant_state: ${invalidLabels.join(', ')}`);
+    }
+
+    // Validate all new_tag values exist in cv_metrc_available_plant_tags with status='available'
+    const unavailableTags: string[] = [];
+    for (const p of plants) {
+      const tagRow = db
+        .prepare(`SELECT tag FROM cv_metrc_available_plant_tags WHERE tag = ? AND status = 'available'`)
+        .get(p.new_tag);
+      if (!tagRow) unavailableTags.push(p.new_tag);
+    }
+    if (unavailableTags.length > 0) {
+      errors.push(`New tags not available in cv_metrc_available_plant_tags: ${unavailableTags.join(', ')}`);
+    }
+
+    // Validate no duplicate new_tag values in request
+    const newTagsSeen = new Set<string>();
+    const dupeTags: string[] = [];
+    for (const p of plants) {
+      if (newTagsSeen.has(p.new_tag)) dupeTags.push(p.new_tag);
+      newTagsSeen.add(p.new_tag);
+    }
+    if (dupeTags.length > 0) {
+      errors.push(`Duplicate new_tag values in request: ${[...new Set(dupeTags)].join(', ')}`);
+    }
+
+    if (errors.length > 0) {
+      return reply.code(400).send({ error: errors.join(' | '), errors });
+    }
+
+    // Resolve location for each unique new_location
+    const locationNames = [...new Set(plants.map((p) => p.new_location))];
+    const locationMap = new Map<string, number>();
+    for (const name of locationNames) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(name) as { location_id: number } | undefined;
+      if (!loc) {
+        return reply.code(400).send({ error: `Unknown location — not in cv_locations.metrc_name: ${name}` });
+      }
+      locationMap.set(name, loc.location_id);
+    }
+
+    const csvContent = generatePlantsGrowthPhaseCsv(
+      plants.map((p) => ({
+        label: p.label,
+        new_tag: p.new_tag,
+        growth_phase: p.growth_phase,
+        new_location: p.new_location,
+        new_sublocation: p.new_sublocation,
+        growth_date: p.growth_date,
+      })),
+    );
+    const { filePath, rowCount } = await writeCsv(csvContent, 'plants-growth-phase');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+    const tagsConsumed: string[] = [];
+
+    const insertFn = db.transaction(() => {
+      for (const p of plants) {
+        const locationId = locationMap.get(p.new_location)!;
+
+        // Update plant state: swap tag, record transition
+        db.prepare(`
+          UPDATE cv_metrc_plant_state
+          SET plant_tag = ?,
+              previous_plant_tag = ?,
+              tag_change_date = ?,
+              growth_phase = ?,
+              location_id = ?,
+              sublocation = ?,
+              phase_transition_date = ?,
+              updated_at = ?
+          WHERE plant_tag = ?
+        `).run(
+          p.new_tag,
+          p.label,
+          p.growth_date,
+          p.growth_phase,
+          locationId,
+          p.new_sublocation ?? null,
+          p.growth_date,
+          now,
+          p.label,
+        );
+
+        // Update active plant assignment to reflect new tag
+        db.prepare(`
+          UPDATE cv_plant_assignments
+          SET metrc_plant_tag = ?
+          WHERE metrc_plant_tag = ? AND unassigned_at IS NULL
+        `).run(p.new_tag, p.label);
+
+        // Mark new tag as consumed
+        db.prepare(
+          `UPDATE cv_metrc_available_plant_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+        ).run(now, p.new_tag);
+
+        // Mark old tag as replaced
+        db.prepare(
+          `UPDATE cv_metrc_available_plant_tags SET status = 'replaced' WHERE tag = ?`,
+        ).run(p.label);
+
+        tagsConsumed.push(p.new_tag);
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('plants-growth-phase', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    const uploadId = insertFn();
+
+    return reply.code(201).send({
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      tags_consumed: tagsConsumed,
+      warnings: [],
+    });
+  });
+
+  // ── POST /api/metrc/csv/plants-location (#20) ─────────────────────────────
+  fastify.post('/plants-location', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = PlantsLocationSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { plants } = parse.data;
+    const db = getDB();
+
+    // Validate all labels exist in cv_metrc_plant_state with status='active'
+    const invalidLabels: string[] = [];
+    for (const p of plants) {
+      const state = db
+        .prepare(`SELECT plant_state_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND status = 'active'`)
+        .get(p.label);
+      if (!state) invalidLabels.push(p.label);
+    }
+    if (invalidLabels.length > 0) {
+      return reply.code(400).send({
+        error: `Plant tags not found or not active in cv_metrc_plant_state: ${invalidLabels.join(', ')}`,
+        invalid_labels: invalidLabels,
+      });
+    }
+
+    // Resolve location IDs for all unique locations in request
+    const locationNames = [...new Set(plants.map((p) => p.location))];
+    const locationMap = new Map<string, number>();
+    for (const name of locationNames) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(name) as { location_id: number } | undefined;
+      if (!loc) {
+        return reply.code(400).send({ error: `Unknown location — not in cv_locations.metrc_name: ${name}` });
+      }
+      locationMap.set(name, loc.location_id);
+    }
+
+    const csvContent = generatePlantsLocationCsv(
+      plants.map((p) => ({
+        label: p.label,
+        location: p.location,
+        sublocation: p.sublocation,
+        actual_date: p.actual_date,
+      })),
+    );
+    const { filePath, rowCount } = await writeCsv(csvContent, 'plants-location');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    const insertFn = db.transaction(() => {
+      for (const p of plants) {
+        const locationId = locationMap.get(p.location)!;
+
+        db.prepare(`
+          UPDATE cv_metrc_plant_state
+          SET location_id = ?,
+              sublocation = ?,
+              updated_at = ?
+          WHERE plant_tag = ?
+        `).run(locationId, p.sublocation ?? null, now, p.label);
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('plants-location', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    const uploadId = insertFn();
+
+    return reply.code(201).send({
       csv_file_path: filePath,
       row_count: rowCount,
       upload_id: uploadId,
