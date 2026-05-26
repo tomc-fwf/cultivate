@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getDB } from '../../db/index.js';
-import { requireAuth } from '../middleware/auth.middleware.js';
+import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import {
   writeCsv,
   generateAdditiveTemplateCsv,
@@ -70,6 +70,51 @@ const CreateAdditiveTemplatesSchema = z.object({
   (data) => data.templates.reduce((sum, t) => sum + t.active_ingredients.length, 0) <= 500,
   { message: 'Total ingredient row count cannot exceed 500' },
 );
+
+// ── Admin schemas ─────────────────────────────────────────────────────────────
+
+const AdminNameSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+
+const AdminUomSchema = z.object({
+  name: z.string().min(1).max(200),
+  unit_type: z.string().min(1).max(50).default('weight'),
+});
+
+const AdminItemSchema = z.object({
+  name: z.string().min(1).max(200),
+  category: z.string().max(100).optional().nullable(),
+});
+
+const AdminSublocationSchema = z.object({
+  name: z.string().min(1).max(200),
+  location_id: z.number().int().positive().optional().nullable(),
+  sub_zone_id: z.string().max(10).optional().nullable(),
+});
+
+const AdminTagsImportSchema = z.object({
+  tags: z
+    .array(z.string().regex(METRC_TAG_RE, 'Each tag must be exactly 24 alphanumeric characters'))
+    .min(1)
+    .max(10000),
+});
+
+const AdminEmployeeCreateSchema = z.object({
+  license_number: z.string().min(1).max(50),
+  name: z.string().min(1).max(200),
+  role: z.string().max(50).optional().nullable(),
+  user_id: z.number().int().positive().optional().nullable(),
+});
+
+const AdminEmployeePatchSchema = z
+  .object({
+    is_active: z.number().int().min(0).max(1).optional(),
+    license_number: z.string().min(1).max(50).optional(),
+    name: z.string().min(1).max(200).optional(),
+    role: z.string().max(50).optional().nullable(),
+  })
+  .refine((d) => Object.keys(d).length > 0, { message: 'At least one field required' });
 
 // ── Route handlers ────────────────────────────────────────────────────────────
 
@@ -311,6 +356,295 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       upload_id: uploadId,
       warnings,
     });
+  });
+
+  // ── Admin: waste methods ──────────────────────────────────────────────────
+
+  fastify.get('/admin/waste-methods', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_plant_waste_methods ORDER BY name').all());
+  });
+
+  fastify.post('/admin/waste-methods', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminNameSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT method_id FROM cv_metrc_plant_waste_methods WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_plant_waste_methods (name) VALUES (?)').run(parse.data.name);
+    return reply.code(201).send({ method_id: Number(r.lastInsertRowid), name: parse.data.name });
+  });
+
+  fastify.delete('/admin/waste-methods/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_plant_waste_methods WHERE method_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: plant waste reasons ────────────────────────────────────────────
+
+  fastify.get('/admin/plant-waste-reasons', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_plant_waste_reasons ORDER BY name').all());
+  });
+
+  fastify.post('/admin/plant-waste-reasons', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminNameSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT reason_id FROM cv_metrc_plant_waste_reasons WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_plant_waste_reasons (name) VALUES (?)').run(parse.data.name);
+    return reply.code(201).send({ reason_id: Number(r.lastInsertRowid), name: parse.data.name });
+  });
+
+  fastify.delete('/admin/plant-waste-reasons/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_plant_waste_reasons WHERE reason_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: batch waste reasons ────────────────────────────────────────────
+
+  fastify.get('/admin/batch-waste-reasons', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_batch_waste_reasons ORDER BY name').all());
+  });
+
+  fastify.post('/admin/batch-waste-reasons', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminNameSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT reason_id FROM cv_metrc_batch_waste_reasons WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_batch_waste_reasons (name) VALUES (?)').run(parse.data.name);
+    return reply.code(201).send({ reason_id: Number(r.lastInsertRowid), name: parse.data.name });
+  });
+
+  fastify.delete('/admin/batch-waste-reasons/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_batch_waste_reasons WHERE reason_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: package adjustment reasons ────────────────────────────────────
+
+  fastify.get('/admin/adjustment-reasons', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_package_adjustment_reasons ORDER BY name').all());
+  });
+
+  fastify.post('/admin/adjustment-reasons', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminNameSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT reason_id FROM cv_metrc_package_adjustment_reasons WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_package_adjustment_reasons (name) VALUES (?)').run(parse.data.name);
+    return reply.code(201).send({ reason_id: Number(r.lastInsertRowid), name: parse.data.name });
+  });
+
+  fastify.delete('/admin/adjustment-reasons/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_package_adjustment_reasons WHERE reason_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: units of measure ───────────────────────────────────────────────
+
+  fastify.get('/admin/units-of-measure', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_units_of_measure ORDER BY name').all());
+  });
+
+  fastify.post('/admin/units-of-measure', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminUomSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT uom_id FROM cv_metrc_units_of_measure WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_units_of_measure (name, unit_type) VALUES (?, ?)').run(parse.data.name, parse.data.unit_type);
+    return reply.code(201).send({ uom_id: Number(r.lastInsertRowid), name: parse.data.name, unit_type: parse.data.unit_type });
+  });
+
+  fastify.delete('/admin/units-of-measure/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_units_of_measure WHERE uom_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: items ──────────────────────────────────────────────────────────
+
+  fastify.get('/admin/items', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_metrc_items ORDER BY name').all());
+  });
+
+  fastify.post('/admin/items', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminItemSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    if (db.prepare('SELECT item_id FROM cv_metrc_items WHERE name = ?').get(parse.data.name)) {
+      return reply.code(400).send({ error: 'Name already exists' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_items (name, category) VALUES (?, ?)').run(parse.data.name, parse.data.category ?? null);
+    return reply.code(201).send({ item_id: Number(r.lastInsertRowid), name: parse.data.name, category: parse.data.category ?? null });
+  });
+
+  fastify.delete('/admin/items/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_items WHERE item_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: sublocations ───────────────────────────────────────────────────
+
+  fastify.get('/admin/sublocations', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    const rows = getDB().prepare(`
+      SELECT s.*, l.name AS location_name
+      FROM cv_metrc_sublocations s
+      LEFT JOIN cv_locations l ON l.location_id = s.location_id
+      ORDER BY l.name NULLS LAST, s.name
+    `).all();
+    return reply.send(rows);
+  });
+
+  fastify.post('/admin/sublocations', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminSublocationSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const { name, location_id, sub_zone_id } = parse.data;
+    const db = getDB();
+    if (location_id) {
+      const loc = db.prepare('SELECT location_id FROM cv_locations WHERE location_id = ?').get(location_id);
+      if (!loc) return reply.code(400).send({ error: 'location_id not found' });
+    }
+    if (db.prepare('SELECT sublocation_id FROM cv_metrc_sublocations WHERE name = ? AND (location_id IS ? OR location_id = ?)').get(name, location_id ?? null, location_id ?? null)) {
+      return reply.code(400).send({ error: 'Sublocation with this name already exists for this location' });
+    }
+    const r = db.prepare('INSERT INTO cv_metrc_sublocations (name, location_id, sub_zone_id) VALUES (?, ?, ?)').run(name, location_id ?? null, sub_zone_id ?? null);
+    return reply.code(201).send({ sublocation_id: Number(r.lastInsertRowid), name, location_id: location_id ?? null, sub_zone_id: sub_zone_id ?? null });
+  });
+
+  fastify.delete('/admin/sublocations/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const r = getDB().prepare('DELETE FROM cv_metrc_sublocations WHERE sublocation_id = ?').run(Number(id));
+    if (r.changes === 0) return reply.code(404).send({ error: 'Not found' });
+    return reply.code(204).send();
+  });
+
+  // ── Admin: plant tags ─────────────────────────────────────────────────────
+
+  fastify.get('/admin/plant-tags', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    const db = getDB();
+    const counts = db.prepare(
+      'SELECT status, COUNT(*) AS count FROM cv_metrc_available_plant_tags GROUP BY status'
+    ).all() as { status: string; count: number }[];
+    const total = counts.reduce((s, r) => s + r.count, 0);
+    const byStatus: Record<string, number> = {};
+    for (const r of counts) byStatus[r.status] = r.count;
+    const recent = db.prepare(
+      'SELECT tag, status, reserved_at, used_at FROM cv_metrc_available_plant_tags ORDER BY rowid DESC LIMIT 20'
+    ).all();
+    return reply.send({ counts: { ...byStatus, total }, recent });
+  });
+
+  fastify.post('/admin/plant-tags', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminTagsImportSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    const stmt = db.prepare('INSERT OR IGNORE INTO cv_metrc_available_plant_tags (tag, status) VALUES (?, \'available\')');
+    let added = 0;
+    const insertAll = db.transaction(() => {
+      for (const tag of parse.data.tags) {
+        const r = stmt.run(tag.toUpperCase());
+        added += r.changes;
+      }
+    });
+    insertAll();
+    const skipped = parse.data.tags.length - added;
+    const total = (db.prepare('SELECT COUNT(*) AS n FROM cv_metrc_available_plant_tags').get() as { n: number }).n;
+    return reply.code(201).send({ added, skipped, total_now: total });
+  });
+
+  // ── Admin: package tags ───────────────────────────────────────────────────
+
+  fastify.get('/admin/package-tags', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    const db = getDB();
+    const counts = db.prepare(
+      'SELECT status, COUNT(*) AS count FROM cv_metrc_available_package_tags GROUP BY status'
+    ).all() as { status: string; count: number }[];
+    const total = counts.reduce((s, r) => s + r.count, 0);
+    const byStatus: Record<string, number> = {};
+    for (const r of counts) byStatus[r.status] = r.count;
+    const recent = db.prepare(
+      'SELECT tag, status, used_at FROM cv_metrc_available_package_tags ORDER BY rowid DESC LIMIT 20'
+    ).all();
+    return reply.send({ counts: { ...byStatus, total }, recent });
+  });
+
+  fastify.post('/admin/package-tags', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminTagsImportSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    const stmt = db.prepare('INSERT OR IGNORE INTO cv_metrc_available_package_tags (tag, status) VALUES (?, \'available\')');
+    let added = 0;
+    const insertAll = db.transaction(() => {
+      for (const tag of parse.data.tags) {
+        const r = stmt.run(tag.toUpperCase());
+        added += r.changes;
+      }
+    });
+    insertAll();
+    const skipped = parse.data.tags.length - added;
+    const total = (db.prepare('SELECT COUNT(*) AS n FROM cv_metrc_available_package_tags').get() as { n: number }).n;
+    return reply.code(201).send({ added, skipped, total_now: total });
+  });
+
+  // ── Admin: employees ──────────────────────────────────────────────────────
+
+  fastify.get('/admin/employees', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    return reply.send(getDB().prepare('SELECT * FROM cv_employees ORDER BY name').all());
+  });
+
+  fastify.post('/admin/employees', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parse = AdminEmployeeCreateSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const { license_number, name, role, user_id } = parse.data;
+    const db = getDB();
+    if (db.prepare('SELECT employee_id FROM cv_employees WHERE license_number = ?').get(license_number)) {
+      return reply.code(400).send({ error: 'License number already exists' });
+    }
+    const now = new Date().toISOString();
+    const r = db.prepare(
+      'INSERT INTO cv_employees (license_number, name, role, user_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?)'
+    ).run(license_number, name, role ?? null, user_id ?? null, now, now);
+    return reply.code(201).send({ employee_id: Number(r.lastInsertRowid), license_number, name, role: role ?? null, is_active: 1 });
+  });
+
+  fastify.patch('/admin/employees/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const parse = AdminEmployeePatchSchema.safeParse(req.body);
+    if (!parse.success) return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    const db = getDB();
+    const emp = db.prepare('SELECT employee_id FROM cv_employees WHERE employee_id = ?').get(Number(id));
+    if (!emp) return reply.code(404).send({ error: 'Not found' });
+    const fields = parse.data;
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if ('is_active' in fields) { sets.push('is_active = ?'); vals.push(fields.is_active); }
+    if ('license_number' in fields) { sets.push('license_number = ?'); vals.push(fields.license_number); }
+    if ('name' in fields) { sets.push('name = ?'); vals.push(fields.name); }
+    if ('role' in fields) { sets.push('role = ?'); vals.push(fields.role ?? null); }
+    sets.push('updated_at = ?');
+    vals.push(new Date().toISOString());
+    vals.push(Number(id));
+    db.prepare(`UPDATE cv_employees SET ${sets.join(', ')} WHERE employee_id = ?`).run(...vals);
+    return reply.send(db.prepare('SELECT * FROM cv_employees WHERE employee_id = ?').get(Number(id)));
   });
 };
 

@@ -296,4 +296,52 @@ export const api = {
   // METRC CSV — plants waste (#21)
   getPendingPlantsWaste: () => req('GET', '/metrc/csv/plants-waste/pending'),
   submitPlantsWaste: (body) => req('POST', '/metrc/csv/plants-waste', body),
+
+  // METRC Setup admin — waste methods
+  getMetrcWasteMethods: () => req('GET', '/metrc/csv/admin/waste-methods'),
+  createMetrcWasteMethod: (data) => req('POST', '/metrc/csv/admin/waste-methods', data),
+  deleteMetrcWasteMethod: (id) => req('DELETE', `/metrc/csv/admin/waste-methods/${id}`),
+
+  // METRC Setup admin — plant waste reasons
+  getMetrcPlantWasteReasons: () => req('GET', '/metrc/csv/admin/plant-waste-reasons'),
+  createMetrcPlantWasteReason: (data) => req('POST', '/metrc/csv/admin/plant-waste-reasons', data),
+  deleteMetrcPlantWasteReason: (id) => req('DELETE', `/metrc/csv/admin/plant-waste-reasons/${id}`),
+
+  // METRC Setup admin — batch waste reasons
+  getMetrcBatchWasteReasons: () => req('GET', '/metrc/csv/admin/batch-waste-reasons'),
+  createMetrcBatchWasteReason: (data) => req('POST', '/metrc/csv/admin/batch-waste-reasons', data),
+  deleteMetrcBatchWasteReason: (id) => req('DELETE', `/metrc/csv/admin/batch-waste-reasons/${id}`),
+
+  // METRC Setup admin — adjustment reasons
+  getMetrcAdjustmentReasons: () => req('GET', '/metrc/csv/admin/adjustment-reasons'),
+  createMetrcAdjustmentReason: (data) => req('POST', '/metrc/csv/admin/adjustment-reasons', data),
+  deleteMetrcAdjustmentReason: (id) => req('DELETE', `/metrc/csv/admin/adjustment-reasons/${id}`),
+
+  // METRC Setup admin — units of measure
+  getMetrcUnitsOfMeasure: () => req('GET', '/metrc/csv/admin/units-of-measure'),
+  createMetrcUnitOfMeasure: (data) => req('POST', '/metrc/csv/admin/units-of-measure', data),
+  deleteMetrcUnitOfMeasure: (id) => req('DELETE', `/metrc/csv/admin/units-of-measure/${id}`),
+
+  // METRC Setup admin — items
+  getMetrcItems: () => req('GET', '/metrc/csv/admin/items'),
+  createMetrcItem: (data) => req('POST', '/metrc/csv/admin/items', data),
+  deleteMetrcItem: (id) => req('DELETE', `/metrc/csv/admin/items/${id}`),
+
+  // METRC Setup admin — sublocations
+  getMetrcSublocations: () => req('GET', '/metrc/csv/admin/sublocations'),
+  createMetrcSublocation: (data) => req('POST', '/metrc/csv/admin/sublocations', data),
+  deleteMetrcSublocation: (id) => req('DELETE', `/metrc/csv/admin/sublocations/${id}`),
+
+  // METRC Setup admin — plant tags
+  getMetrcPlantTagCounts: () => req('GET', '/metrc/csv/admin/plant-tags'),
+  importMetrcPlantTags: (data) => req('POST', '/metrc/csv/admin/plant-tags', data),
+
+  // METRC Setup admin — package tags
+  getMetrcPackageTagCounts: () => req('GET', '/metrc/csv/admin/package-tags'),
+  importMetrcPackageTags: (data) => req('POST', '/metrc/csv/admin/package-tags', data),
+
+  // METRC Setup admin — employees
+  getMetrcEmployees: () => req('GET', '/metrc/csv/admin/employees'),
+  createMetrcEmployee: (data) => req('POST', '/metrc/csv/admin/employees', data),
+  updateMetrcEmployee: (id, data) => req('PATCH', `/metrc/csv/admin/employees/${id}`, data),
 };
