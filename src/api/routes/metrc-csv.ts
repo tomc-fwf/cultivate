@@ -2,9 +2,36 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { getDB } from '../../db/index.js';
 import { requireAuth } from '../middleware/auth.middleware.js';
-import { writeCsv, generateAdditiveTemplateCsv } from '../../lib/metrc-csv/index.js';
+import {
+  writeCsv,
+  generateAdditiveTemplateCsv,
+  generatePlantsWasteCsv,
+} from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
+
+// Plants Waste (#21)
+const METRC_TAG_RE = /^[A-Za-z0-9]{24}$/;
+const WASTE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+const PlantsWasteRowSchema = z.object({
+  waste_method_name: z.string().min(1),
+  mixed_material: z.string().optional().nullable(),
+  waste_weight: z.number().gt(0),
+  unit_of_measure_name: z.string().min(1),
+  reason_name: z.string().min(1),
+  note: z.string().optional().nullable(),
+  location_name: z.string().optional().nullable(),
+  sublocation_name: z.string().optional().nullable(),
+  waste_date: z.string().regex(WASTE_DATE_RE, 'waste_date must be YYYY-MM-DD'),
+  plant_labels: z
+    .array(z.string().regex(METRC_TAG_RE, 'Each plant label must be 24 alphanumeric characters'))
+    .optional(),
+});
+
+const CreatePlantsWasteSchema = z.object({
+  events: z.array(PlantsWasteRowSchema).min(1).max(500),
+});
 
 const ActiveIngredientSchema = z.object({
   name: z.string().min(1),
@@ -150,6 +177,140 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       active_ingredients: JSON.parse(r['active_ingredients'] as string),
     }));
     return reply.send(result);
+  });
+
+  // GET /api/metrc/csv/plants-waste/pending
+  fastify.get('/plants-waste/pending', { preHandler: [requireAuth] }, async (_req, reply) => {
+    const db = getDB();
+    const rows = db
+      .prepare(
+        `SELECT
+          w.waste_trim_id,
+          w.batch_id,
+          w.container_id,
+          w.plant_assignment_id,
+          w.trimmed_at,
+          w.trim_reason,
+          w.trim_reason_notes,
+          w.wet_weight,
+          w.weight_unit,
+          w.waste_status,
+          w.notes,
+          w.metrc_waste_method,
+          w.metrc_waste_reason,
+          pa.metrc_plant_tag,
+          b.batch_id AS linked_batch_id,
+          s.name AS strain_name
+        FROM cv_plant_waste_trim_events w
+        LEFT JOIN cv_plant_assignments pa ON pa.assignment_id = w.plant_assignment_id
+        LEFT JOIN cv_batches b ON b.batch_id = w.batch_id
+        LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
+        WHERE w.metrc_csv_generated_at IS NULL
+          AND w.waste_status IN ('collected', 'held')
+        ORDER BY w.trimmed_at DESC
+        LIMIT 200`,
+      )
+      .all();
+    return reply.send(rows);
+  });
+
+  // POST /api/metrc/csv/plants-waste
+  fastify.post('/plants-waste', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = CreatePlantsWasteSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { events } = parse.data;
+    const db = getDB();
+    const warnings: string[] = [];
+
+    // Validate location_names against cv_locations.metrc_name
+    const locationNames = [
+      ...new Set(
+        events.map((e) => e.location_name).filter((l): l is string => !!l && l.trim() !== ''),
+      ),
+    ];
+    if (locationNames.length > 0) {
+      const placeholders = locationNames.map(() => '?').join(',');
+      const found = db
+        .prepare(`SELECT metrc_name FROM cv_locations WHERE metrc_name IN (${placeholders})`)
+        .all(...locationNames) as { metrc_name: string }[];
+      const foundSet = new Set(found.map((r) => r.metrc_name));
+      const missing = locationNames.filter((l) => !foundSet.has(l));
+      if (missing.length > 0) {
+        return reply
+          .code(400)
+          .send({ error: `Unknown location_name(s) — not in cv_locations.metrc_name: ${missing.join(', ')}` });
+      }
+    }
+
+    // Warn if reference tables are empty
+    const methodCount = (
+      db.prepare('SELECT COUNT(*) AS n FROM cv_metrc_plant_waste_methods').get() as { n: number }
+    ).n;
+    if (methodCount === 0) {
+      warnings.push(
+        'cv_metrc_plant_waste_methods is empty — waste method values are not validated against a reference list',
+      );
+    }
+    const reasonCount = (
+      db.prepare('SELECT COUNT(*) AS n FROM cv_metrc_plant_waste_reasons').get() as { n: number }
+    ).n;
+    if (reasonCount === 0) {
+      warnings.push(
+        'cv_metrc_plant_waste_reasons is empty — reason values are not validated against a reference list',
+      );
+    }
+
+    // Generate CSV content
+    const csvContent = generatePlantsWasteCsv(events);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'plants-waste');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    const insertFn = db.transaction(() => {
+      // Update matching cv_plant_waste_trim_events (match on plant tag + waste date)
+      for (const event of events) {
+        if (!event.plant_labels || event.plant_labels.length === 0) continue;
+        for (const tag of event.plant_labels) {
+          db.prepare(
+            `UPDATE cv_plant_waste_trim_events
+             SET metrc_waste_method = COALESCE(metrc_waste_method, ?),
+                 metrc_waste_reason = COALESCE(metrc_waste_reason, ?),
+                 metrc_csv_generated_at = ?,
+                 metrc_csv_file_path = ?
+             WHERE waste_trim_id IN (
+               SELECT w.waste_trim_id
+               FROM cv_plant_waste_trim_events w
+               JOIN cv_plant_assignments pa ON pa.assignment_id = w.plant_assignment_id
+               WHERE pa.metrc_plant_tag = ?
+                 AND DATE(w.trimmed_at) = ?
+                 AND w.metrc_csv_generated_at IS NULL
+             )`,
+          ).run(event.waste_method_name, event.reason_name, now, filePath, tag, event.waste_date);
+        }
+      }
+
+      const uploadResult = db
+        .prepare(
+          `INSERT INTO cv_metrc_csv_uploads
+             (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+        )
+        .run('plants-waste', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    const uploadId = insertFn();
+
+    return reply.code(201).send({
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
   });
 };
 
