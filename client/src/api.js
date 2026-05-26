@@ -335,10 +335,12 @@ export const api = {
   // METRC Setup admin — plant tags
   getMetrcPlantTagCounts: () => req('GET', '/metrc/csv/admin/plant-tags'),
   importMetrcPlantTags: (data) => req('POST', '/metrc/csv/admin/plant-tags', data),
+  resetMetrcPlantTags: () => req('DELETE', '/metrc/csv/admin/plant-tags/available'),
 
   // METRC Setup admin — package tags
   getMetrcPackageTagCounts: () => req('GET', '/metrc/csv/admin/package-tags'),
   importMetrcPackageTags: (data) => req('POST', '/metrc/csv/admin/package-tags', data),
+  resetMetrcPackageTags: () => req('DELETE', '/metrc/csv/admin/package-tags/available'),
 
   // METRC Setup admin — employees
   getMetrcEmployees: () => req('GET', '/metrc/csv/admin/employees'),

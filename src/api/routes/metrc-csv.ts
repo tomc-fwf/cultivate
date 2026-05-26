@@ -1635,6 +1635,18 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.code(201).send({ added, skipped, total_now: total });
   });
 
+  fastify.delete('/admin/plant-tags/available', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    const db = getDB();
+    const r = db.prepare("DELETE FROM cv_metrc_available_plant_tags WHERE status = 'available'").run();
+    return reply.send({ deleted: r.changes });
+  });
+
+  fastify.delete('/admin/package-tags/available', { preHandler: [requireRole('admin')] }, async (_req, reply) => {
+    const db = getDB();
+    const r = db.prepare("DELETE FROM cv_metrc_available_package_tags WHERE status = 'available'").run();
+    return reply.send({ deleted: r.changes });
+  });
+
   // ── Admin: employees ──────────────────────────────────────────────────────
 
   fastify.get('/admin/employees', { preHandler: [requireRole('admin')] }, async (_req, reply) => {

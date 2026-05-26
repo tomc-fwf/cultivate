@@ -456,13 +456,16 @@ function SublocationsTab() {
 
 // ── Tag pool section ──────────────────────────────────────────────────────────
 
-function TagPoolSection({ title, description, onGetCounts, onImport }) {
+function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [prefix, setPrefix] = useState('');
+  const [confirmPrefix, setConfirmPrefix] = useState('');
   const [startNum, setStartNum] = useState('');
   const [count, setCount] = useState('');
   const [importing, setImporting] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [err, setErr] = useState(null);
 
@@ -478,7 +481,9 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
   // Generate preview tags from prefix + range
   const prefixClean = prefix.trim().toUpperCase();
+  const confirmPrefixClean = confirmPrefix.trim().toUpperCase();
   const prefixValid = /^[A-Z0-9]{18}$/.test(prefixClean);
+  const prefixMatches = prefixClean === confirmPrefixClean;
   const startInt = parseInt(startNum, 10);
   const countInt = parseInt(count, 10);
   const rangeValid = !isNaN(startInt) && !isNaN(countInt) && startInt >= 1 && countInt >= 1 && countInt <= 10000;
@@ -497,7 +502,7 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
   async function handleImport(e) {
     e.preventDefault();
-    if (generatedTags.length === 0) return;
+    if (generatedTags.length === 0 || !prefixMatches) return;
     setImporting(true);
     setErr(null);
     setImportResult(null);
@@ -511,6 +516,24 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
       setErr(error.message);
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function handleReset() {
+    setResetting(true);
+    setErr(null);
+    try {
+      const result = await onReset();
+      setConfirmReset(false);
+      setImportResult(null);
+      await load();
+      setErr(null);
+      // Show brief success inline
+      setImportResult({ added: 0, skipped: 0, total_now: 0, _reset: true, deleted: result.deleted });
+    } catch (error) {
+      setErr(error.message);
+    } finally {
+      setResetting(false);
     }
   }
 
@@ -539,7 +562,51 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
       {importResult && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-          Added {importResult.added} tags · Skipped {importResult.skipped} duplicates · Total in pool: {importResult.total_now}
+          {importResult._reset
+            ? `Cleared ${importResult.deleted} available tags from pool`
+            : `Added ${importResult.added} tags · Skipped ${importResult.skipped} duplicates · Total in pool: ${importResult.total_now}`}
+        </div>
+      )}
+
+      {/* Reset available tags */}
+      {(counts.available ?? 0) > 0 && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-2xl">
+          {!confirmReset ? (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-red-700">
+                Remove all {counts.available} available tags from the pool (reserved and used tags are kept).
+              </span>
+              <button
+                onClick={() => setConfirmReset(true)}
+                className="text-xs font-semibold text-red-700 underline whitespace-nowrap hover:text-red-900"
+              >
+                Clear available tags
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold text-red-800">
+                Delete {counts.available} available tags? This cannot be undone.
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmReset(false)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-700 hover:bg-red-50"
+                  style={{ minHeight: '32px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleReset}
+                  disabled={resetting}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-50"
+                  style={{ minHeight: '32px' }}
+                >
+                  {resetting ? 'Clearing…' : 'Yes, clear'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -568,6 +635,29 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
             />
             {prefix && !prefixValid && (
               <p className="text-xs text-red-600 mt-1">Must be exactly 18 alphanumeric characters ({prefixClean.length}/18)</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Confirm Prefix <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={confirmPrefix}
+              onChange={(e) => setConfirmPrefix(e.target.value.toUpperCase())}
+              placeholder="Re-enter prefix to confirm"
+              maxLength={18}
+              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                confirmPrefix && !prefixMatches ? 'border-red-300 bg-red-50' : confirmPrefix && prefixMatches && prefixValid ? 'border-green-400 bg-green-50' : 'border-gray-300'
+              }`}
+              style={{ minHeight: '44px' }}
+            />
+            {confirmPrefix && !prefixMatches && (
+              <p className="text-xs text-red-600 mt-1">Prefixes do not match</p>
+            )}
+            {confirmPrefix && prefixMatches && prefixValid && (
+              <p className="text-xs text-green-700 mt-1">✓ Prefixes match</p>
             )}
           </div>
 
@@ -623,7 +713,7 @@ function TagPoolSection({ title, description, onGetCounts, onImport }) {
 
           <button
             type="submit"
-            disabled={importing || !prefixValid || !rangeValid}
+            disabled={importing || !prefixValid || !prefixMatches || !rangeValid}
             className="px-4 py-2.5 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50"
             style={{ minHeight: '44px' }}
           >
@@ -672,12 +762,14 @@ function TagPoolsTab() {
         description="24-character METRC plant tags available for assignment. Import the tag ranges issued to your facility."
         onGetCounts={api.getMetrcPlantTagCounts}
         onImport={api.importMetrcPlantTags}
+        onReset={api.resetMetrcPlantTags}
       />
       <TagPoolSection
         title="Package Tags"
         description="24-character METRC package tags. Used when creating immature plant packages and harvest packages."
         onGetCounts={api.getMetrcPackageTagCounts}
         onImport={api.importMetrcPackageTags}
+        onReset={api.resetMetrcPackageTags}
       />
     </div>
   );
