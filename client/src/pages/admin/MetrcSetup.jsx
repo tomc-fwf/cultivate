@@ -456,11 +456,9 @@ function SublocationsTab() {
 
 // ── Tag pool section ──────────────────────────────────────────────────────────
 
-function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) {
+function TagPoolSection({ title, description, prefix, onGetCounts, onImport, onReset }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [prefix, setPrefix] = useState('');
-  const [confirmPrefix, setConfirmPrefix] = useState('');
   const [startNum, setStartNum] = useState('');
   const [count, setCount] = useState('');
   const [importing, setImporting] = useState(false);
@@ -479,20 +477,16 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
 
   useEffect(() => { load(); }, [load]);
 
-  // Generate preview tags from prefix + range
-  const prefixClean = prefix.trim().toUpperCase();
-  const confirmPrefixClean = confirmPrefix.trim().toUpperCase();
-  const prefixValid = /^[A-Z0-9]{18}$/.test(prefixClean);
-  const prefixMatches = prefixClean === confirmPrefixClean;
   const startInt = parseInt(startNum, 10);
   const countInt = parseInt(count, 10);
   const rangeValid = !isNaN(startInt) && !isNaN(countInt) && startInt >= 1 && countInt >= 1 && countInt <= 10000;
+  const prefixReady = /^[A-Z0-9]{18}$/.test(prefix);
 
   function generateTags() {
-    if (!prefixValid || !rangeValid) return [];
+    if (!prefixReady || !rangeValid) return [];
     return Array.from({ length: countInt }, (_, i) => {
       const seq = String(startInt + i).padStart(6, '0');
-      return prefixClean + seq;
+      return prefix + seq;
     });
   }
 
@@ -502,7 +496,7 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
 
   async function handleImport(e) {
     e.preventDefault();
-    if (generatedTags.length === 0 || !prefixMatches) return;
+    if (generatedTags.length === 0) return;
     setImporting(true);
     setErr(null);
     setImportResult(null);
@@ -525,11 +519,8 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
     try {
       const result = await onReset();
       setConfirmReset(false);
-      setImportResult(null);
+      setImportResult({ _reset: true, deleted: result.deleted });
       await load();
-      setErr(null);
-      // Show brief success inline
-      setImportResult({ added: 0, skipped: 0, total_now: 0, _reset: true, deleted: result.deleted });
     } catch (error) {
       setErr(error.message);
     } finally {
@@ -612,55 +603,13 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
 
       {/* Import form */}
       <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-4">
-        <h4 className="text-sm font-semibold text-gray-700 mb-1">Import Tags</h4>
-        <p className="text-xs text-gray-500 mb-4">
-          Enter your 18-character facility prefix, the first tag number in the range, and how many tags to import.
-        </p>
+        <h4 className="text-sm font-semibold text-gray-700 mb-3">Import Tags</h4>
+        {!prefixReady && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-3">
+            Enter and confirm your facility prefix above before importing.
+          </p>
+        )}
         <form onSubmit={handleImport} className="grid grid-cols-1 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Facility Prefix <span className="text-red-500">*</span>
-              <span className="ml-1 font-normal text-gray-400">(18 characters)</span>
-            </label>
-            <input
-              type="text"
-              value={prefix}
-              onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-              placeholder="e.g. 1A4FF0100000001000"
-              maxLength={18}
-              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                prefix && !prefixValid ? 'border-red-300 bg-red-50' : 'border-gray-300'
-              }`}
-              style={{ minHeight: '44px' }}
-            />
-            {prefix && !prefixValid && (
-              <p className="text-xs text-red-600 mt-1">Must be exactly 18 alphanumeric characters ({prefixClean.length}/18)</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Confirm Prefix <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={confirmPrefix}
-              onChange={(e) => setConfirmPrefix(e.target.value.toUpperCase())}
-              placeholder="Re-enter prefix to confirm"
-              maxLength={18}
-              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
-                confirmPrefix && !prefixMatches ? 'border-red-300 bg-red-50' : confirmPrefix && prefixMatches && prefixValid ? 'border-green-400 bg-green-50' : 'border-gray-300'
-              }`}
-              style={{ minHeight: '44px' }}
-            />
-            {confirmPrefix && !prefixMatches && (
-              <p className="text-xs text-red-600 mt-1">Prefixes do not match</p>
-            )}
-            {confirmPrefix && prefixMatches && prefixValid && (
-              <p className="text-xs text-green-700 mt-1">✓ Prefixes match</p>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -673,7 +622,8 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
                 onChange={(e) => setStartNum(e.target.value)}
                 placeholder="e.g. 1"
                 min={1}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                disabled={!prefixReady}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40"
                 style={{ minHeight: '44px' }}
               />
             </div>
@@ -689,14 +639,15 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
                 placeholder="e.g. 500"
                 min={1}
                 max={10000}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                disabled={!prefixReady}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40"
                 style={{ minHeight: '44px' }}
               />
             </div>
           </div>
 
           {/* Preview */}
-          {prefixValid && rangeValid && generatedTags.length > 0 && (
+          {prefixReady && rangeValid && generatedTags.length > 0 && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5">
               <div className="text-xs font-medium text-gray-500 mb-1">Preview — {generatedTags.length} tags</div>
               <div className="font-mono text-xs text-gray-700 space-y-0.5">
@@ -713,7 +664,7 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
 
           <button
             type="submit"
-            disabled={importing || !prefixValid || !prefixMatches || !rangeValid}
+            disabled={importing || !prefixReady || !rangeValid}
             className="px-4 py-2.5 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50"
             style={{ minHeight: '44px' }}
           >
@@ -722,15 +673,15 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
         </form>
       </div>
 
-      {/* Recent tags */}
+      {/* Recent tags — scrollable */}
       {recent.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
           <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
             <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-              Most recent tags
+              Tag pool ({recent.length} shown)
             </span>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: '240px' }}>
             {recent.map((t) => (
               <div key={t.tag} className="flex items-center justify-between px-4 py-2">
                 <span className="font-mono text-xs text-gray-700">{t.tag}</span>
@@ -755,18 +706,83 @@ function TagPoolSection({ title, description, onGetCounts, onImport, onReset }) 
 // ── Tab 3: Tag Pools ──────────────────────────────────────────────────────────
 
 function TagPoolsTab() {
+  const [prefix, setPrefix] = useState('');
+  const [confirmPrefix, setConfirmPrefix] = useState('');
+
+  const prefixClean = prefix.trim().toUpperCase();
+  const confirmPrefixClean = confirmPrefix.trim().toUpperCase();
+  const prefixValid = /^[A-Z0-9]{18}$/.test(prefixClean);
+  const prefixMatches = prefixClean === confirmPrefixClean;
+  const prefixReady = prefixValid && prefixMatches;
+
   return (
     <div>
+      {/* Shared facility prefix — entered once, used by both plant and package tag imports */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 mb-6">
+        <h4 className="text-sm font-semibold text-gray-700 mb-1">Facility Prefix</h4>
+        <p className="text-xs text-gray-500 mb-3">
+          The 18-character prefix shared by all your METRC tags. Enter it once and it applies to both plant and package tag imports below.
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Prefix <span className="text-red-500">*</span>
+              <span className="ml-1 font-normal text-gray-400">(18 characters)</span>
+            </label>
+            <input
+              type="text"
+              value={prefix}
+              onChange={(e) => setPrefix(e.target.value.toUpperCase())}
+              placeholder="e.g. 1A4FF0100000001000"
+              maxLength={18}
+              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                prefix && !prefixValid ? 'border-red-300 bg-red-50' : 'border-gray-300'
+              }`}
+              style={{ minHeight: '44px' }}
+            />
+            {prefix && !prefixValid && (
+              <p className="text-xs text-red-600 mt-1">Must be exactly 18 alphanumeric characters ({prefixClean.length}/18)</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">
+              Confirm Prefix <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={confirmPrefix}
+              onChange={(e) => setConfirmPrefix(e.target.value.toUpperCase())}
+              placeholder="Re-enter to confirm"
+              maxLength={18}
+              className={`w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 ${
+                confirmPrefix && !prefixMatches ? 'border-red-300 bg-red-50'
+                  : confirmPrefix && prefixReady ? 'border-green-400 bg-green-50'
+                  : 'border-gray-300'
+              }`}
+              style={{ minHeight: '44px' }}
+            />
+            {confirmPrefix && !prefixMatches && (
+              <p className="text-xs text-red-600 mt-1">Prefixes do not match</p>
+            )}
+            {prefixReady && (
+              <p className="text-xs text-green-700 mt-1">✓ Prefix confirmed — {prefixClean}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
       <TagPoolSection
         title="Plant Tags"
-        description="24-character METRC plant tags available for assignment. Import the tag ranges issued to your facility."
+        description="METRC plant tags for individual plant assignment."
+        prefix={prefixReady ? prefixClean : ''}
         onGetCounts={api.getMetrcPlantTagCounts}
         onImport={api.importMetrcPlantTags}
         onReset={api.resetMetrcPlantTags}
       />
       <TagPoolSection
         title="Package Tags"
-        description="24-character METRC package tags. Used when creating immature plant packages and harvest packages."
+        description="METRC package tags for immature plant packages and harvest packages."
+        prefix={prefixReady ? prefixClean : ''}
         onGetCounts={api.getMetrcPackageTagCounts}
         onImport={api.importMetrcPackageTags}
         onReset={api.resetMetrcPackageTags}
