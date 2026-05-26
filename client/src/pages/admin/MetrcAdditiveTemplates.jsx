@@ -192,24 +192,27 @@ export default function MetrcAdditiveTemplates() {
               </select>
             </div>
 
-            {/* EPA Registration Number — shown only for Pesticide */}
-            {form.additive_type === 'Pesticide' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">
-                  EPA Registration Number <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required={form.additive_type === 'Pesticide'}
-                  maxLength={50}
-                  value={form.epa_registration_number}
-                  onChange={(e) => updateField('epa_registration_number', e.target.value)}
-                  placeholder="e.g. 70299-19"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  style={{ minHeight: '44px' }}
-                />
-              </div>
-            )}
+            {/* EPA Registration Number — required for Pesticide, optional but available for all types */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                EPA Registration Number
+                {form.additive_type === 'Pesticide' && <span className="text-red-500"> *</span>}
+                {form.additive_type !== 'Pesticide' && <span className="text-gray-400 font-normal"> (if applicable)</span>}
+              </label>
+              <input
+                type="text"
+                required={form.additive_type === 'Pesticide'}
+                maxLength={50}
+                value={form.epa_registration_number}
+                onChange={(e) => updateField('epa_registration_number', e.target.value)}
+                placeholder="e.g. 70299-19"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                style={{ minHeight: '44px' }}
+              />
+              {form.additive_type !== 'Pesticide' && (
+                <p className="text-xs text-gray-400 mt-1">Required in MN if this product has an EPA registration number.</p>
+              )}
+            </div>
 
             {/* Product Trade Name */}
             <div>
