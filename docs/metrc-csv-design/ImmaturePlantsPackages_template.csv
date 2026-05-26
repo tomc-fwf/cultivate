@@ -1,0 +1,3 @@
+PlantBatch,Item,Tag,PatientLicenseNumber,Note,IsTradeSample,IsDonation,Count,Location,Sublocation,ActualDate
+Demo Plant Batch 1,Immature Plants,ABCDEF012345670000020201,P00001,This is a note.,False,False,10,,Plant Batch Sublocation,2015-12-15
+Demo Plant Batch 2,Immature Plants,ABCDEF012345670000020202,P00002,,True,False,10,,,2015-12-15

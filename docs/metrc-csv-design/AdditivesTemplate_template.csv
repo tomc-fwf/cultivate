@@ -1,0 +1,6 @@
+Name,AdditiveTypeName,ProductTradeName,EpaRegistrationNumber,Note,RestrictiveEntryIntervalQuantityDescription,RestrictiveEntryIntervalTimeDescription,ProductSupplier,ApplicationDevice,ActiveIngredientName,ActiveIngredientPercentage
+Additive Template 1,Fertilizer,Wonder Sprout,EPA1234ABCD,Note 1,3,days,G Labs,GreatDistributor 210lb,Phosporus,30
+Additive Template 1,Fertilizer,Wonder Sprout,EPA1234ABCD,Note 1,3,days,G Labs,GreatDistributor 210lb,Nitrogen,15
+Additive Template 2,Fertilizer,Wonder Sprout,EPA1234ABCD,Note,12,hours,G Labs,GreatDistributor 210lb,Potassium,15
+Additive Template 3,Pesticide,My Awesome Pesticide,RIDAPEST1234,Note XYZ,3,days,Pesticides R Us,Pesticide Sprayer,Nitrogen,2
+Additive Template 4,Pesticide,My Awesome Pesticide,RIDAPEST1234,ABC,4,days,Pesticides R Us,Pesticide Sprayer,Potassium,3

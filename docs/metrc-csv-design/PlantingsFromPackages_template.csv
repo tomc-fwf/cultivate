@@ -1,0 +1,4 @@
+PackageLabel,PackageAdjustmentAmount,PackageAdjustmentUnitOfMeasureName,PlantBatchName,PlantBatchType,PlantCount,StrainName,LocationName,SublocationName,PatientLicenseNumber,PlantedDate,UnpackagedDate
+ABCDEF012345670000010041,2,Ounces,AK-47 Clone 1/31/2017,Clone,1,AK-47,Plant Batch Location1,Plant Batch Sublocation1,X00001,2017-01-31,2017-01-31
+ABCDEF012345670000010042,4,Ounces,Flo Seed 1/31/2017,Seed,2,Flo,Plant Batch Location2,Plant Batch Sublocation2,X00002,2017-01-31,2017-01-31
+ABCDEF012345670000010043,,,Blue Dream Plants 1/31/2017,Clone,10,Blue Dream,Plant Batch Location3,Plant Batch Sublocation3,X00003,2017-01-31,2017-01-31

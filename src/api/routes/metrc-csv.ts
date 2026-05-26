@@ -1167,6 +1167,13 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
 
     const plantBatchName = batch.metrc_plant_batch_uid ?? batch.name ?? String(batch.batch_id);
 
+    const warnings: string[] = [];
+    if (data.waste_weight === 0) {
+      warnings.push(
+        'waste_weight is 0 — no waste will be recorded in METRC; waste_method_name and waste_uom are omitted from CSV',
+      );
+    }
+
     const csvContent = generateDestroyImmatureCsv({
       plant_batch_name: plantBatchName,
       count: data.count,
@@ -1245,7 +1252,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       csv_file_path: filePath,
       row_count: rowCount,
       upload_id: uploadId,
-      warnings: [],
+      warnings,
     });
   });
 

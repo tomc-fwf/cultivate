@@ -1,0 +1,3 @@
+PlantLabel,PlantBatchName,PlantBatchType,PlantCount,StrainName,LocationName,SublocationName,PatientLicenseNumber,ActualDate
+ABCDEF012345670000010011,Demo Plant Batch 1,Clone,3,Spring Hill Kush,Plant Location,Plant Sublocation,X00001,2016-10-18
+ABCDEF012345670000010012,Demo Plant Batch 2,Seed,2,Spring Hill Kush,Plant Location,Plant Sublocation,X00002,2016-10-18

@@ -1,0 +1,5 @@
+Tag,Location,Sublocation,Item,UnitOfWeight,PatientLicenseNumber,Note,ProductionBatchNumber,IsTradeSample,IsDonation,ActualDate,IngredientHarvestName,IngredientWeight,IngredientUnitOfWeight
+ABCDEF012345670000020201,Location 1,,Buds,Grams,X00001,,,False,False,2015-12-15,2015-12-10-Harvest Room-A,100.23,Grams
+ABCDEF012345670000020202,Location 2,Sublocation 1,Popcorn Buds,Grams,X00002,,,True,False,2015-12-16,2015-12-11-Harvest Room-B,25.10,Grams
+ABCDEF012345670000020203,,,Shake,Grams,X00003,Test batch for edibles.,PB-2015-12-17-A,False,False,2015-12-17,2015-12-12-Harvest Room-C,50.00,Grams
+ABCDEF012345670000020204,,,Trim,Grams,X00004,Retention sample.,PB-2015-12-18-B,True,False,2015-12-18,2015-12-13-Harvest Room-D,1.00,Grams

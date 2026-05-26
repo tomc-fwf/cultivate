@@ -1,0 +1,3 @@
+Label,NewTag,GrowthPhase,NewLocation,NewSublocation,GrowthDate
+ABCDEF012345670000000001,ABCDEF012345670000020001,Flowering,Plants Location,Plants Sublocation,2015-12-15
+ABCDEF012345670000000002,ABCDEF012345670000020002,Vegetative,Harvest Location,Harvest Sublocation,2015-12-15

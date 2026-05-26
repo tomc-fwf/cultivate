@@ -1,0 +1,3 @@
+Plant,Weight,UnitOfWeight,DryingLocation,DryingSublocation,HarvestName,PatientLicenseNumber,ActualDate
+ABCDEF012345670000010011,100.23,Grams,Harvest Location,Harvest Sublocation1,2015-12-15-Harvest Location-H,X00001,2015-12-15
+ABCDEF012345670000010012,10.15,Grams,Harvest Location,Harvest Sublocation2,,X00002,2015-12-15
