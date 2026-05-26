@@ -27,3 +27,9 @@ export { generatePlantsGrowthPhaseCsv, PLANTS_GROWTH_PHASE_HEADERS } from './gen
 export type { PlantsGrowthPhaseRow } from './generators/plants-growth-phase.js';
 export { generatePlantsLocationCsv, PLANTS_LOCATION_HEADERS } from './generators/plants-location.js';
 export type { PlantsLocationRow } from './generators/plants-location.js';
+export { generateHarvestPlantsCsv, HARVEST_PLANTS_HEADERS } from './generators/harvest-plants.js';
+export type { HarvestPlantsRow } from './generators/harvest-plants.js';
+export { generateManicurePlantsCsv, MANICURE_PLANTS_HEADERS } from './generators/manicure-plants.js';
+export type { ManicurePlantsRow } from './generators/manicure-plants.js';
+export { generatePackagesFromHarvestCsv, PACKAGES_FROM_HARVEST_HEADERS } from './generators/packages-from-harvest.js';
+export type { PackagesFromHarvestPackage, PackagesFromHarvestIngredient } from './generators/packages-from-harvest.js';

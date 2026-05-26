@@ -17,6 +17,9 @@ import {
   generateImmatureWasteCsv,
   generatePlantsGrowthPhaseCsv,
   generatePlantsLocationCsv,
+  generateHarvestPlantsCsv,
+  generateManicurePlantsCsv,
+  generatePackagesFromHarvestCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -240,6 +243,70 @@ const PlantsLocationItemSchema = z.object({
 const PlantsLocationSchema = z.object({
   plants: z.array(PlantsLocationItemSchema).min(1).max(500),
 });
+
+// Harvest Plants (#5)
+const HarvestPlantEventSchema = z.object({
+  plant_tag: z.string().regex(METRC_TAG_RE, 'plant_tag must be 24 alphanumeric characters'),
+  weight: z.number().gt(0),
+  unit_of_weight: z.string().min(1).max(50),
+  drying_location: z.string().min(1).max(200),
+  drying_sublocation: z.string().max(200).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+  patient_license_number: z.string().max(50).optional().nullable(),
+});
+
+const HarvestPlantsSchema = z.object({
+  harvest_batch_id: z.number().int().positive(),
+  plant_events: z.array(HarvestPlantEventSchema).min(1).max(500),
+});
+
+// Manicure Plants / Partial Harvest (#11)
+const ManicurePlantEventSchema = z.object({
+  plant_tag: z.string().regex(METRC_TAG_RE, 'plant_tag must be 24 alphanumeric characters'),
+  weight: z.number().gt(0),
+  unit_of_weight: z.string().min(1).max(50),
+  drying_location: z.string().min(1).max(200),
+  drying_sublocation: z.string().max(200).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  plant_count: z.number().int().positive().optional().nullable(),
+});
+
+const ManicurePlantsSchema = z.object({
+  harvest_batch_id: z.number().int().positive(),
+  plant_events: z.array(ManicurePlantEventSchema).min(1).max(500),
+});
+
+// Packages From Harvest (#15)
+const PackagesFromHarvestIngredientSchema = z.object({
+  harvest_name: z.string().min(1).max(200),
+  weight: z.number().gt(0),
+  unit_of_weight: z.string().min(1).max(50),
+});
+
+const PackagesFromHarvestPackageSchema = z.object({
+  tag: z.string().regex(METRC_TAG_RE, 'tag must be 24 alphanumeric characters'),
+  location_name: z.string().max(200).optional().nullable(),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  item_name: z.string().min(1).max(200),
+  unit_of_weight: z.string().min(1).max(50),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  note: z.string().optional().nullable(),
+  production_batch_number: z.string().max(200).optional().nullable(),
+  is_trade_sample: z.boolean(),
+  is_donation: z.boolean(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+  ingredients: z.array(PackagesFromHarvestIngredientSchema).min(1),
+});
+
+const PackagesFromHarvestSchema = z
+  .object({
+    packages: z.array(PackagesFromHarvestPackageSchema).min(1),
+  })
+  .refine(
+    (d) => d.packages.reduce((sum, p) => sum + p.ingredients.length, 0) <= 500,
+    { message: 'Total ingredient row count cannot exceed 500' },
+  );
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
 
@@ -2122,6 +2189,561 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       warnings: [],
     });
   });
+  // ── POST /api/metrc/csv/harvest-plants (#5) ───────────────────────────────
+  fastify.post('/harvest-plants', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = HarvestPlantsSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { harvest_batch_id, plant_events } = parse.data;
+    const db = getDB();
+
+    // Fetch harvest batch with strain and sow_date for harvest_name derivation
+    const harvestBatch = db
+      .prepare(
+        `SELECT hb.harvest_batch_id, hb.harvest_name, hb.batch_id, hb.sequence_number,
+                b.status AS batch_status, b.sow_date,
+                s.name AS strain_name
+         FROM cv_harvest_batches hb
+         JOIN cv_batches b ON b.batch_id = hb.batch_id
+         JOIN cv_strains s ON s.strain_id = b.strain_id
+         WHERE hb.harvest_batch_id = ?`,
+      )
+      .get(harvest_batch_id) as {
+        harvest_batch_id: number;
+        harvest_name: string | null;
+        batch_id: number;
+        sequence_number: number;
+        batch_status: string;
+        sow_date: string;
+        strain_name: string;
+      } | undefined;
+
+    if (!harvestBatch) {
+      return reply.code(404).send({ error: `Harvest batch not found: ${harvest_batch_id}` });
+    }
+    if (harvestBatch.batch_status !== 'harvesting') {
+      return reply.code(400).send({
+        error: `Batch status must be 'harvesting' to record harvest events (current: ${harvestBatch.batch_status})`,
+      });
+    }
+
+    // Validate all plant tags are active in cv_metrc_plant_state
+    const invalidTags: string[] = [];
+    for (const evt of plant_events) {
+      const state = db
+        .prepare(`SELECT plant_state_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND status = 'active'`)
+        .get(evt.plant_tag);
+      if (!state) invalidTags.push(evt.plant_tag);
+    }
+    if (invalidTags.length > 0) {
+      return reply.code(400).send({
+        error: `Plant tags not found or not active in cv_metrc_plant_state: ${invalidTags.join(', ')}`,
+        invalid_tags: invalidTags,
+      });
+    }
+
+    // Validate drying_location names against cv_locations.metrc_name
+    const locationNames = [...new Set(plant_events.map((e) => e.drying_location))];
+    for (const locName of locationNames) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(locName);
+      if (!loc) {
+        return reply.code(400).send({
+          error: `Unknown drying_location — not in cv_locations.metrc_name: ${locName}`,
+        });
+      }
+    }
+
+    // Always provide harvest_name — derive if not stored on the batch
+    const harvestName =
+      harvestBatch.harvest_name ??
+      `${harvestBatch.strain_name}_${harvestBatch.sow_date}_batch${harvestBatch.sequence_number}`;
+
+    const csvContent = generateHarvestPlantsCsv(
+      plant_events.map((e) => ({
+        plant_tag: e.plant_tag,
+        weight: e.weight,
+        unit_of_weight: e.unit_of_weight,
+        drying_location: e.drying_location,
+        drying_sublocation: e.drying_sublocation,
+        harvest_name: harvestName,
+        patient_license_number: e.patient_license_number,
+        actual_date: e.actual_date,
+      })),
+    );
+    const { filePath, rowCount } = await writeCsv(csvContent, 'harvest-plants');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+    const warnings: string[] = [];
+    const harvestedTags: string[] = [];
+    let batchClosed = false;
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      for (const evt of plant_events) {
+        // Mark plant as harvested in METRC state
+        db.prepare(
+          `UPDATE cv_metrc_plant_state SET status = 'harvested', metrc_csv_generated_at = ?, updated_at = ? WHERE plant_tag = ?`,
+        ).run(now, now, evt.plant_tag);
+
+        // Get the active plant assignment
+        const assignment = db
+          .prepare(
+            `SELECT assignment_id, batch_id, container_id
+             FROM cv_plant_assignments
+             WHERE metrc_plant_tag = ? AND unassigned_at IS NULL
+             LIMIT 1`,
+          )
+          .get(evt.plant_tag) as
+          | { assignment_id: number; batch_id: number; container_id: string }
+          | undefined;
+
+        if (assignment) {
+          // Unassign the plant
+          db.prepare(
+            `UPDATE cv_plant_assignments SET unassigned_at = ?, unassign_reason = 'harvested' WHERE assignment_id = ?`,
+          ).run(evt.actual_date, assignment.assignment_id);
+
+          // INSERT or UPDATE cv_plant_harvest_events for final_harvest
+          const existing = db
+            .prepare(
+              `SELECT harvest_event_id FROM cv_plant_harvest_events
+               WHERE plant_assignment_id = ? AND event_type = 'final_harvest'
+               LIMIT 1`,
+            )
+            .get(assignment.assignment_id) as { harvest_event_id: number } | undefined;
+
+          if (existing) {
+            db.prepare(
+              `UPDATE cv_plant_harvest_events
+               SET wet_weight = ?, weight_unit = ?, harvested_at = ?,
+                   metrc_csv_generated_at = ?, metrc_csv_file_path = ?,
+                   metrc_sync_status = 'not_required', updated_at = ?
+               WHERE harvest_event_id = ?`,
+            ).run(
+              evt.weight,
+              evt.unit_of_weight,
+              evt.actual_date,
+              now,
+              filePath,
+              now,
+              existing.harvest_event_id,
+            );
+          } else {
+            db.prepare(
+              `INSERT INTO cv_plant_harvest_events
+                 (harvest_batch_id, batch_id, plant_assignment_id, container_id,
+                  event_type, harvested_at, product_type, wet_weight, weight_unit,
+                  metrc_csv_generated_at, metrc_csv_file_path,
+                  metrc_sync_status, created_at, updated_at, created_by)
+               VALUES (?, ?, ?, ?, 'final_harvest', ?, 'flower', ?, ?,
+                       ?, ?, 'not_required', ?, ?, ?)`,
+            ).run(
+              harvest_batch_id,
+              assignment.batch_id,
+              assignment.assignment_id,
+              assignment.container_id,
+              evt.actual_date,
+              evt.weight,
+              evt.unit_of_weight,
+              now,
+              filePath,
+              now,
+              now,
+              userId,
+            );
+          }
+
+          harvestedTags.push(evt.plant_tag);
+        } else {
+          warnings.push(
+            `No active plant assignment found for tag ${evt.plant_tag} — plant state updated but harvest event not created`,
+          );
+        }
+      }
+
+      // Auto-close the batch if all plants have been final-harvested
+      const pendingCount = (
+        db
+          .prepare(
+            `SELECT COUNT(*) AS n
+             FROM cv_plant_assignments pa
+             WHERE pa.batch_id = ?
+               AND pa.unassigned_at IS NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM cv_plant_harvest_events e
+                 WHERE e.plant_assignment_id = pa.assignment_id
+                   AND e.event_type = 'final_harvest'
+               )`,
+          )
+          .get(harvestBatch.batch_id) as { n: number }
+      ).n;
+
+      if (pendingCount === 0) {
+        const lastDate =
+          plant_events
+            .map((e) => e.actual_date)
+            .sort()
+            .at(-1) ?? now.substring(0, 10);
+        db.prepare(
+          `UPDATE cv_batches SET status = 'closed', closed_date = ?, updated_at = ? WHERE batch_id = ?`,
+        ).run(lastDate, now, harvestBatch.batch_id);
+        db.prepare(
+          `UPDATE cv_harvest_batches SET status = 'completed', completed_at = ?, updated_at = ? WHERE harvest_batch_id = ?`,
+        ).run(now, now, harvest_batch_id);
+        batchClosed = true;
+      }
+
+      const uploadResult = db
+        .prepare(
+          `INSERT INTO cv_metrc_csv_uploads
+             (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+        )
+        .run('harvest-plants', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      harvest_name: harvestName,
+      tags_harvested: harvestedTags.length,
+      batch_closed: batchClosed,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/manicure-plants (#11) ─────────────────────────────
+  fastify.post('/manicure-plants', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = ManicurePlantsSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { harvest_batch_id, plant_events } = parse.data;
+    const db = getDB();
+
+    // Fetch harvest batch with strain info for harvest_name derivation
+    const harvestBatch = db
+      .prepare(
+        `SELECT hb.harvest_batch_id, hb.harvest_name, hb.batch_id, hb.sequence_number,
+                b.status AS batch_status, b.sow_date,
+                s.name AS strain_name
+         FROM cv_harvest_batches hb
+         JOIN cv_batches b ON b.batch_id = hb.batch_id
+         JOIN cv_strains s ON s.strain_id = b.strain_id
+         WHERE hb.harvest_batch_id = ?`,
+      )
+      .get(harvest_batch_id) as {
+        harvest_batch_id: number;
+        harvest_name: string | null;
+        batch_id: number;
+        sequence_number: number;
+        batch_status: string;
+        sow_date: string;
+        strain_name: string;
+      } | undefined;
+
+    if (!harvestBatch) {
+      return reply.code(404).send({ error: `Harvest batch not found: ${harvest_batch_id}` });
+    }
+    if (harvestBatch.batch_status !== 'harvesting') {
+      return reply.code(400).send({
+        error: `Batch status must be 'harvesting' to record partial harvest events (current: ${harvestBatch.batch_status})`,
+      });
+    }
+
+    // Validate all plant tags are active
+    const invalidTags: string[] = [];
+    for (const evt of plant_events) {
+      const state = db
+        .prepare(`SELECT plant_state_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND status = 'active'`)
+        .get(evt.plant_tag);
+      if (!state) invalidTags.push(evt.plant_tag);
+    }
+    if (invalidTags.length > 0) {
+      return reply.code(400).send({
+        error: `Plant tags not found or not active in cv_metrc_plant_state: ${invalidTags.join(', ')}`,
+        invalid_tags: invalidTags,
+      });
+    }
+
+    // Validate drying_location names
+    const locationNames = [...new Set(plant_events.map((e) => e.drying_location))];
+    for (const locName of locationNames) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(locName);
+      if (!loc) {
+        return reply.code(400).send({
+          error: `Unknown drying_location — not in cv_locations.metrc_name: ${locName}`,
+        });
+      }
+    }
+
+    const harvestName =
+      harvestBatch.harvest_name ??
+      `${harvestBatch.strain_name}_${harvestBatch.sow_date}_batch${harvestBatch.sequence_number}`;
+
+    const csvContent = generateManicurePlantsCsv(
+      plant_events.map((e) => ({
+        plant_tag: e.plant_tag,
+        weight: e.weight,
+        unit_of_weight: e.unit_of_weight,
+        drying_location: e.drying_location,
+        drying_sublocation: e.drying_sublocation,
+        harvest_name: harvestName,
+        patient_license_number: e.patient_license_number,
+        actual_date: e.actual_date,
+        plant_count: e.plant_count,
+      })),
+    );
+    const { filePath, rowCount } = await writeCsv(csvContent, 'manicure-plants');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+    const warnings: string[] = [];
+    const eventIds: number[] = [];
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      for (const evt of plant_events) {
+        // Plant survives — cv_metrc_plant_state.status stays 'active'
+        // Get active plant assignment (plant is still alive so assignment is still active)
+        const assignment = db
+          .prepare(
+            `SELECT assignment_id, batch_id, container_id
+             FROM cv_plant_assignments
+             WHERE metrc_plant_tag = ? AND unassigned_at IS NULL
+             LIMIT 1`,
+          )
+          .get(evt.plant_tag) as
+          | { assignment_id: number; batch_id: number; container_id: string }
+          | undefined;
+
+        if (assignment) {
+          const result = db
+            .prepare(
+              `INSERT INTO cv_plant_harvest_events
+                 (harvest_batch_id, batch_id, plant_assignment_id, container_id,
+                  event_type, harvested_at, product_type, wet_weight, weight_unit,
+                  plant_count, metrc_csv_generated_at, metrc_csv_file_path,
+                  metrc_sync_status, created_at, updated_at, created_by)
+               VALUES (?, ?, ?, ?, 'partial_harvest', ?, 'flower', ?, ?,
+                       ?, ?, ?, 'not_required', ?, ?, ?)`,
+            )
+            .run(
+              harvest_batch_id,
+              assignment.batch_id,
+              assignment.assignment_id,
+              assignment.container_id,
+              evt.actual_date,
+              evt.weight,
+              evt.unit_of_weight,
+              evt.plant_count ?? 1,
+              now,
+              filePath,
+              now,
+              now,
+              userId,
+            );
+          eventIds.push(Number(result.lastInsertRowid));
+        } else {
+          warnings.push(
+            `No active plant assignment found for tag ${evt.plant_tag} — partial harvest event not created`,
+          );
+        }
+      }
+
+      const uploadResult = db
+        .prepare(
+          `INSERT INTO cv_metrc_csv_uploads
+             (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+        )
+        .run('manicure-plants', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      harvest_name: harvestName,
+      event_ids: eventIds,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/packages-from-harvest (#15) ───────────────────────
+  fastify.post(
+    '/packages-from-harvest',
+    { preHandler: [requireRole('supervisor')] },
+    async (req, reply) => {
+      const parse = PackagesFromHarvestSchema.safeParse(req.body);
+      if (!parse.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+      }
+      const { packages } = parse.data;
+      const db = getDB();
+
+      // Validate all package tags are available before doing anything
+      const unavailableTags: string[] = [];
+      for (const pkg of packages) {
+        const tagRow = db
+          .prepare(
+            `SELECT tag FROM cv_metrc_available_package_tags WHERE tag = ? AND status = 'available'`,
+          )
+          .get(pkg.tag);
+        if (!tagRow) unavailableTags.push(pkg.tag);
+      }
+      if (unavailableTags.length > 0) {
+        return reply.code(400).send({
+          error: `Package tags not available in cv_metrc_available_package_tags: ${unavailableTags.join(', ')}`,
+          unavailable_tags: unavailableTags,
+        });
+      }
+
+      const warnings: string[] = [];
+
+      // Optionally validate location names (warn only — location is optional in template)
+      const locationNames = [
+        ...new Set(
+          packages
+            .map((p) => p.location_name)
+            .filter((l): l is string => !!l && l.trim() !== ''),
+        ),
+      ];
+      for (const locName of locationNames) {
+        const loc = db
+          .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+          .get(locName);
+        if (!loc) {
+          warnings.push(
+            `location_name "${locName}" not found in cv_locations.metrc_name — verify before uploading`,
+          );
+        }
+      }
+
+      const csvContent = generatePackagesFromHarvestCsv(
+        packages.map((p) => ({
+          tag: p.tag,
+          location_name: p.location_name,
+          sublocation_name: p.sublocation_name,
+          item_name: p.item_name,
+          unit_of_weight: p.unit_of_weight,
+          patient_license_number: p.patient_license_number,
+          note: p.note,
+          production_batch_number: p.production_batch_number,
+          is_trade_sample: p.is_trade_sample,
+          is_donation: p.is_donation,
+          actual_date: p.actual_date,
+          ingredients: p.ingredients,
+        })),
+      );
+      const { filePath, rowCount } = await writeCsv(csvContent, 'packages-from-harvest');
+
+      const now = new Date().toISOString();
+      const userId = (req as { user: { id: number } }).user.id;
+      const packageIds: number[] = [];
+      let uploadId: number;
+
+      const insertFn = db.transaction(() => {
+        for (const pkg of packages) {
+          // Find location_id if provided
+          const locationId = pkg.location_name
+            ? (
+                db
+                  .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ? LIMIT 1')
+                  .get(pkg.location_name) as { location_id: number } | undefined
+              )?.location_id ?? null
+            : null;
+
+          const pkgResult = db
+            .prepare(
+              `INSERT INTO cv_metrc_packages
+                 (package_tag, item_name, source_type, source_harvest_ingredients,
+                  location_id, sublocation, patient_license_number, note,
+                  production_batch_number, is_trade_sample, is_donation,
+                  actual_date, metrc_csv_generated_at, metrc_csv_file_path,
+                  created_by, created_at, updated_at)
+               VALUES (?, ?, 'harvest', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              pkg.tag,
+              pkg.item_name,
+              JSON.stringify(pkg.ingredients),
+              locationId,
+              pkg.sublocation_name ?? null,
+              pkg.patient_license_number ?? null,
+              pkg.note ?? null,
+              pkg.production_batch_number ?? null,
+              pkg.is_trade_sample ? 1 : 0,
+              pkg.is_donation ? 1 : 0,
+              pkg.actual_date,
+              now,
+              filePath,
+              userId,
+              now,
+              now,
+            );
+          packageIds.push(Number(pkgResult.lastInsertRowid));
+
+          // Mark package tag as used
+          db.prepare(
+            `UPDATE cv_metrc_available_package_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+          ).run(now, pkg.tag);
+
+          // Update total_packaged_weight on matching harvest batches
+          for (const ingredient of pkg.ingredients) {
+            const updated = db
+              .prepare(
+                `UPDATE cv_harvest_batches
+                 SET total_packaged_weight = total_packaged_weight + ?, updated_at = ?
+                 WHERE harvest_name = ?`,
+              )
+              .run(ingredient.weight, now, ingredient.harvest_name);
+
+            if (updated.changes === 0) {
+              warnings.push(
+                `harvest_name "${ingredient.harvest_name}" not found in cv_harvest_batches — total_packaged_weight not updated`,
+              );
+            }
+          }
+        }
+
+        const uploadResult = db
+          .prepare(
+            `INSERT INTO cv_metrc_csv_uploads
+               (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+          )
+          .run('packages-from-harvest', filePath, rowCount, now, userId, now, now);
+
+        return Number(uploadResult.lastInsertRowid);
+      });
+
+      uploadId = insertFn();
+
+      return reply.code(201).send({
+        package_ids: packageIds,
+        csv_file_path: filePath,
+        row_count: rowCount,
+        upload_id: uploadId,
+        warnings,
+      });
+    },
+  );
 };
 
 export default metrcCsvRoutes;
