@@ -284,9 +284,9 @@ function SublocationsTab() {
       const flat = [];
       for (const group of Object.values(tree.tree ?? tree)) {
         for (const loc of (group || [])) {
-          flat.push({ location_id: loc.location_id, name: loc.name });
+          flat.push({ location_id: loc.location_id, name: loc.name, metrc_name: loc.metrc_name });
           for (const sub of (loc.sub_locations || [])) {
-            flat.push({ location_id: sub.location_id, name: `  ${sub.name}` });
+            flat.push({ location_id: sub.location_id, name: `  ${sub.name}`, metrc_name: sub.metrc_name });
           }
         }
       }
@@ -340,6 +340,34 @@ function SublocationsTab() {
         METRC sublocations are named areas within a METRC location (room). They differ from
         Cultivate's physical sub-zones. Define names that match your METRC account configuration.
       </p>
+
+      {/* Location metrc_name verification callout */}
+      {!loading && locations.length > 0 && (
+        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-semibold text-amber-900">Verify your METRC location names</div>
+              <div className="text-xs text-amber-700 mt-0.5">
+                These names are written into every CSV. They must match your MN METRC account exactly.
+              </div>
+            </div>
+            <a
+              href="/admin/locations"
+              className="text-xs font-semibold text-amber-800 underline whitespace-nowrap hover:text-amber-900"
+            >
+              Edit in Locations Admin →
+            </a>
+          </div>
+          <div className="bg-white border border-amber-100 rounded-xl divide-y divide-amber-50 overflow-hidden">
+            {locations.filter(l => !l.name.startsWith('  ')).map((l) => (
+              <div key={l.location_id} className="flex items-center justify-between px-3 py-2 gap-4">
+                <span className="text-xs text-gray-600">{l.name}</span>
+                <span className="text-xs font-mono font-medium text-gray-900">{l.metrc_name || <span className="text-red-500 italic">not set</span>}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ErrorBanner message={err} />
 
