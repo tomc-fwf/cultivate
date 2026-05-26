@@ -40,3 +40,9 @@ export { generateLocationAdditiveAppsCsv, LOCATION_ADDITIVE_APPS_HEADERS } from 
 export type { LocationAdditiveAppRow } from './generators/location-additive-apps.js';
 export { generatePlantAdditiveAppsCsv, PLANT_ADDITIVE_APPS_HEADERS } from './generators/plant-additive-apps.js';
 export type { PlantAdditiveAppRow } from './generators/plant-additive-apps.js';
+export { generatePackageAdjustmentCsv, PACKAGE_ADJUSTMENT_HEADERS } from './generators/package-adjustment.js';
+export type { PackageAdjustmentInput } from './generators/package-adjustment.js';
+export { generatePackageFromVegCsv, PACKAGE_FROM_VEG_HEADERS } from './generators/package-from-veg.js';
+export type { PackageFromVegInput } from './generators/package-from-veg.js';
+export { generatePackagePlantingFromPlantCsv, PACKAGE_PLANTING_FROM_PLANT_HEADERS } from './generators/package-planting-from-plant.js';
+export type { PackagePlantingFromPlantInput } from './generators/package-planting-from-plant.js';

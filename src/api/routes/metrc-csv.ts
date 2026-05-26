@@ -23,6 +23,9 @@ import {
   generateImmatureAdditiveAppsCsv,
   generateLocationAdditiveAppsCsv,
   generatePlantAdditiveAppsCsv,
+  generatePackageAdjustmentCsv,
+  generatePackageFromVegCsv,
+  generatePackagePlantingFromPlantCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -355,6 +358,50 @@ const PlantAdditiveAppItemSchema = z.object({
 
 const CreatePlantAdditiveAppsSchema = z.object({
   applications: z.array(PlantAdditiveAppItemSchema).min(1).max(500),
+});
+
+// Package Adjustment (#12)
+const PackageAdjustmentSchema = z.object({
+  package_tag: z.string().regex(METRC_TAG_RE, 'package_tag must be 24 alphanumeric characters'),
+  quantity: z.number().refine((n) => n !== 0, { message: 'quantity must be non-zero' }),
+  unit_of_measure: z.string().min(1).max(50),
+  adjustment_reason: z.string().min(1).max(200),
+  reason_note: z.string().max(500).optional().nullable(),
+  adjustment_date: z.string().regex(DATE_RE, 'adjustment_date must be YYYY-MM-DD'),
+  employee_id: z.number().int().positive(),
+});
+
+// Package from Vegetative Plants (#13)
+const PackageFromVegSchema = z.object({
+  package_tag: z.string().regex(METRC_TAG_RE, 'package_tag must be 24 alphanumeric characters'),
+  location_name: z.string().max(200).optional().nullable(),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  item_name: z.string().min(1).max(200),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+  note: z.string().optional().nullable(),
+  is_trade_sample: z.boolean(),
+  is_donation: z.boolean(),
+  expiration_date: z.string().regex(DATE_RE, 'expiration_date must be YYYY-MM-DD').optional().nullable(),
+  sell_by_date: z.string().regex(DATE_RE, 'sell_by_date must be YYYY-MM-DD').optional().nullable(),
+  use_by_date: z.string().regex(DATE_RE, 'use_by_date must be YYYY-MM-DD').optional().nullable(),
+  plant_group_label: z.string().regex(METRC_TAG_RE, 'plant_group_label must be 24 alphanumeric characters'),
+  quantity: z.number().positive().optional().nullable(),
+});
+
+// Package Planting from Plant (#14)
+const PackagePlantingFromPlantSchema = z.object({
+  plant_label: z.string().regex(METRC_TAG_RE, 'plant_label must be 24 alphanumeric characters'),
+  package_tag: z.string().regex(METRC_TAG_RE, 'package_tag must be 24 alphanumeric characters'),
+  plant_batch_type: z.enum(['Clone', 'Seed']),
+  item_name: z.string().min(1).max(200),
+  location_name: z.string().max(200).optional().nullable(),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  note: z.string().optional().nullable(),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  is_trade_sample: z.boolean(),
+  is_donation: z.boolean(),
+  count: z.number().int().positive(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
 });
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
@@ -3141,6 +3188,393 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
         upload_id: uploadId,
         warnings: [],
         metrc_submission: { status: 'csv_only' },
+      });
+    },
+  );
+
+  // ── POST /api/metrc/csv/package-adjustment (#12) ──────────────────────────
+  fastify.post('/package-adjustment', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = PackageAdjustmentSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate package_tag exists in cv_metrc_packages
+    const pkg = db
+      .prepare('SELECT package_id, weight_amount FROM cv_metrc_packages WHERE package_tag = ?')
+      .get(data.package_tag) as { package_id: number; weight_amount: number | null } | undefined;
+    if (!pkg) {
+      return reply.code(400).send({ error: `Package tag not found in cv_metrc_packages: ${data.package_tag}` });
+    }
+
+    // Look up employee license_number
+    const employee = db
+      .prepare('SELECT employee_id, license_number FROM cv_employees WHERE employee_id = ? AND is_active = 1')
+      .get(data.employee_id) as { employee_id: number; license_number: string } | undefined;
+    if (!employee) {
+      return reply.code(400).send({ error: `Employee not found or inactive: ${data.employee_id}` });
+    }
+
+    const csvContent = generatePackageAdjustmentCsv({
+      package_tag: data.package_tag,
+      quantity: data.quantity,
+      unit_of_measure: data.unit_of_measure,
+      adjustment_reason: data.adjustment_reason,
+      reason_note: data.reason_note,
+      adjustment_date: data.adjustment_date,
+      employee_license_number: employee.license_number,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'package-adjustment');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let adjustmentId: number;
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      const adjResult = db.prepare(`
+        INSERT INTO cv_metrc_package_adjustments
+          (package_id, quantity_change, unit_of_measure, adjustment_reason, reason_note,
+           adjustment_date, employee_id, metrc_csv_generated_at, metrc_csv_file_path,
+           created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        pkg.package_id,
+        data.quantity,
+        data.unit_of_measure,
+        data.adjustment_reason,
+        data.reason_note ?? null,
+        data.adjustment_date,
+        data.employee_id,
+        now,
+        filePath,
+        userId,
+        now,
+      );
+      adjustmentId = Number(adjResult.lastInsertRowid);
+
+      // Update weight_amount on the package
+      db.prepare(
+        `UPDATE cv_metrc_packages
+         SET weight_amount = COALESCE(weight_amount, 0) + ?, updated_at = ?
+         WHERE package_tag = ?`,
+      ).run(data.quantity, now, data.package_tag);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('package-adjustment', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      adjustment_id: adjustmentId!,
+      package_tag: data.package_tag,
+      new_weight_amount: (pkg.weight_amount ?? 0) + data.quantity,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+      metrc_submission: { status: 'pending', note: 'POST /packages/v2/adjust (CONFIRMED for Phase 5)' },
+    });
+  });
+
+  // ── POST /api/metrc/csv/package-from-veg (#13) ────────────────────────────
+  fastify.post('/package-from-veg', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = PackageFromVegSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate package_tag is available
+    const pkgTag = db
+      .prepare(`SELECT tag FROM cv_metrc_available_package_tags WHERE tag = ? AND status = 'available'`)
+      .get(data.package_tag) as { tag: string } | undefined;
+    if (!pkgTag) {
+      return reply.code(400).send({
+        error: `Package tag not available in cv_metrc_available_package_tags: ${data.package_tag}`,
+      });
+    }
+
+    const warnings: string[] = [];
+
+    // Optionally validate location
+    if (data.location_name) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(data.location_name) as { location_id: number } | undefined;
+      if (!loc) {
+        warnings.push(`location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`);
+      }
+    }
+
+    const csvContent = generatePackageFromVegCsv({
+      package_tag: data.package_tag,
+      location_name: data.location_name,
+      sublocation_name: data.sublocation_name,
+      item_name: data.item_name,
+      actual_date: data.actual_date,
+      note: data.note,
+      is_trade_sample: data.is_trade_sample,
+      is_donation: data.is_donation,
+      expiration_date: data.expiration_date,
+      sell_by_date: data.sell_by_date,
+      use_by_date: data.use_by_date,
+      plant_group_label: data.plant_group_label,
+      quantity: data.quantity,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'package-from-veg');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let packageId: number;
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      const locationId = data.location_name
+        ? (
+            db
+              .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ? LIMIT 1')
+              .get(data.location_name) as { location_id: number } | undefined
+          )?.location_id ?? null
+        : null;
+
+      const pkgResult = db.prepare(`
+        INSERT INTO cv_metrc_packages
+          (package_tag, item_name, source_type, source_plant_group_label,
+           item_count, location_id, sublocation, note,
+           is_trade_sample, is_donation, actual_date,
+           expiration_date, sell_by_date, use_by_date,
+           metrc_csv_generated_at, metrc_csv_file_path,
+           created_by, created_at, updated_at)
+        VALUES (?, ?, 'plant_group', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        data.package_tag,
+        data.item_name,
+        data.plant_group_label,
+        data.quantity != null ? Math.round(data.quantity) : null,
+        locationId,
+        data.sublocation_name ?? null,
+        data.note ?? null,
+        data.is_trade_sample ? 1 : 0,
+        data.is_donation ? 1 : 0,
+        data.actual_date,
+        data.expiration_date ?? null,
+        data.sell_by_date ?? null,
+        data.use_by_date ?? null,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+      );
+      packageId = Number(pkgResult.lastInsertRowid);
+
+      // Mark package tag as used
+      db.prepare(
+        `UPDATE cv_metrc_available_package_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+      ).run(now, data.package_tag);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('package-from-veg', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      package_id: packageId!,
+      package_tag: data.package_tag,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+      metrc_submission: {
+        status: 'api_unknown',
+        note: 'Package from Vegetative Plants API endpoint not confirmed for MN. Manual upload required.',
+      },
+    });
+  });
+
+  // ── POST /api/metrc/csv/package-planting-from-plant (#14) ─────────────────
+  fastify.post(
+    '/package-planting-from-plant',
+    { preHandler: [requireRole('supervisor')] },
+    async (req, reply) => {
+      const parse = PackagePlantingFromPlantSchema.safeParse(req.body);
+      if (!parse.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+      }
+      const data = parse.data;
+      const db = getDB();
+
+      // Validate plant_label is a mother plant in cv_metrc_plant_state
+      const plant = db
+        .prepare(
+          `SELECT plant_state_id, batch_id, strain_id
+           FROM cv_metrc_plant_state
+           WHERE plant_tag = ? AND is_mother_plant = 1 AND status = 'active'`,
+        )
+        .get(data.plant_label) as
+        | { plant_state_id: number; batch_id: number; strain_id: number }
+        | undefined;
+      if (!plant) {
+        return reply.code(400).send({
+          error: `plant_label not found, not a mother plant, or not active in cv_metrc_plant_state: ${data.plant_label}`,
+        });
+      }
+
+      // Validate package_tag is available
+      const pkgTag = db
+        .prepare(`SELECT tag FROM cv_metrc_available_package_tags WHERE tag = ? AND status = 'available'`)
+        .get(data.package_tag) as { tag: string } | undefined;
+      if (!pkgTag) {
+        return reply.code(400).send({
+          error: `Package tag not available in cv_metrc_available_package_tags: ${data.package_tag}`,
+        });
+      }
+
+      const warnings: string[] = [];
+
+      // Optionally validate location
+      if (data.location_name) {
+        const loc = db
+          .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+          .get(data.location_name) as { location_id: number } | undefined;
+        if (!loc) {
+          warnings.push(
+            `location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`,
+          );
+        }
+      }
+
+      const csvContent = generatePackagePlantingFromPlantCsv({
+        plant_label: data.plant_label,
+        package_tag: data.package_tag,
+        plant_batch_type: data.plant_batch_type,
+        item_name: data.item_name,
+        location_name: data.location_name,
+        sublocation_name: data.sublocation_name,
+        note: data.note,
+        patient_license_number: data.patient_license_number,
+        is_trade_sample: data.is_trade_sample,
+        is_donation: data.is_donation,
+        count: data.count,
+        actual_date: data.actual_date,
+      });
+      const { filePath, rowCount } = await writeCsv(csvContent, 'package-planting-from-plant');
+
+      const now = new Date().toISOString();
+      const userId = (req as { user: { id: number } }).user.id;
+
+      let packageId: number;
+      let batchId: number;
+      let uploadId: number;
+
+      const insertFn = db.transaction(() => {
+        const locationId = data.location_name
+          ? (
+              db
+                .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ? LIMIT 1')
+                .get(data.location_name) as { location_id: number } | undefined
+            )?.location_id ?? null
+          : null;
+
+        // Insert package record
+        const pkgResult = db.prepare(`
+          INSERT INTO cv_metrc_packages
+            (package_tag, item_name, source_type, source_plant_label, plant_batch_type, item_count,
+             location_id, sublocation, patient_license_number, note,
+             is_trade_sample, is_donation, actual_date,
+             metrc_csv_generated_at, metrc_csv_file_path,
+             created_by, created_at, updated_at)
+          VALUES (?, ?, 'mother_plant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          data.package_tag,
+          data.item_name,
+          data.plant_label,
+          data.plant_batch_type,
+          data.count,
+          locationId,
+          data.sublocation_name ?? null,
+          data.patient_license_number ?? null,
+          data.note ?? null,
+          data.is_trade_sample ? 1 : 0,
+          data.is_donation ? 1 : 0,
+          data.actual_date,
+          now,
+          filePath,
+          userId,
+          now,
+          now,
+        );
+        packageId = Number(pkgResult.lastInsertRowid);
+
+        // Mark package tag as used
+        db.prepare(
+          `UPDATE cv_metrc_available_package_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+        ).run(now, data.package_tag);
+
+        // Insert new immature batch (clones/seeds from mother plant)
+        const batchResult = db.prepare(`
+          INSERT INTO cv_batches
+            (strain_id, sub_zone_id, metrc_plant_batch_uid, plant_count_initial, plant_count_current,
+             status, sow_date, notes, metrc_source_type, metrc_source_plant_label,
+             metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at, updated_at)
+          VALUES (?, NULL, NULL, ?, ?, 'germ', ?, NULL, 'plant', ?, ?, ?, ?, ?, ?)
+        `).run(
+          plant.strain_id,
+          data.count,
+          data.count,
+          data.actual_date,
+          data.plant_label,
+          now,
+          filePath,
+          userId,
+          now,
+          now,
+        );
+        batchId = Number(batchResult.lastInsertRowid);
+
+        // Mother plant stays active — no cv_metrc_plant_state update needed
+
+        const uploadResult = db.prepare(`
+          INSERT INTO cv_metrc_csv_uploads
+            (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+        `).run('package-planting-from-plant', filePath, rowCount, now, userId, now, now);
+
+        return Number(uploadResult.lastInsertRowid);
+      });
+
+      uploadId = insertFn();
+
+      return reply.code(201).send({
+        package_id: packageId!,
+        package_tag: data.package_tag,
+        batch_id: batchId!,
+        csv_file_path: filePath,
+        row_count: rowCount,
+        upload_id: uploadId,
+        warnings,
+        metrc_submission: {
+          status: 'pending',
+          note: 'POST /plantbatches/v2/packages/frommotherplant (CONFIRMED for Phase 5)',
+        },
       });
     },
   );
