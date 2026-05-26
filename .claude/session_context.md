@@ -3773,3 +3773,134 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - `npx tsc --noEmit` passes clean; 421/422 tests passing (1 pre-existing foliar.test.ts failure unrelated to this work)
 - Next METRC CSV batches: Phase 3D (Plant lifecycle: #19 Growth Phase tag replace, #20 Location), Phase 3E (Harvest family: #5 Harvest Plants, #11 Manicure/Partial Harvest, #15 Packages from Harvest)
+
+---
+
+## Task: METRC CSV 3D: Plant lifecycle #19 #20
+**Completed:** 2026-05-26
+
+### What Was Done
+- Created `src/lib/metrc-csv/generators/plants-growth-phase.ts` — #19 CSV generator with headers `Label,NewTag,GrowthPhase,NewLocation,NewSublocation,GrowthDate`; one row per plant
+- Created `src/lib/metrc-csv/generators/plants-location.ts` — #20 CSV generator with headers `Label,Location,Sublocation,ActualDate`; one row per plant
+- Updated `src/lib/metrc-csv/index.ts` to export both new generators
+- Added Zod schemas `PlantsGrowthPhaseSchema` and `PlantsLocationSchema` to `metrc-csv.ts`
+- Added route `POST /api/metrc/csv/plants-growth-phase` (requireRole supervisor)
+- Added route `POST /api/metrc/csv/plants-location` (requireAuth grower+)
+
+### Key Decisions
+- #19 collects ALL validation errors (invalid labels, unavailable new_tags, duplicate new_tags) before returning 400, so the operator sees the full error list in one response rather than one error at a time
+- #19 old tag gets status='replaced' in the pool (distinct from 'used'), matching the spec side-effect inventory
+- Location resolution is validated strictly (hard 400) for both routes since an unknown METRC location name would produce an invalid CSV that METRC would reject anyway
+
+### Files Modified/Created
+- `src/lib/metrc-csv/generators/plants-growth-phase.ts` (new)
+- `src/lib/metrc-csv/generators/plants-location.ts` (new)
+- `src/lib/metrc-csv/index.ts` (exports added)
+- `src/api/routes/metrc-csv.ts` (imports, schemas, two route handlers)
+
+### Notes for Next Tasks
+- Phase 3D is now complete (#19, #20 done)
+- Next up: Phase 3E harvest family (#5 harvest-plants, #11 manicure-plants, #15 packages-from-harvest) or Phase 3F additive applications (#6, #10, #16 end-of-day batch CSVs)
+- `cv_metrc_available_plant_tags.status='replaced'` is set by #19 for swapped-out labels — the admin tag pool GET endpoint already shows all statuses in the counts breakdown so this will surface correctly
+
+---
+
+## Task: METRC CSV 3E: Harvest family #5 #11 #15
+**Completed:** 2026-05-26
+
+### What Was Done
+- Migration 046: adds `harvest_name` to `cv_harvest_batches`. When NULL, routes derive as `{strain}_{sow_date}_batch{sequence_number}`. HarvestName is always provided because PUT /plants/v2/harvest returns no response body.
+- **#5 Harvest Plants** (`generators/harvest-plants.ts` + POST `/api/metrc/csv/harvest-plants`, requireAuth grower+): CSV headers `Plant,Weight,UnitOfWeight,DryingLocation,DryingSublocation,HarvestName,PatientLicenseNumber,ActualDate`. Validates plant_tags active in cv_metrc_plant_state, marks plants harvested, unassigns cv_plant_assignments, inserts/updates cv_plant_harvest_events (final_harvest, product_type defaults 'flower'), auto-closes batch + harvest_batch when all plants have final_harvest events.
+- **#11 Partial Harvest** (`generators/manicure-plants.ts` + POST `/api/metrc/csv/manicure-plants`, requireAuth grower+): CSV headers add `PlantCount`. Plant survives — cv_metrc_plant_state.status stays 'active'. Inserts cv_plant_harvest_events (partial_harvest). File and route named 'manicure' internally (METRC term); no user-facing string uses the word.
+- **#15 Packages From Harvest** (`generators/packages-from-harvest.ts` + POST `/api/metrc/csv/packages-from-harvest`, requireRole supervisor): One row per (package, ingredient) pair. Headers `Tag,Location,...,IngredientHarvestName,IngredientWeight,IngredientUnitOfWeight`. Validates all package tags available up-front; inserts cv_metrc_packages (source_type='harvest', source_harvest_ingredients=JSON), marks package tags used, updates cv_harvest_batches.total_packaged_weight by harvest_name (warns if harvest_name not found).
+
+### Key Decisions
+- harvest_name derivation formula: `{strain}_{sow_date}_batch{sequence_number}` (plain underscore-separated, matches task spec). The domain-utils `makeHarvestBatchName` uses a different format (pipe-separated) and was not used here.
+- #5 batch auto-close logic: counts active cv_plant_assignments with no final_harvest event; if 0, closes both cv_batches and cv_harvest_batches in the same transaction.
+- #15 location validation is warn-only (location is optional in PackagesFromHarvest template). Package tag validation is strict (hard 400) since unavailable tags would create duplicate METRC packages.
+- Pre-existing failing test (foliar stage block returns 400 vs 422) is unrelated to this work — confirmed failing before these changes.
+
+### Files Modified/Created
+- `src/db/migrations/046_harvest_batch_name.ts` (new)
+- `src/lib/metrc-csv/generators/harvest-plants.ts` (new)
+- `src/lib/metrc-csv/generators/manicure-plants.ts` (new)
+- `src/lib/metrc-csv/generators/packages-from-harvest.ts` (new)
+- `src/lib/metrc-csv/index.ts` (exports added)
+- `src/api/routes/metrc-csv.ts` (imports, 3 Zod schemas, 3 route handlers)
+
+### Notes for Next Tasks
+- Phase 3E complete. Harvest family done.
+- Next: Phase 3F additive applications (#6 immature-batch, #10 location, #16 plant-level end-of-day batch CSVs)
+- `cv_harvest_batches.harvest_name` column is nullable — existing harvest batches will use derived names. If the UI needs to set a custom harvest_name, that requires a PATCH /api/harvest/batches/:id endpoint.
+- The auto-close logic in #5 only closes the batch if ALL active assignments have final_harvest events. If some plants were destroyed (not harvested), those unassigned assignments won't have harvest events, and the batch won't auto-close — operator must close manually.
+
+---
+
+## Task: METRC CSV 3F: Additive apps #6 #10 #16
+**Completed:** 2026-05-26
+
+### What Was Done
+- Added `formatMetrcDatetime(isoDate: string): string` helper to `src/lib/metrc-csv/types.ts` — converts ISO-8601 dates to METRC CSV format `M/D/YYYY h:mm:ss AM/PM`; date-only strings treated as UTC midnight (→ 12:00:00 AM)
+- Created `src/lib/metrc-csv/generators/immature-additive-apps.ts` — #6 generator; headers: `PlantBatchName,AdditivesTemplateName,Rate,Volume,TotalAmountApplied,TotalAmountUnitOfMeasure,ActualDate`
+- Created `src/lib/metrc-csv/generators/location-additive-apps.ts` — #10 generator; headers: `LocationName,SublocationName,AdditivesTemplateName,...`
+- Created `src/lib/metrc-csv/generators/plant-additive-apps.ts` — #16 generator; headers: `PlantTag,AdditivesTemplateName,...`
+- Updated `src/lib/metrc-csv/index.ts` — exports `formatMetrcDatetime` and all three new generators
+- Updated `src/api/routes/metrc-csv.ts` — added Zod schemas and route handlers for:
+  - `POST /api/metrc/csv/additive-applications/immature-batch` (requireAuth, grower+)
+  - `POST /api/metrc/csv/additive-applications/location` (requireAuth, grower+)
+  - `POST /api/metrc/csv/additive-applications/plants` (requireAuth, grower+)
+
+### Key Decisions
+- All three routes use `requireAuth` (grower+ per task spec), not `requireRole('supervisor')`
+- Template lookup: validates template_name against `cv_metrc_additive_templates` and resolves to template_id — returns 400 if any template not found
+- #6: batch IDs resolved to METRC batch name (`metrc_plant_batch_uid ?? name ?? id`)
+- #10: location_name validated against `cv_locations.metrc_name` (hard error, not warning, since location is required)
+- #16: plant_tag validated against `cv_metrc_plant_state` where status='active'
+- All three: max 500 rows, `metrc_submission: { status: 'csv_only' }` always returned
+- DB transaction: INSERTs into `cv_metrc_additive_applications` + `cv_metrc_csv_uploads` are atomic
+
+### Files Modified/Created
+- `src/lib/metrc-csv/types.ts` — added `formatMetrcDatetime`
+- `src/lib/metrc-csv/index.ts` — added exports
+- `src/lib/metrc-csv/generators/immature-additive-apps.ts` (new)
+- `src/lib/metrc-csv/generators/location-additive-apps.ts` (new)
+- `src/lib/metrc-csv/generators/plant-additive-apps.ts` (new)
+- `src/api/routes/metrc-csv.ts` — added schemas + 3 handlers (appended before closing brace)
+
+### Notes for Next Tasks
+- `formatMetrcDatetime` is exported from both `types.ts` directly and `index.ts` — available for any future generator that needs METRC datetime format
+- The additive application file naming convention in writer.ts uses the upload_type string: `immature-additive-applications`, `location-additive-applications`, `plant-additive-applications`
+- `npx tsc --noEmit` passes clean
+
+---
+
+## Task: METRC CSV 3G: Packages #12 #13 #14
+**Completed:** 2026-05-26
+
+### What Was Done
+- Created `src/lib/metrc-csv/generators/package-adjustment.ts` (#12): Generates 1-row CSV with headers `Label,Quantity,UnitOfMeasure,AdjustmentReason,ReasonNote,AdjustmentDate,EmployeeLicenseNumber`
+- Created `src/lib/metrc-csv/generators/package-from-veg.ts` (#13): Generates 1-row CSV with headers `Label,Location,Sublocation,Item,ActualDate,Note,IsTradeSample,IsDonation,ExpirationDate,SellByDate,UseByDate,PlantGroupLabel,Quantity`
+- Created `src/lib/metrc-csv/generators/package-planting-from-plant.ts` (#14): Generates 1-row CSV with headers `PlantLabel,PackageTag,PlantBatchType,Item,Location,Sublocation,Note,PatientLicenseNumber,IsTradeSample,IsDonation,Count,ActualDate`
+- Added exports for all 3 generators to `src/lib/metrc-csv/index.ts`
+- Added Zod schemas and 3 route handlers to `src/api/routes/metrc-csv.ts`
+
+### Key Decisions
+- #12 route uses `requireAuth` (grower+), not supervisor — recording scale discrepancies is a grower task
+- #12 DB: `COALESCE(weight_amount, 0) + quantity` handles NULL initial weight gracefully; response includes pre-computed `new_weight_amount`
+- #13 `metrc_submission.status = 'api_unknown'` — MN METRC API endpoint unconfirmed; manual CSV upload required
+- #13 quantity stored as `item_count` (integer cast) on cv_metrc_packages — sample data shows integer counts
+- #14 single transaction: package INSERT + tag mark-used + cv_batches INSERT (germ, metrc_source_type='plant'); mother plant NOT updated, stays active
+- #14 new batch uses `strain_id` from `cv_metrc_plant_state` directly — no strain_name lookup needed
+- Pre-existing test failure in `foliar.test.ts` (422 vs 400) confirmed unchanged before and after our changes
+
+### Files Modified/Created
+- `src/lib/metrc-csv/generators/package-adjustment.ts` (new)
+- `src/lib/metrc-csv/generators/package-from-veg.ts` (new)
+- `src/lib/metrc-csv/generators/package-planting-from-plant.ts` (new)
+- `src/lib/metrc-csv/index.ts` — added 6 export lines (3 function + 3 type)
+- `src/api/routes/metrc-csv.ts` — added imports, 3 Zod schemas, 3 route handlers
+
+### Notes for Next Tasks
+- All Phase 3 batches (A–G) are now complete
+- `npx tsc --noEmit` passes clean; 421/422 tests pass
+- Commit: `feat(metrc-csv): package generators (#12, #13, #14)` pushed to master as 6ac1ccd
