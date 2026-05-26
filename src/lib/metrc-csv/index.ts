@@ -13,3 +13,7 @@ export { generatePlantingsFromPlantCsv, PLANTINGS_FROM_PLANT_HEADERS } from './g
 export type { PlantingsFromPlantInput } from './generators/plantings-from-plant.js';
 export { generateSplitPlantingCsv, SPLIT_PLANTING_HEADERS } from './generators/split-planting.js';
 export type { SplitPlantingInput } from './generators/split-planting.js';
+export { generateDestroyImmatureCsv, DESTROY_IMMATURE_HEADERS } from './generators/destroy-immature.js';
+export type { DestroyImmatureInput } from './generators/destroy-immature.js';
+export { generateDestroyPlantsCsv, DESTROY_PLANTS_HEADERS } from './generators/destroy-plants.js';
+export type { DestroyPlantsInput } from './generators/destroy-plants.js';

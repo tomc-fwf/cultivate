@@ -10,6 +10,8 @@ import {
   generatePlantingsFromPackageCsv,
   generatePlantingsFromPlantCsv,
   generateSplitPlantingCsv,
+  generateDestroyImmatureCsv,
+  generateDestroyPlantsCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -134,6 +136,34 @@ const SplitPlantingSchema = z.object({
   location_name: z.string().min(1).max(200),
   sublocation_name: z.string().max(200).optional().nullable(),
   patient_license_number: z.string().max(50).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+// Destroy Immature Plants (#3)
+const DestroyImmatureSchema = z.object({
+  plant_batch_id: z.number().int().positive(),
+  count: z.number().int().positive(),
+  waste_method_name: z.string().min(1).max(200).optional().nullable(),
+  waste_material_mixed: z.string().max(200).optional().nullable(),
+  waste_reason_name: z.string().min(1).max(200),
+  reason_note: z.string().max(500).optional().nullable(),
+  waste_weight: z.number().min(0),
+  waste_uom: z.string().min(1).max(50).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+// Destroy Plants (#4)
+const DestroyPlantsSchema = z.object({
+  plant_tags: z
+    .array(z.string().regex(METRC_TAG_RE, 'Each plant tag must be 24 alphanumeric characters'))
+    .min(1)
+    .max(500),
+  waste_method_name: z.string().min(1).max(200),
+  waste_material_mixed: z.string().max(200).optional().nullable(),
+  waste_weight: z.number().min(0),
+  waste_uom: z.string().min(1).max(50).optional().nullable(),
+  waste_reason_name: z.string().min(1).max(200),
+  reason_note: z.string().max(500).optional().nullable(),
   actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
 });
 
@@ -854,6 +884,265 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       csv_file_path: filePath,
       row_count: rowCount,
       upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/destroy-immature (#3) ────────────────────────────
+  fastify.post('/destroy-immature', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = DestroyImmatureSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Fetch source batch — get name for PlantBatch column
+    const batch = db
+      .prepare(`
+        SELECT b.batch_id, b.name, b.metrc_plant_batch_uid, b.plant_count_initial, b.plant_count_current, b.status
+        FROM cv_batches b
+        WHERE b.batch_id = ?
+      `)
+      .get(data.plant_batch_id) as {
+        batch_id: number;
+        name: string | null;
+        metrc_plant_batch_uid: string | null;
+        plant_count_initial: number;
+        plant_count_current: number | null;
+        status: string;
+      } | undefined;
+
+    if (!batch) {
+      return reply.code(404).send({ error: `Plant batch not found: ${data.plant_batch_id}` });
+    }
+    if (batch.status === 'closed') {
+      return reply.code(400).send({ error: 'Cannot destroy plants from a closed batch' });
+    }
+
+    // Validate count against available plants
+    const currentCount = batch.plant_count_current ?? batch.plant_count_initial;
+    if (data.count > currentCount) {
+      return reply.code(400).send({
+        error: `count (${data.count}) exceeds available plant count (${currentCount})`,
+      });
+    }
+
+    const plantBatchName = batch.metrc_plant_batch_uid ?? batch.name ?? String(batch.batch_id);
+
+    const csvContent = generateDestroyImmatureCsv({
+      plant_batch_name: plantBatchName,
+      count: data.count,
+      waste_method_name: data.waste_method_name,
+      waste_material_mixed: data.waste_material_mixed,
+      waste_reason_name: data.waste_reason_name,
+      reason_note: data.reason_note,
+      waste_weight: data.waste_weight,
+      waste_uom: data.waste_uom,
+      actual_date: data.actual_date,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'destroy-immature');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+    const newCount = currentCount - data.count;
+
+    let destructionId: number;
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      const destrResult = db.prepare(`
+        INSERT INTO cv_metrc_immature_destruction_events
+          (batch_id, count, waste_method, waste_material_mixed, waste_reason, reason_note,
+           waste_weight, waste_uom, actual_date, metrc_csv_generated_at, metrc_csv_file_path,
+           created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        data.plant_batch_id,
+        data.count,
+        data.waste_method_name ?? null,
+        data.waste_material_mixed ?? null,
+        data.waste_reason_name,
+        data.reason_note ?? null,
+        data.waste_weight,
+        data.waste_uom ?? null,
+        data.actual_date,
+        now,
+        filePath,
+        userId,
+        now,
+      );
+      destructionId = Number(destrResult.lastInsertRowid);
+
+      // Decrement plant count; close batch if count reaches zero
+      if (newCount <= 0) {
+        db.prepare(`
+          UPDATE cv_batches
+          SET plant_count_current = 0, status = 'closed', closed_date = ?, updated_at = ?
+          WHERE batch_id = ?
+        `).run(data.actual_date, now, data.plant_batch_id);
+      } else {
+        db.prepare(`
+          UPDATE cv_batches
+          SET plant_count_current = plant_count_current - ?, updated_at = ?
+          WHERE batch_id = ?
+        `).run(data.count, now, data.plant_batch_id);
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('destroy-immature', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      destruction_id: destructionId!,
+      batch_id: data.plant_batch_id,
+      new_plant_count: Math.max(0, newCount),
+      batch_closed: newCount <= 0,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+    });
+  });
+
+  // ── POST /api/metrc/csv/destroy-plants (#4) ───────────────────────────────
+  fastify.post('/destroy-plants', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = DestroyPlantsSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Validate all tags exist in cv_metrc_plant_state with status='active'
+    const invalidTags: string[] = [];
+    for (const tag of data.plant_tags) {
+      const state = db
+        .prepare(`SELECT plant_state_id FROM cv_metrc_plant_state WHERE plant_tag = ? AND status = 'active'`)
+        .get(tag);
+      if (!state) invalidTags.push(tag);
+    }
+    if (invalidTags.length > 0) {
+      return reply.code(400).send({
+        error: `Plant tags not found or not active in cv_metrc_plant_state: ${invalidTags.join(', ')}`,
+        invalid_tags: invalidTags,
+      });
+    }
+
+    const csvContent = generateDestroyPlantsCsv(data);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'destroy-plants');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+    const warnings: string[] = [];
+
+    const insertFn = db.transaction(() => {
+      for (const tag of data.plant_tags) {
+        // Mark plant as destroyed in METRC state table
+        db.prepare(`
+          UPDATE cv_metrc_plant_state
+          SET status = 'destroyed', metrc_csv_generated_at = ?, updated_at = ?
+          WHERE plant_tag = ?
+        `).run(now, now, tag);
+
+        // Unassign from cv_plant_assignments
+        const assignment = db
+          .prepare(`
+            SELECT assignment_id, batch_id, container_id
+            FROM cv_plant_assignments
+            WHERE metrc_plant_tag = ? AND unassigned_at IS NULL
+            LIMIT 1
+          `)
+          .get(tag) as { assignment_id: number; batch_id: number; container_id: string } | undefined;
+
+        if (assignment) {
+          db.prepare(`
+            UPDATE cv_plant_assignments
+            SET unassigned_at = ?, unassign_reason = 'destroyed'
+            WHERE assignment_id = ?
+          `).run(data.actual_date, assignment.assignment_id);
+
+          // Update or insert cv_plant_loss_events with METRC fields
+          const existingLoss = db
+            .prepare(`SELECT loss_id FROM cv_plant_loss_events WHERE plant_assignment_id = ? LIMIT 1`)
+            .get(assignment.assignment_id) as { loss_id: number } | undefined;
+
+          if (existingLoss) {
+            db.prepare(`
+              UPDATE cv_plant_loss_events
+              SET metrc_waste_method = ?, metrc_waste_material_mixed = ?, metrc_waste_reason = ?,
+                  metrc_waste_weight = ?, metrc_waste_uom = ?, metrc_reason_note = ?,
+                  metrc_csv_generated_at = ?, metrc_csv_file_path = ?,
+                  metrc_sync_status = 'not_required'
+              WHERE loss_id = ?
+            `).run(
+              data.waste_method_name,
+              data.waste_material_mixed ?? null,
+              data.waste_reason_name,
+              data.waste_weight,
+              data.waste_uom ?? null,
+              data.reason_note ?? null,
+              now,
+              filePath,
+              existingLoss.loss_id,
+            );
+          } else {
+            db.prepare(`
+              INSERT INTO cv_plant_loss_events
+                (batch_id, container_id, plant_assignment_id, metrc_plant_tag,
+                 occurred_at, discovered_at, loss_type, plant_disposition, plant_count,
+                 metrc_waste_method, metrc_waste_material_mixed, metrc_waste_reason,
+                 metrc_waste_weight, metrc_waste_uom, metrc_reason_note,
+                 metrc_csv_generated_at, metrc_csv_file_path,
+                 metrc_sync_status, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, 'removal_culled', 'disposed_waste', 1,
+                      ?, ?, ?, ?, ?, ?, ?, ?, 'not_required', ?)
+            `).run(
+              assignment.batch_id,
+              assignment.container_id,
+              assignment.assignment_id,
+              tag,
+              data.actual_date,
+              data.actual_date,
+              data.waste_method_name,
+              data.waste_material_mixed ?? null,
+              data.waste_reason_name,
+              data.waste_weight,
+              data.waste_uom ?? null,
+              data.reason_note ?? null,
+              now,
+              filePath,
+              now,
+            );
+          }
+        } else {
+          warnings.push(`No active cv_plant_assignments record found for tag ${tag} — plant state updated but no loss event created`);
+        }
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('destroy-plants', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    const uploadId = insertFn();
+
+    return reply.code(201).send({
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      tags_destroyed: data.plant_tags.length,
       warnings,
     });
   });
