@@ -12,6 +12,9 @@ import {
   generateSplitPlantingCsv,
   generateDestroyImmatureCsv,
   generateDestroyPlantsCsv,
+  generateImmatureGrowthPhaseCsv,
+  generateImmaturePackagesCsv,
+  generateImmatureWasteCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -165,6 +168,49 @@ const DestroyPlantsSchema = z.object({
   waste_reason_name: z.string().min(1).max(200),
   reason_note: z.string().max(500).optional().nullable(),
   actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+// Immature Plants Growth Phase (#7)
+const ImmatureGrowthPhaseSchema = z.object({
+  batch_id: z.number().int().positive(),
+  count: z.number().int().positive().max(500),
+  starting_tag: z.string().regex(METRC_TAG_RE, 'starting_tag must be 24 alphanumeric characters'),
+  growth_phase: z.enum(['Vegetative', 'Flowering']),
+  new_location: z.string().min(1).max(200),
+  new_sublocation: z.string().max(200).optional().nullable(),
+  growth_date: z.string().regex(DATE_RE, 'growth_date must be YYYY-MM-DD'),
+  patient_license_number: z.string().max(50).optional().nullable(),
+});
+
+// Immature Plant Packages (#8)
+const ImmaturePackagesSchema = z.object({
+  plant_batch_id: z.number().int().positive(),
+  item_name: z.string().min(1).max(200),
+  package_tag: z.string().regex(METRC_TAG_RE, 'package_tag must be 24 alphanumeric characters'),
+  patient_license_number: z.string().max(50).optional().nullable(),
+  note: z.string().optional().nullable(),
+  is_trade_sample: z.boolean(),
+  is_donation: z.boolean(),
+  count: z.number().int().positive(),
+  location_name: z.string().max(200).optional().nullable(),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+// Immature Plants Waste (#9) — batch endpoint
+const ImmatureWasteEventSchema = z.object({
+  plant_batch_id: z.number().int().positive(),
+  waste_method_name: z.string().min(1).max(200),
+  mixed_material: z.string().max(200).optional().nullable(),
+  waste_weight: z.number().gt(0),
+  uom_name: z.string().min(1).max(50),
+  reason_name: z.string().min(1).max(200),
+  note: z.string().optional().nullable(),
+  waste_date: z.string().regex(DATE_RE, 'waste_date must be YYYY-MM-DD'),
+});
+
+const CreateImmatureWasteSchema = z.object({
+  events: z.array(ImmatureWasteEventSchema).min(1).max(500),
 });
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
@@ -1434,6 +1480,390 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     vals.push(Number(id));
     db.prepare(`UPDATE cv_employees SET ${sets.join(', ')} WHERE employee_id = ?`).run(...vals);
     return reply.send(db.prepare('SELECT * FROM cv_employees WHERE employee_id = ?').get(Number(id)));
+  });
+
+  // ── POST /api/metrc/csv/immature-growth-phase (#7) ────────────────────────
+  fastify.post('/immature-growth-phase', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = ImmatureGrowthPhaseSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Fetch source batch
+    const batch = db
+      .prepare(`
+        SELECT b.batch_id, b.name, b.metrc_plant_batch_uid, b.plant_count_current, b.status, b.strain_id
+        FROM cv_batches b
+        WHERE b.batch_id = ?
+      `)
+      .get(data.batch_id) as {
+        batch_id: number;
+        name: string | null;
+        metrc_plant_batch_uid: string | null;
+        plant_count_current: number | null;
+        status: string;
+        strain_id: number;
+      } | undefined;
+
+    if (!batch) {
+      return reply.code(404).send({ error: `Plant batch not found: ${data.batch_id}` });
+    }
+    if (batch.status === 'closed') {
+      return reply.code(400).send({ error: 'Cannot graduate plants from a closed batch' });
+    }
+
+    const availableCount = batch.plant_count_current ?? 0;
+    if (data.count > availableCount) {
+      return reply.code(400).send({
+        error: `count (${data.count}) exceeds available plant count (${availableCount})`,
+      });
+    }
+
+    // Validate location exists
+    const loc = db
+      .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+      .get(data.new_location) as { location_id: number } | undefined;
+    if (!loc) {
+      return reply.code(400).send({ error: `Unknown location — not in cv_locations.metrc_name: ${data.new_location}` });
+    }
+
+    // Query tag range: starting_tag + count consecutive available tags
+    const tagRows = db
+      .prepare(
+        `SELECT tag FROM cv_metrc_available_plant_tags
+         WHERE tag >= ? AND status = 'available'
+         ORDER BY tag
+         LIMIT ?`,
+      )
+      .all(data.starting_tag, data.count) as { tag: string }[];
+
+    if (tagRows.length < data.count) {
+      return reply.code(400).send({
+        error: `Not enough available plant tags starting from ${data.starting_tag}. Requested ${data.count}, found ${tagRows.length} available.`,
+        available_count: tagRows.length,
+        requested_count: data.count,
+      });
+    }
+
+    // Verify all tags are contiguous from starting_tag (warn if not, but still proceed)
+    const tags = tagRows.map((r) => r.tag);
+
+    const plantBatchName = batch.metrc_plant_batch_uid ?? batch.name ?? String(batch.batch_id);
+
+    const csvContent = generateImmatureGrowthPhaseCsv({
+      name: plantBatchName,
+      count: data.count,
+      starting_tag: data.starting_tag,
+      growth_phase: data.growth_phase,
+      new_location: data.new_location,
+      new_sublocation: data.new_sublocation,
+      growth_date: data.growth_date,
+      patient_license_number: data.patient_license_number,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'immature-growth-phase');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+
+    const insertFn = db.transaction(() => {
+      // Create a cv_metrc_plant_state row for each tag
+      for (const tag of tags) {
+        db.prepare(`
+          INSERT INTO cv_metrc_plant_state
+            (plant_tag, batch_id, strain_id, growth_phase, location_id, sublocation,
+             phase_transition_date, status, metrc_csv_generated_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        `).run(
+          tag,
+          data.batch_id,
+          batch.strain_id,
+          data.growth_phase,
+          loc.location_id,
+          data.new_sublocation ?? null,
+          data.growth_date,
+          now,
+          now,
+          now,
+        );
+
+        // Mark tag as used
+        db.prepare(
+          `UPDATE cv_metrc_available_plant_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+        ).run(now, tag);
+      }
+
+      // Decrement batch plant count
+      db.prepare(
+        `UPDATE cv_batches SET plant_count_current = plant_count_current - ?, updated_at = ? WHERE batch_id = ?`,
+      ).run(data.count, now, data.batch_id);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('immature-growth-phase', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      batch_id: data.batch_id,
+      tags_reserved: tags,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+    });
+  });
+
+  // ── POST /api/metrc/csv/immature-packages (#8) ────────────────────────────
+  fastify.post('/immature-packages', { preHandler: [requireRole('supervisor')] }, async (req, reply) => {
+    const parse = ImmaturePackagesSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const data = parse.data;
+    const db = getDB();
+
+    // Fetch source batch
+    const batch = db
+      .prepare(`
+        SELECT b.batch_id, b.name, b.metrc_plant_batch_uid, b.plant_count_current, b.status
+        FROM cv_batches b
+        WHERE b.batch_id = ?
+      `)
+      .get(data.plant_batch_id) as {
+        batch_id: number;
+        name: string | null;
+        metrc_plant_batch_uid: string | null;
+        plant_count_current: number | null;
+        status: string;
+      } | undefined;
+
+    if (!batch) {
+      return reply.code(404).send({ error: `Plant batch not found: ${data.plant_batch_id}` });
+    }
+    if (batch.status === 'closed') {
+      return reply.code(400).send({ error: 'Cannot package plants from a closed batch' });
+    }
+
+    const availableCount = batch.plant_count_current ?? 0;
+    if (data.count > availableCount) {
+      return reply.code(400).send({
+        error: `count (${data.count}) exceeds available plant count (${availableCount})`,
+      });
+    }
+
+    // Validate package tag is available
+    const pkgTag = db
+      .prepare(`SELECT tag FROM cv_metrc_available_package_tags WHERE tag = ? AND status = 'available'`)
+      .get(data.package_tag) as { tag: string } | undefined;
+    if (!pkgTag) {
+      return reply.code(400).send({
+        error: `Package tag not available in cv_metrc_available_package_tags: ${data.package_tag}`,
+      });
+    }
+
+    // Optionally validate location
+    const warnings: string[] = [];
+    if (data.location_name) {
+      const loc = db
+        .prepare('SELECT location_id FROM cv_locations WHERE metrc_name = ?')
+        .get(data.location_name) as { location_id: number } | undefined;
+      if (!loc) {
+        warnings.push(`location_name "${data.location_name}" not found in cv_locations.metrc_name — verify before uploading`);
+      }
+    }
+
+    const plantBatchName = batch.metrc_plant_batch_uid ?? batch.name ?? String(batch.batch_id);
+
+    const csvContent = generateImmaturePackagesCsv({
+      plant_batch_name: plantBatchName,
+      item_name: data.item_name,
+      tag: data.package_tag,
+      patient_license_number: data.patient_license_number,
+      note: data.note,
+      is_trade_sample: data.is_trade_sample,
+      is_donation: data.is_donation,
+      count: data.count,
+      location_name: data.location_name,
+      sublocation_name: data.sublocation_name,
+      actual_date: data.actual_date,
+    });
+    const { filePath, rowCount } = await writeCsv(csvContent, 'immature-packages');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    let packageId: number;
+
+    const insertFn = db.transaction(() => {
+      // Insert package record
+      const pkgResult = db.prepare(`
+        INSERT INTO cv_metrc_packages
+          (package_tag, item_name, source_type, source_plant_batch_id, item_count,
+           location_id, sublocation, patient_license_number, note,
+           is_trade_sample, is_donation, actual_date,
+           metrc_csv_generated_at, metrc_csv_file_path,
+           created_by, created_at, updated_at)
+        SELECT
+          ?, ?, 'immature_batch', ?,  ?,
+          (SELECT location_id FROM cv_locations WHERE metrc_name = ? LIMIT 1),
+          ?, ?, ?,
+          ?, ?, ?,
+          ?, ?,
+          ?, ?, ?
+      `).run(
+        data.package_tag,
+        data.item_name,
+        data.plant_batch_id,
+        data.count,
+        data.location_name ?? null,
+        data.sublocation_name ?? null,
+        data.patient_license_number ?? null,
+        data.note ?? null,
+        data.is_trade_sample ? 1 : 0,
+        data.is_donation ? 1 : 0,
+        data.actual_date,
+        now,
+        filePath,
+        userId,
+        now,
+        now,
+      );
+      packageId = Number(pkgResult.lastInsertRowid);
+
+      // Mark package tag as used
+      db.prepare(
+        `UPDATE cv_metrc_available_package_tags SET status = 'used', used_at = ? WHERE tag = ?`,
+      ).run(now, data.package_tag);
+
+      // Decrement batch plant count
+      db.prepare(
+        `UPDATE cv_batches SET plant_count_current = plant_count_current - ?, updated_at = ? WHERE batch_id = ?`,
+      ).run(data.count, now, data.plant_batch_id);
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('immature-packages', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      package_id: packageId!,
+      package_tag: data.package_tag,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings,
+    });
+  });
+
+  // ── POST /api/metrc/csv/immature-waste (#9) ───────────────────────────────
+  fastify.post('/immature-waste', { preHandler: [requireAuth] }, async (req, reply) => {
+    const parse = CreateImmatureWasteSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const { events } = parse.data;
+    const db = getDB();
+
+    // Resolve batch names for all batch IDs in the request
+    const batchIds = [...new Set(events.map((e) => e.plant_batch_id))];
+    const placeholders = batchIds.map(() => '?').join(',');
+    const batchRows = db
+      .prepare(
+        `SELECT batch_id, name, metrc_plant_batch_uid FROM cv_batches WHERE batch_id IN (${placeholders})`,
+      )
+      .all(...batchIds) as { batch_id: number; name: string | null; metrc_plant_batch_uid: string | null }[];
+
+    const batchMap = new Map<number, string>();
+    for (const row of batchRows) {
+      batchMap.set(row.batch_id, row.metrc_plant_batch_uid ?? row.name ?? String(row.batch_id));
+    }
+
+    // Validate all batch IDs exist
+    const missingIds = batchIds.filter((id) => !batchMap.has(id));
+    if (missingIds.length > 0) {
+      return reply.code(400).send({ error: `Plant batch(es) not found: ${missingIds.join(', ')}` });
+    }
+
+    // Build rows for CSV
+    const csvRows = events.map((e) => ({
+      waste_method_name: e.waste_method_name,
+      mixed_material: e.mixed_material,
+      waste_weight: e.waste_weight,
+      uom_name: e.uom_name,
+      reason_name: e.reason_name,
+      note: e.note,
+      waste_date: e.waste_date,
+      plant_batch_name: batchMap.get(e.plant_batch_id)!,
+    }));
+
+    const csvContent = generateImmatureWasteCsv(csvRows);
+    const { filePath, rowCount } = await writeCsv(csvContent, 'immature-waste');
+
+    const now = new Date().toISOString();
+    const userId = (req as { user: { id: number } }).user.id;
+
+    let uploadId: number;
+    const wasteEventIds: number[] = [];
+
+    const insertFn = db.transaction(() => {
+      for (const e of events) {
+        const result = db.prepare(`
+          INSERT INTO cv_metrc_immature_waste_events
+            (batch_id, waste_method, mixed_material, waste_weight, waste_uom,
+             waste_reason, note, waste_date,
+             metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          e.plant_batch_id,
+          e.waste_method_name,
+          e.mixed_material ?? null,
+          e.waste_weight,
+          e.uom_name,
+          e.reason_name,
+          e.note ?? null,
+          e.waste_date,
+          now,
+          filePath,
+          userId,
+          now,
+        );
+        wasteEventIds.push(Number(result.lastInsertRowid));
+      }
+
+      const uploadResult = db.prepare(`
+        INSERT INTO cv_metrc_csv_uploads
+          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
+      `).run('immature-waste', filePath, rowCount, now, userId, now, now);
+
+      return Number(uploadResult.lastInsertRowid);
+    });
+
+    uploadId = insertFn();
+
+    return reply.code(201).send({
+      waste_event_ids: wasteEventIds,
+      csv_file_path: filePath,
+      row_count: rowCount,
+      upload_id: uploadId,
+      warnings: [],
+    });
   });
 };
 
