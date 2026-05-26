@@ -343,28 +343,38 @@ function SublocationsTab() {
 
       {/* Location metrc_name verification callout */}
       {!loading && locations.length > 0 && (
-        <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-          <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+          <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-3">
             <div>
               <div className="text-sm font-semibold text-amber-900">Verify your METRC location names</div>
               <div className="text-xs text-amber-700 mt-0.5">
-                These names are written into every CSV. They must match your MN METRC account exactly.
+                The METRC Name column is written into every CSV — it must match your MN METRC account exactly.
               </div>
             </div>
             <a
               href="/admin/locations"
               className="text-xs font-semibold text-amber-800 underline whitespace-nowrap hover:text-amber-900"
             >
-              Edit in Locations Admin →
+              Edit →
             </a>
           </div>
-          <div className="bg-white border border-amber-100 rounded-xl divide-y divide-amber-50 overflow-hidden">
-            {locations.filter(l => !l.name.startsWith('  ')).map((l) => (
-              <div key={l.location_id} className="flex items-center justify-between px-3 py-2 gap-4">
-                <span className="text-xs text-gray-600">{l.name}</span>
-                <span className="text-xs font-mono font-medium text-gray-900">{l.metrc_name || <span className="text-red-500 italic">not set</span>}</span>
-              </div>
-            ))}
+          <div className="bg-white border-t border-amber-100">
+            <div className="flex items-center px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+              <span className="text-xs font-semibold text-gray-500 flex-1">Cultivate Name</span>
+              <span className="text-xs font-semibold text-gray-500 w-40 text-right">METRC Name</span>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {locations.map((l) => (
+                <div key={l.location_id} className="flex items-center px-3 py-2 gap-4">
+                  <span className="text-xs text-gray-600 flex-1">{l.name.trim()}</span>
+                  <span className="text-xs font-mono font-medium w-40 text-right">
+                    {l.metrc_name
+                      ? <span className="text-gray-900">{l.metrc_name}</span>
+                      : <span className="text-red-500 italic">not set</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
