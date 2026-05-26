@@ -1,6 +1,7 @@
 export { writeCsv } from './writer.js';
 export { getWasteMethods, getPlantWasteReasons, getBatchWasteReasons, getUnitsOfMeasure, getLocations, getStrains } from './ref-data.js';
 export type { CsvRow, CsvResult, CsvUploadType } from './types.js';
+export { formatMetrcDatetime } from './types.js';
 export { generateAdditiveTemplateCsv } from './generators/additive-template.js';
 export type { AdditiveTemplateInput } from './generators/additive-template.js';
 export { generatePlantsWasteCsv, PLANTS_WASTE_HEADERS } from './generators/plants-waste.js';
@@ -33,3 +34,9 @@ export { generateManicurePlantsCsv, MANICURE_PLANTS_HEADERS } from './generators
 export type { ManicurePlantsRow } from './generators/manicure-plants.js';
 export { generatePackagesFromHarvestCsv, PACKAGES_FROM_HARVEST_HEADERS } from './generators/packages-from-harvest.js';
 export type { PackagesFromHarvestPackage, PackagesFromHarvestIngredient } from './generators/packages-from-harvest.js';
+export { generateImmatureAdditiveAppsCsv, IMMATURE_ADDITIVE_APPS_HEADERS } from './generators/immature-additive-apps.js';
+export type { ImmatureAdditiveAppRow } from './generators/immature-additive-apps.js';
+export { generateLocationAdditiveAppsCsv, LOCATION_ADDITIVE_APPS_HEADERS } from './generators/location-additive-apps.js';
+export type { LocationAdditiveAppRow } from './generators/location-additive-apps.js';
+export { generatePlantAdditiveAppsCsv, PLANT_ADDITIVE_APPS_HEADERS } from './generators/plant-additive-apps.js';
+export type { PlantAdditiveAppRow } from './generators/plant-additive-apps.js';

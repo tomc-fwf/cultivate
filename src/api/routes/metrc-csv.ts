@@ -20,6 +20,9 @@ import {
   generateHarvestPlantsCsv,
   generateManicurePlantsCsv,
   generatePackagesFromHarvestCsv,
+  generateImmatureAdditiveAppsCsv,
+  generateLocationAdditiveAppsCsv,
+  generatePlantAdditiveAppsCsv,
 } from '../../lib/metrc-csv/index.js';
 
 // ── Validation schemas ────────────────────────────────────────────────────────
@@ -307,6 +310,52 @@ const PackagesFromHarvestSchema = z
     (d) => d.packages.reduce((sum, p) => sum + p.ingredients.length, 0) <= 500,
     { message: 'Total ingredient row count cannot exceed 500' },
   );
+
+// Immature Plant Additives (#6) — batch, CSV-only
+const ImmatureAdditiveAppItemSchema = z.object({
+  plant_batch_id: z.number().int().positive(),
+  template_name: z.string().min(1).max(100),
+  rate: z.string().max(100).optional().nullable(),
+  volume: z.string().max(100).optional().nullable(),
+  total_amount_applied: z.number().gt(0),
+  total_amount_uom: z.string().min(1).max(50),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+const CreateImmatureAdditiveAppsSchema = z.object({
+  applications: z.array(ImmatureAdditiveAppItemSchema).min(1).max(500),
+});
+
+// Location Additives (#10) — batch, CSV-only
+const LocationAdditiveAppItemSchema = z.object({
+  location_name: z.string().min(1).max(200),
+  sublocation_name: z.string().max(200).optional().nullable(),
+  template_name: z.string().min(1).max(100),
+  rate: z.string().max(100).optional().nullable(),
+  volume: z.string().max(100).optional().nullable(),
+  total_amount_applied: z.number().gt(0),
+  total_amount_uom: z.string().min(1).max(50),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+const CreateLocationAdditiveAppsSchema = z.object({
+  applications: z.array(LocationAdditiveAppItemSchema).min(1).max(500),
+});
+
+// Plant Additives (#16) — batch, CSV-only
+const PlantAdditiveAppItemSchema = z.object({
+  plant_tag: z.string().regex(METRC_TAG_RE, 'plant_tag must be 24 alphanumeric characters'),
+  template_name: z.string().min(1).max(100),
+  rate: z.string().max(100).optional().nullable(),
+  volume: z.string().max(100).optional().nullable(),
+  total_amount_applied: z.number().gt(0),
+  total_amount_uom: z.string().min(1).max(50),
+  actual_date: z.string().regex(DATE_RE, 'actual_date must be YYYY-MM-DD'),
+});
+
+const CreatePlantAdditiveAppsSchema = z.object({
+  applications: z.array(PlantAdditiveAppItemSchema).min(1).max(500),
+});
 
 // ── Admin schemas ─────────────────────────────────────────────────────────────
 
@@ -2741,6 +2790,357 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
         row_count: rowCount,
         upload_id: uploadId,
         warnings,
+      });
+    },
+  );
+  // ── POST /api/metrc/csv/additive-applications/immature-batch (#6) ──────────
+  fastify.post(
+    '/additive-applications/immature-batch',
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const parse = CreateImmatureAdditiveAppsSchema.safeParse(req.body);
+      if (!parse.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+      }
+      const { applications } = parse.data;
+      const db = getDB();
+
+      // Resolve batch names and template IDs up front
+      const batchIds = [...new Set(applications.map((a) => a.plant_batch_id))];
+      const batchPlaceholders = batchIds.map(() => '?').join(',');
+      const batchRows = db
+        .prepare(
+          `SELECT batch_id, name, metrc_plant_batch_uid FROM cv_batches WHERE batch_id IN (${batchPlaceholders})`,
+        )
+        .all(...batchIds) as { batch_id: number; name: string | null; metrc_plant_batch_uid: string | null }[];
+      const batchMap = new Map<number, string>();
+      for (const row of batchRows) {
+        batchMap.set(row.batch_id, row.metrc_plant_batch_uid ?? row.name ?? String(row.batch_id));
+      }
+      const missingBatches = batchIds.filter((id) => !batchMap.has(id));
+      if (missingBatches.length > 0) {
+        return reply.code(400).send({ error: `Plant batch(es) not found: ${missingBatches.join(', ')}` });
+      }
+
+      const templateNames = [...new Set(applications.map((a) => a.template_name))];
+      const tmplPlaceholders = templateNames.map(() => '?').join(',');
+      const tmplRows = db
+        .prepare(
+          `SELECT template_id, name FROM cv_metrc_additive_templates WHERE name IN (${tmplPlaceholders})`,
+        )
+        .all(...templateNames) as { template_id: number; name: string }[];
+      const templateMap = new Map<string, number>();
+      for (const row of tmplRows) {
+        templateMap.set(row.name, row.template_id);
+      }
+      const missingTemplates = templateNames.filter((n) => !templateMap.has(n));
+      if (missingTemplates.length > 0) {
+        return reply.code(400).send({
+          error: `Additive template(s) not found in cv_metrc_additive_templates: ${missingTemplates.join(', ')}`,
+        });
+      }
+
+      // Build CSV rows
+      const csvRows = applications.map((a) => ({
+        plant_batch_name: batchMap.get(a.plant_batch_id)!,
+        template_name: a.template_name,
+        rate: a.rate,
+        volume: a.volume,
+        total_amount_applied: a.total_amount_applied,
+        total_amount_uom: a.total_amount_uom,
+        actual_date: a.actual_date,
+      }));
+
+      const csvContent = generateImmatureAdditiveAppsCsv(csvRows);
+      const { filePath, rowCount } = await writeCsv(csvContent, 'immature-additive-applications');
+
+      const now = new Date().toISOString();
+      const userId = (req as { user: { id: number } }).user.id;
+      const applicationIds: number[] = [];
+      let uploadId: number;
+
+      const insertFn = db.transaction(() => {
+        for (const a of applications) {
+          const result = db
+            .prepare(
+              `INSERT INTO cv_metrc_additive_applications
+                 (application_type, template_id, target_plant_batch_id, rate, volume,
+                  total_amount_applied, total_amount_uom, actual_date,
+                  metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at)
+               VALUES ('immature_batch', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              templateMap.get(a.template_name)!,
+              a.plant_batch_id,
+              a.rate ?? null,
+              a.volume ?? null,
+              a.total_amount_applied,
+              a.total_amount_uom,
+              a.actual_date,
+              now,
+              filePath,
+              userId,
+              now,
+            );
+          applicationIds.push(Number(result.lastInsertRowid));
+        }
+
+        const uploadResult = db
+          .prepare(
+            `INSERT INTO cv_metrc_csv_uploads
+               (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+          )
+          .run('immature-additive-applications', filePath, rowCount, now, userId, now, now);
+
+        return Number(uploadResult.lastInsertRowid);
+      });
+
+      uploadId = insertFn();
+
+      return reply.code(201).send({
+        application_ids: applicationIds,
+        csv_file_path: filePath,
+        row_count: rowCount,
+        upload_id: uploadId,
+        warnings: [],
+        metrc_submission: { status: 'csv_only' },
+      });
+    },
+  );
+
+  // ── POST /api/metrc/csv/additive-applications/location (#10) ───────────────
+  fastify.post(
+    '/additive-applications/location',
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const parse = CreateLocationAdditiveAppsSchema.safeParse(req.body);
+      if (!parse.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+      }
+      const { applications } = parse.data;
+      const db = getDB();
+
+      // Validate location names and resolve IDs
+      const locationNames = [...new Set(applications.map((a) => a.location_name))];
+      const locPlaceholders = locationNames.map(() => '?').join(',');
+      const locRows = db
+        .prepare(
+          `SELECT location_id, metrc_name FROM cv_locations WHERE metrc_name IN (${locPlaceholders})`,
+        )
+        .all(...locationNames) as { location_id: number; metrc_name: string }[];
+      const locationMap = new Map<string, number>();
+      for (const row of locRows) {
+        locationMap.set(row.metrc_name, row.location_id);
+      }
+      const missingLocations = locationNames.filter((n) => !locationMap.has(n));
+      if (missingLocations.length > 0) {
+        return reply.code(400).send({
+          error: `Location(s) not found in cv_locations.metrc_name: ${missingLocations.join(', ')}`,
+        });
+      }
+
+      // Validate and resolve template names
+      const templateNames = [...new Set(applications.map((a) => a.template_name))];
+      const tmplPlaceholders = templateNames.map(() => '?').join(',');
+      const tmplRows = db
+        .prepare(
+          `SELECT template_id, name FROM cv_metrc_additive_templates WHERE name IN (${tmplPlaceholders})`,
+        )
+        .all(...templateNames) as { template_id: number; name: string }[];
+      const templateMap = new Map<string, number>();
+      for (const row of tmplRows) {
+        templateMap.set(row.name, row.template_id);
+      }
+      const missingTemplates = templateNames.filter((n) => !templateMap.has(n));
+      if (missingTemplates.length > 0) {
+        return reply.code(400).send({
+          error: `Additive template(s) not found in cv_metrc_additive_templates: ${missingTemplates.join(', ')}`,
+        });
+      }
+
+      const csvRows = applications.map((a) => ({
+        location_name: a.location_name,
+        sublocation_name: a.sublocation_name,
+        template_name: a.template_name,
+        rate: a.rate,
+        volume: a.volume,
+        total_amount_applied: a.total_amount_applied,
+        total_amount_uom: a.total_amount_uom,
+        actual_date: a.actual_date,
+      }));
+
+      const csvContent = generateLocationAdditiveAppsCsv(csvRows);
+      const { filePath, rowCount } = await writeCsv(csvContent, 'location-additive-applications');
+
+      const now = new Date().toISOString();
+      const userId = (req as { user: { id: number } }).user.id;
+      const applicationIds: number[] = [];
+      let uploadId: number;
+
+      const insertFn = db.transaction(() => {
+        for (const a of applications) {
+          const result = db
+            .prepare(
+              `INSERT INTO cv_metrc_additive_applications
+                 (application_type, template_id, target_location_id, target_sublocation,
+                  rate, volume, total_amount_applied, total_amount_uom, actual_date,
+                  metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at)
+               VALUES ('location', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              templateMap.get(a.template_name)!,
+              locationMap.get(a.location_name)!,
+              a.sublocation_name ?? null,
+              a.rate ?? null,
+              a.volume ?? null,
+              a.total_amount_applied,
+              a.total_amount_uom,
+              a.actual_date,
+              now,
+              filePath,
+              userId,
+              now,
+            );
+          applicationIds.push(Number(result.lastInsertRowid));
+        }
+
+        const uploadResult = db
+          .prepare(
+            `INSERT INTO cv_metrc_csv_uploads
+               (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+          )
+          .run('location-additive-applications', filePath, rowCount, now, userId, now, now);
+
+        return Number(uploadResult.lastInsertRowid);
+      });
+
+      uploadId = insertFn();
+
+      return reply.code(201).send({
+        application_ids: applicationIds,
+        csv_file_path: filePath,
+        row_count: rowCount,
+        upload_id: uploadId,
+        warnings: [],
+        metrc_submission: { status: 'csv_only' },
+      });
+    },
+  );
+
+  // ── POST /api/metrc/csv/additive-applications/plants (#16) ─────────────────
+  fastify.post(
+    '/additive-applications/plants',
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      const parse = CreatePlantAdditiveAppsSchema.safeParse(req.body);
+      if (!parse.success) {
+        return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+      }
+      const { applications } = parse.data;
+      const db = getDB();
+
+      // Validate all plant tags are active in cv_metrc_plant_state
+      const plantTags = [...new Set(applications.map((a) => a.plant_tag))];
+      const tagPlaceholders = plantTags.map(() => '?').join(',');
+      const activeTagRows = db
+        .prepare(
+          `SELECT plant_tag FROM cv_metrc_plant_state WHERE plant_tag IN (${tagPlaceholders}) AND status = 'active'`,
+        )
+        .all(...plantTags) as { plant_tag: string }[];
+      const activeTagSet = new Set(activeTagRows.map((r) => r.plant_tag));
+      const invalidTags = plantTags.filter((t) => !activeTagSet.has(t));
+      if (invalidTags.length > 0) {
+        return reply.code(400).send({
+          error: `Plant tags not found or not active in cv_metrc_plant_state: ${invalidTags.join(', ')}`,
+          invalid_tags: invalidTags,
+        });
+      }
+
+      // Validate and resolve template names
+      const templateNames = [...new Set(applications.map((a) => a.template_name))];
+      const tmplPlaceholders = templateNames.map(() => '?').join(',');
+      const tmplRows = db
+        .prepare(
+          `SELECT template_id, name FROM cv_metrc_additive_templates WHERE name IN (${tmplPlaceholders})`,
+        )
+        .all(...templateNames) as { template_id: number; name: string }[];
+      const templateMap = new Map<string, number>();
+      for (const row of tmplRows) {
+        templateMap.set(row.name, row.template_id);
+      }
+      const missingTemplates = templateNames.filter((n) => !templateMap.has(n));
+      if (missingTemplates.length > 0) {
+        return reply.code(400).send({
+          error: `Additive template(s) not found in cv_metrc_additive_templates: ${missingTemplates.join(', ')}`,
+        });
+      }
+
+      const csvRows = applications.map((a) => ({
+        plant_tag: a.plant_tag,
+        template_name: a.template_name,
+        rate: a.rate,
+        volume: a.volume,
+        total_amount_applied: a.total_amount_applied,
+        total_amount_uom: a.total_amount_uom,
+        actual_date: a.actual_date,
+      }));
+
+      const csvContent = generatePlantAdditiveAppsCsv(csvRows);
+      const { filePath, rowCount } = await writeCsv(csvContent, 'plant-additive-applications');
+
+      const now = new Date().toISOString();
+      const userId = (req as { user: { id: number } }).user.id;
+      const applicationIds: number[] = [];
+      let uploadId: number;
+
+      const insertFn = db.transaction(() => {
+        for (const a of applications) {
+          const result = db
+            .prepare(
+              `INSERT INTO cv_metrc_additive_applications
+                 (application_type, template_id, target_plant_tag, rate, volume,
+                  total_amount_applied, total_amount_uom, actual_date,
+                  metrc_csv_generated_at, metrc_csv_file_path, created_by, created_at)
+               VALUES ('plant', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              templateMap.get(a.template_name)!,
+              a.plant_tag,
+              a.rate ?? null,
+              a.volume ?? null,
+              a.total_amount_applied,
+              a.total_amount_uom,
+              a.actual_date,
+              now,
+              filePath,
+              userId,
+              now,
+            );
+          applicationIds.push(Number(result.lastInsertRowid));
+        }
+
+        const uploadResult = db
+          .prepare(
+            `INSERT INTO cv_metrc_csv_uploads
+               (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)`,
+          )
+          .run('plant-additive-applications', filePath, rowCount, now, userId, now, now);
+
+        return Number(uploadResult.lastInsertRowid);
+      });
+
+      uploadId = insertFn();
+
+      return reply.code(201).send({
+        application_ids: applicationIds,
+        csv_file_path: filePath,
+        row_count: rowCount,
+        upload_id: uploadId,
+        warnings: [],
+        metrc_submission: { status: 'csv_only' },
       });
     },
   );
