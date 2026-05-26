@@ -620,12 +620,13 @@ function TagPoolSection({ title, description, prefix, onGetCounts, onImport, onR
                 inputMode="numeric"
                 value={startNum}
                 onChange={(e) => setStartNum(e.target.value)}
-                placeholder="e.g. 1"
+                placeholder="e.g. 000001"
                 min={1}
                 disabled={!prefixReady}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-40"
                 style={{ minHeight: '44px' }}
               />
+              <p className="text-xs text-gray-400 mt-1">Leading zeros added automatically to 6 digits</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
