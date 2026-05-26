@@ -45,7 +45,7 @@ export async function up(knex: Knex): Promise<void> {
     location_category: 'outdoor',
     metrc_name: 'Z6',
     parent_location_id: zone6Id,
-    sub_zone_id: 'Z6',
+    sub_zone_id: null,
     display_order: 10,
     col_span: 1,
     active: 1,
