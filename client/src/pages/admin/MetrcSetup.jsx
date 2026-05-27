@@ -1021,7 +1021,7 @@ function TemplateActionSheet({ template, onClose, onDuplicate, onDelete }) {
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 pb-8">
+      <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50" style={{ paddingBottom: '80px' }}>
         <div className="px-5 py-4 border-b border-gray-100">
           <div className="text-sm font-semibold text-gray-900 truncate">{template.name}</div>
           <div className="text-xs text-gray-400 mt-0.5">{template.additive_type}{template.application_device ? ` · ${template.application_device}` : ''}</div>
@@ -1483,7 +1483,7 @@ function AdditiveTemplatesTab() {
                           : 'bg-gray-100 text-gray-600'}`}>
                         {t.additive_type}
                       </span>
-                      {t.category && (
+                      {t.category && t.category !== t.additive_type && (
                         <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[t.category] ?? 'bg-gray-100 text-gray-600'}`}>
                           {t.category}
                         </span>
