@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 
@@ -967,6 +967,16 @@ const APPLICATION_DEVICES = [
   'Hand Application',
 ];
 
+const DEVICE_SHORT = {
+  'Drip Irrigation':   'Drip',
+  'Foliar Spray':      'Foliar',
+  'Soil Drench':       'Drench',
+  'Top Dress':         'Top Dress',
+  'Broadcast Spreader':'Broadcast',
+  'Hose-End Sprayer':  'Hose',
+  'Hand Application':  'Hand',
+};
+
 const CATEGORY_COLORS = {
   Fertilizer:    'bg-green-100 text-green-700',
   FoliarNutrient:'bg-teal-100 text-teal-700',
@@ -993,6 +1003,80 @@ function emptyAdditiveForm() {
   };
 }
 
+function TemplateActionSheet({ template, onClose, onDuplicate, onDelete }) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await onDelete(template.template_id);
+      onClose();
+    } catch (e) {
+      alert(e.message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50 pb-8">
+        <div className="px-5 py-4 border-b border-gray-100">
+          <div className="text-sm font-semibold text-gray-900 truncate">{template.name}</div>
+          <div className="text-xs text-gray-400 mt-0.5">{template.additive_type}{template.application_device ? ` · ${template.application_device}` : ''}</div>
+        </div>
+        <div className="px-3 py-3 flex flex-col gap-1">
+          <button
+            onClick={() => { onDuplicate(template); onClose(); }}
+            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            Duplicate
+          </button>
+          {!confirmDelete ? (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              Remove
+            </button>
+          ) : (
+            <div className="px-4 py-3 rounded-xl bg-red-50 flex items-center justify-between gap-3" style={{ minHeight: '56px' }}>
+              <span className="text-sm font-medium text-red-700">Delete this template?</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-white border border-red-200 text-red-700 hover:bg-red-50"
+                  style={{ minHeight: '36px' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-50"
+                  style={{ minHeight: '36px' }}
+                >
+                  {deleting ? '…' : 'Delete'}
+                </button>
+              </div>
+            </div>
+          )}
+          <button
+            onClick={onClose}
+            className="flex items-center justify-center w-full px-4 py-3 rounded-xl text-gray-500 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors mt-1"
+            style={{ minHeight: '48px' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function AdditiveTemplatesTab() {
   const [templates, setTemplates] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
@@ -1003,8 +1087,8 @@ function AdditiveTemplatesTab() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [lastResult, setLastResult] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [deleting, setDeleting] = useState(null);
+  const [actionSheet, setActionSheet] = useState(null);
+  const longPressTimer = useRef(null);
   const formRef = useCallback((node) => { if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []); // ref callback — called when form mounts/unmounts
 
   function load() {
@@ -1075,10 +1159,8 @@ function AdditiveTemplatesTab() {
   }
 
   async function handleDelete(templateId) {
-    setDeleting(templateId);
-    try { await api.deleteAdditiveTemplate(templateId); setConfirmDelete(null); load(); }
-    catch (e) { alert(e.message); }
-    finally { setDeleting(null); }
+    await api.deleteAdditiveTemplate(templateId);
+    load();
   }
 
   function duplicateTemplate(t) {
@@ -1112,6 +1194,13 @@ function AdditiveTemplatesTab() {
     setLastResult(null);
     setShowProductDetails(!!(t.category || t.manufacturer || t.phi_days != null));
     setShowForm(true);
+  }
+
+  function startLongPress(t) {
+    longPressTimer.current = setTimeout(() => setActionSheet(t), 600);
+  }
+  function cancelLongPress() {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
   }
 
   return (
@@ -1376,7 +1465,14 @@ function AdditiveTemplatesTab() {
           </div>
           <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
             {templates.map((t) => (
-              <div key={t.template_id} className="px-4 py-3.5">
+              <div
+                key={t.template_id}
+                className="px-4 py-3.5 select-none"
+                onContextMenu={(e) => { e.preventDefault(); setActionSheet(t); }}
+                onTouchStart={() => startLongPress(t)}
+                onTouchEnd={cancelLongPress}
+                onTouchMove={cancelLongPress}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -1392,6 +1488,11 @@ function AdditiveTemplatesTab() {
                           {t.category}
                         </span>
                       )}
+                      {t.application_device && (
+                        <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                          {DEVICE_SHORT[t.application_device] ?? t.application_device}
+                        </span>
+                      )}
                       {t.unit && (
                         <span className="text-xs text-gray-500">{t.unit}</span>
                       )}
@@ -1405,32 +1506,31 @@ function AdditiveTemplatesTab() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                    <div className="text-xs text-gray-400 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString()}</div>
+                  <div className="flex flex-col items-center gap-1 flex-shrink-0">
+                    <div className="text-xs text-gray-400 whitespace-nowrap mb-1">{new Date(t.created_at).toLocaleDateString()}</div>
                     <button
-                      onClick={() => duplicateTemplate(t)}
-                      className="text-xs text-green-700 hover:text-green-900 font-medium"
+                      onClick={() => setActionSheet(t)}
+                      className="text-gray-400 hover:text-gray-700 transition-colors px-2 py-1 rounded-lg hover:bg-gray-100"
+                      style={{ minHeight: '36px', fontSize: '18px', lineHeight: 1 }}
+                      aria-label="Actions"
                     >
-                      Duplicate
+                      ⋮
                     </button>
-                    {confirmDelete === t.template_id ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-red-600">Delete?</span>
-                        <button onClick={() => handleDelete(t.template_id)} disabled={deleting === t.template_id}
-                          className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded disabled:opacity-50">
-                          {deleting === t.template_id ? '…' : 'Yes'}
-                        </button>
-                        <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded">Cancel</button>
-                      </div>
-                    ) : (
-                      <button onClick={() => setConfirmDelete(t.template_id)} className="text-xs text-red-400 hover:text-red-600">Remove</button>
-                    )}
                   </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
+      )}
+
+      {actionSheet && (
+        <TemplateActionSheet
+          template={actionSheet}
+          onClose={() => setActionSheet(null)}
+          onDuplicate={duplicateTemplate}
+          onDelete={handleDelete}
+        />
       )}
     </div>
   );
