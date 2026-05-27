@@ -955,6 +955,18 @@ function EmployeesTab() {
 // ── Tab 5: Additive Templates ─────────────────────────────────────────────────
 
 const ADDITIVE_TYPES = ['Fertilizer', 'Pesticide', 'Other'];
+const CATEGORY_OPTIONS = ['Fertilizer', 'Pesticide', 'Fungicide', 'Biocontrol', 'Amendment', 'FoliarNutrient', 'Other'];
+const SIGNAL_WORDS = ['', 'CAUTION', 'WARNING', 'DANGER'];
+
+const CATEGORY_COLORS = {
+  Fertilizer:    'bg-green-100 text-green-700',
+  FoliarNutrient:'bg-teal-100 text-teal-700',
+  Pesticide:     'bg-red-100 text-red-700',
+  Fungicide:     'bg-orange-100 text-orange-700',
+  Biocontrol:    'bg-blue-100 text-blue-700',
+  Amendment:     'bg-amber-100 text-amber-700',
+  Other:         'bg-gray-100 text-gray-600',
+};
 
 function emptyIngredient() { return { name: '', percentage: '' }; }
 
@@ -964,6 +976,11 @@ function emptyAdditiveForm() {
     epa_registration_number: '', note: '', rei_quantity: '', rei_time_unit: '',
     product_supplier: '', application_device: '',
     active_ingredients: [emptyIngredient()],
+    // Product catalog fields
+    category: '', unit: '', manufacturer: '',
+    phi_days: '', phi_days_operational: '', phi_notes: '',
+    rei_hours: '', omri_listed: false, restricted_use: false,
+    signal_word: '', target_organisms: '', sds_url: '',
   };
 }
 
@@ -971,6 +988,7 @@ function AdditiveTemplatesTab() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showProductDetails, setShowProductDetails] = useState(false);
   const [form, setForm] = useState(emptyAdditiveForm());
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -1007,11 +1025,32 @@ function AdditiveTemplatesTab() {
       .filter((ing) => ing.name.trim() !== '')
       .map((ing) => ({ name: ing.name.trim(), percentage: parseFloat(ing.percentage) || 0 }));
     if (ingredients.length === 0) { setSaveError('At least one active ingredient is required.'); setSaving(false); return; }
-    const payload = { templates: [{ name: form.name.trim(), additive_type: form.additive_type,
-      product_trade_name: form.product_trade_name.trim() || null, epa_registration_number: form.epa_registration_number.trim() || null,
-      note: form.note.trim() || null, rei_quantity: form.rei_quantity.trim() || null, rei_time_unit: form.rei_time_unit.trim() || null,
-      product_supplier: form.product_supplier.trim() || null, application_device: form.application_device.trim() || null,
-      active_ingredients: ingredients }] };
+    const template = {
+      name: form.name.trim(),
+      additive_type: form.additive_type,
+      product_trade_name: form.product_trade_name.trim() || null,
+      epa_registration_number: form.epa_registration_number.trim() || null,
+      note: form.note.trim() || null,
+      rei_quantity: form.rei_quantity.trim() || null,
+      rei_time_unit: form.rei_time_unit.trim() || null,
+      product_supplier: form.product_supplier.trim() || null,
+      application_device: form.application_device.trim() || null,
+      active_ingredients: ingredients,
+      // Product catalog fields
+      category: form.category || null,
+      unit: form.unit.trim() || null,
+      manufacturer: form.manufacturer.trim() || null,
+      phi_days: form.phi_days !== '' ? parseFloat(form.phi_days) : null,
+      phi_days_operational: form.phi_days_operational !== '' ? parseFloat(form.phi_days_operational) : null,
+      phi_notes: form.phi_notes.trim() || null,
+      rei_hours: form.rei_hours !== '' ? parseFloat(form.rei_hours) : null,
+      omri_listed: form.omri_listed ? 1 : 0,
+      restricted_use: form.restricted_use ? 1 : 0,
+      signal_word: form.signal_word || null,
+      target_organisms: form.target_organisms.trim() || null,
+      sds_url: form.sds_url.trim() || null,
+    };
+    const payload = { templates: [template] };
     try {
       const result = await api.createAdditiveTemplates(payload);
       setLastResult(result); setForm(emptyAdditiveForm()); setShowForm(false); load();
@@ -1033,7 +1072,7 @@ function AdditiveTemplatesTab() {
           Register products with active ingredient breakdowns for METRC upload type #1.
         </p>
         <button
-          onClick={() => { setShowForm((v) => !v); setSaveError(null); setLastResult(null); }}
+          onClick={() => { setShowForm((v) => !v); setSaveError(null); setLastResult(null); setShowProductDetails(false); }}
           className="ml-3 px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors flex-shrink-0"
           style={{ minHeight: '36px' }}
         >
@@ -1126,6 +1165,112 @@ function AdditiveTemplatesTab() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
             </div>
 
+            {/* Collapsible Product Details section */}
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowProductDetails((v) => !v)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+              >
+                <span className="text-sm font-semibold text-gray-700">Product Details</span>
+                <span className="text-xs text-gray-500">{showProductDetails ? '▲ Collapse' : '▼ Expand'}</span>
+              </button>
+              {showProductDetails && (
+                <div className="p-4 grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
+                      <select value={form.category} onChange={(e) => updateField('category', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }}>
+                        <option value="">— Not set —</option>
+                        {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Unit</label>
+                      <input type="text" maxLength={50} value={form.unit} onChange={(e) => updateField('unit', e.target.value)}
+                        placeholder="e.g. gal, lb, oz"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Manufacturer</label>
+                    <input type="text" maxLength={200} value={form.manufacturer} onChange={(e) => updateField('manufacturer', e.target.value)}
+                      placeholder="e.g. Oregon's Best Organics"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-2">PHI / REI</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Label PHI (days)</label>
+                        <input type="number" inputMode="decimal" min="0" step="0.5" value={form.phi_days}
+                          onChange={(e) => updateField('phi_days', e.target.value)} placeholder="e.g. 7"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Operational PHI (days)</label>
+                        <input type="number" inputMode="decimal" min="0" step="0.5" value={form.phi_days_operational}
+                          onChange={(e) => updateField('phi_days_operational', e.target.value)} placeholder="≥ label PHI"
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <label className="block text-xs text-gray-500 mb-1">PHI Notes</label>
+                      <input type="text" value={form.phi_notes} onChange={(e) => updateField('phi_notes', e.target.value)}
+                        placeholder="e.g. No biofoliars after flower week 3"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                    </div>
+                    <div className="mt-3">
+                      <label className="block text-xs text-gray-500 mb-1">REI Hours (numeric)</label>
+                      <input type="number" inputMode="decimal" min="0" step="0.5" value={form.rei_hours}
+                        onChange={(e) => updateField('rei_hours', e.target.value)} placeholder="e.g. 4"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                      <p className="text-xs text-gray-400 mt-1">Separate from REI Quantity/Time Unit above, which are used for METRC CSV export.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Signal Word</label>
+                      <select value={form.signal_word} onChange={(e) => updateField('signal_word', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }}>
+                        {SIGNAL_WORDS.map((w) => <option key={w} value={w}>{w || '— Not set —'}</option>)}
+                      </select>
+                    </div>
+                    <div className="flex flex-col justify-end gap-3 pb-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={form.omri_listed} onChange={(e) => updateField('omri_listed', e.target.checked)}
+                          className="w-4 h-4 rounded text-green-600" />
+                        <span className="text-sm text-gray-700">OMRI Listed</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={form.restricted_use} onChange={(e) => updateField('restricted_use', e.target.checked)}
+                          className="w-4 h-4 rounded text-red-600" />
+                        <span className="text-sm text-gray-700">Restricted Use (RUP)</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Target Organisms</label>
+                    <input type="text" value={form.target_organisms} onChange={(e) => updateField('target_organisms', e.target.value)}
+                      placeholder="e.g. Botrytis, Powdery Mildew, Spider Mites"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">SDS URL</label>
+                    <input type="url" value={form.sds_url} onChange={(e) => updateField('sds_url', e.target.value)}
+                      placeholder="https://…"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-medium text-gray-600">Active Ingredients <span className="text-red-500">*</span></label>
@@ -1182,6 +1327,14 @@ function AdditiveTemplatesTab() {
                           : 'bg-gray-100 text-gray-600'}`}>
                         {t.additive_type}
                       </span>
+                      {t.category && (
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[t.category] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {t.category}
+                        </span>
+                      )}
+                      {t.unit && (
+                        <span className="text-xs text-gray-500">{t.unit}</span>
+                      )}
                       <span className="text-xs text-gray-400">{t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}</span>
                     </div>
                     {t.product_trade_name && <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>}

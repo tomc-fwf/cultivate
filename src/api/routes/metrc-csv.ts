@@ -74,6 +74,19 @@ const AdditiveTemplateSchema = z.object({
   product_supplier: z.string().max(200).optional().nullable(),
   application_device: z.string().max(200).optional().nullable(),
   active_ingredients: z.array(ActiveIngredientSchema).min(1),
+  // Product catalog fields (Phase 2 — all optional)
+  category: z.enum(['Fertilizer', 'Pesticide', 'Fungicide', 'Biocontrol', 'Amendment', 'FoliarNutrient', 'Other']).optional().nullable(),
+  unit: z.string().max(50).optional().nullable(),
+  manufacturer: z.string().max(200).optional().nullable(),
+  phi_days: z.number().min(0).optional().nullable(),
+  phi_days_operational: z.number().min(0).optional().nullable(),
+  phi_notes: z.string().optional().nullable(),
+  rei_hours: z.number().min(0).optional().nullable(),
+  omri_listed: z.number().int().min(0).max(1).optional().nullable(),
+  restricted_use: z.number().int().min(0).max(1).optional().nullable(),
+  signal_word: z.enum(['CAUTION', 'WARNING', 'DANGER']).optional().nullable(),
+  target_organisms: z.string().optional().nullable(),
+  sds_url: z.string().max(500).optional().nullable(),
 }).refine(
   (t) => t.additive_type !== 'Pesticide' || (!!t.epa_registration_number && t.epa_registration_number.trim().length > 0),
   { message: 'epa_registration_number is required when additive_type is Pesticide', path: ['epa_registration_number'] },
@@ -505,8 +518,10 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
             (name, additive_type, product_trade_name, epa_registration_number, note,
              rei_quantity, rei_time_unit, product_supplier, application_device,
              active_ingredients, metrc_csv_generated_at, metrc_csv_file_path,
+             category, unit, manufacturer, phi_days, phi_days_operational, phi_notes,
+             rei_hours, omri_listed, restricted_use, signal_word, target_organisms, sds_url,
              created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           t.name,
           t.additive_type,
@@ -520,6 +535,18 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
           JSON.stringify(t.active_ingredients),
           now,
           filePath,
+          t.category ?? null,
+          t.unit ?? null,
+          t.manufacturer ?? null,
+          t.phi_days ?? null,
+          t.phi_days_operational ?? null,
+          t.phi_notes ?? null,
+          t.rei_hours ?? null,
+          t.omri_listed ?? 0,
+          t.restricted_use ?? 0,
+          t.signal_word ?? null,
+          t.target_organisms ?? null,
+          t.sds_url ?? null,
           userId,
           now,
           now,
@@ -555,6 +582,30 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     const result = rows.map((r) => ({
       ...r,
       active_ingredients: JSON.parse(r['active_ingredients'] as string),
+      omri_listed: Number(r['omri_listed'] ?? 0),
+      restricted_use: Number(r['restricted_use'] ?? 0),
+    }));
+    return reply.send(result);
+  });
+
+  // GET /api/metrc/csv/additive-templates/catalog — product picker endpoint for application forms
+  fastify.get('/additive-templates/catalog', { preHandler: [requireAuth] }, async (_req, reply) => {
+    const db = getDB();
+    const rows = db
+      .prepare(`
+        SELECT
+          template_id, name, additive_type, category, unit, manufacturer,
+          epa_registration_number, phi_days, phi_days_operational, phi_notes,
+          rei_hours, omri_listed, restricted_use, signal_word, active_ingredients
+        FROM cv_metrc_additive_templates
+        ORDER BY category NULLS LAST, name ASC
+      `)
+      .all() as Record<string, unknown>[];
+    const result = rows.map((r) => ({
+      ...r,
+      active_ingredients: JSON.parse(r['active_ingredients'] as string),
+      omri_listed: Number(r['omri_listed'] ?? 0),
+      restricted_use: Number(r['restricted_use'] ?? 0),
     }));
     return reply.send(result);
   });
