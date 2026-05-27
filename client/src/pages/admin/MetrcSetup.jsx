@@ -958,13 +958,30 @@ function AdditiveTemplatesTab() {
   const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [deleting, setDeleting] = useState(null);
 
-  useEffect(() => {
+  function load() {
     api.getAdditiveTemplates()
       .then(setTemplates)
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function handleDelete(templateId) {
+    setDeleting(templateId);
+    try {
+      await api.deleteAdditiveTemplate(templateId);
+      setConfirmDelete(null);
+      load();
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setDeleting(null);
+    }
+  }
 
   return (
     <div>
@@ -978,8 +995,8 @@ function AdditiveTemplatesTab() {
         style={{ minHeight: '56px' }}
       >
         <div className="text-left">
-          <div className="text-sm font-semibold text-gray-800">Manage Additive Templates</div>
-          <div className="text-xs text-gray-500">Create templates with active ingredients and generate CSV</div>
+          <div className="text-sm font-semibold text-gray-800">+ New Additive Template</div>
+          <div className="text-xs text-gray-500">Create template with active ingredients and generate CSV</div>
         </div>
         <span className="text-gray-400">→</span>
       </button>
@@ -995,24 +1012,51 @@ function AdditiveTemplatesTab() {
           </div>
           <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
             {templates.map((t) => (
-              <div key={t.template_id} className="px-4 py-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-gray-900">{t.name}</span>
-                  <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                    t.additive_type === 'Pesticide'
-                      ? 'bg-red-100 text-red-700'
-                      : t.additive_type === 'Fertilizer'
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-gray-100 text-gray-600'
-                  }`}>
-                    {t.additive_type}
-                  </span>
-                  <span className="text-xs text-gray-400">
-                    {t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}
-                  </span>
+              <div key={t.template_id} className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900">{t.name}</span>
+                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                      t.additive_type === 'Pesticide'
+                        ? 'bg-red-100 text-red-700'
+                        : t.additive_type === 'Fertilizer'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {t.additive_type}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  {t.product_trade_name && (
+                    <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>
+                  )}
                 </div>
-                {t.product_trade_name && (
-                  <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>
+                {confirmDelete === t.template_id ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="text-xs text-red-600">Delete?</span>
+                    <button
+                      onClick={() => handleDelete(t.template_id)}
+                      disabled={deleting === t.template_id}
+                      className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded disabled:opacity-50"
+                    >
+                      {deleting === t.template_id ? '…' : 'Yes'}
+                    </button>
+                    <button
+                      onClick={() => setConfirmDelete(null)}
+                      className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmDelete(t.template_id)}
+                    className="text-xs text-red-400 hover:text-red-600 flex-shrink-0"
+                  >
+                    Remove
+                  </button>
                 )}
               </div>
             ))}
