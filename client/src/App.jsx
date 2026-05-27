@@ -108,7 +108,9 @@ function Protected({ children, minRole }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('cv_user')); } catch { return null; }
+  });
   useSyncQueue();
 
   useEffect(() => {
