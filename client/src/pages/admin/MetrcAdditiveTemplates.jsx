@@ -31,6 +31,8 @@ export default function MetrcAdditiveTemplates() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [lastResult, setLastResult] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null); // template_id pending confirmation
+  const [deleting, setDeleting] = useState(null);
 
   useEffect(() => {
     loadTemplates();
@@ -117,6 +119,19 @@ export default function MetrcAdditiveTemplates() {
       setSaveError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDelete(templateId) {
+    setDeleting(templateId);
+    try {
+      await api.deleteAdditiveTemplate(templateId);
+      setConfirmDelete(null);
+      await loadTemplates();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -411,8 +426,35 @@ export default function MetrcAdditiveTemplates() {
                     ))}
                   </div>
                 </div>
-                <div className="text-xs text-gray-400 whitespace-nowrap">
-                  {new Date(t.created_at).toLocaleDateString()}
+                <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                  <div className="text-xs text-gray-400 whitespace-nowrap">
+                    {new Date(t.created_at).toLocaleDateString()}
+                  </div>
+                  {confirmDelete === t.template_id ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-600">Delete?</span>
+                      <button
+                        onClick={() => handleDelete(t.template_id)}
+                        disabled={deleting === t.template_id}
+                        className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded disabled:opacity-50"
+                      >
+                        {deleting === t.template_id ? '…' : 'Yes'}
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmDelete(t.template_id)}
+                      className="text-xs text-red-400 hover:text-red-600"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
               </div>
               {t.metrc_csv_file_path && (

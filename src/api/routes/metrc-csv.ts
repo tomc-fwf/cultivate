@@ -559,6 +559,35 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     return reply.send(result);
   });
 
+  // DELETE /api/metrc/csv/additive-templates/:id
+  fastify.delete('/additive-templates/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const db = getDB();
+    const template = db
+      .prepare('SELECT * FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(Number(id)) as Record<string, unknown> | undefined;
+
+    if (!template) {
+      return reply.code(404).send({ error: 'Additive template not found' });
+    }
+
+    const filePath = template['metrc_csv_file_path'] as string | null;
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM cv_metrc_additive_templates WHERE template_id = ?').run(Number(id));
+      if (filePath) {
+        db.prepare('DELETE FROM cv_metrc_csv_uploads WHERE file_path = ?').run(filePath);
+      }
+    })();
+
+    // Best-effort file deletion — don't fail if file is already gone
+    if (filePath && fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+    }
+
+    return reply.code(200).send({ deleted: true });
+  });
+
   // GET /api/metrc/csv/uploads — list all generated CSV uploads
   fastify.get('/uploads', { preHandler: [requireAuth] }, async (_req, reply) => {
     const db = getDB();

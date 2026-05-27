@@ -292,6 +292,7 @@ export const api = {
   // METRC CSV — additive templates
   getAdditiveTemplates: () => req('GET', '/metrc/csv/additive-templates'),
   createAdditiveTemplates: (body) => req('POST', '/metrc/csv/additive-templates', body),
+  deleteAdditiveTemplate: (id) => req('DELETE', `/metrc/csv/additive-templates/${id}`),
 
   // METRC CSV — plants waste (#21)
   getPendingPlantsWaste: () => req('GET', '/metrc/csv/plants-waste/pending'),
