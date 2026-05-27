@@ -629,7 +629,7 @@ export default function ApplicationsHub() {
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
         <button
-          onClick={() => navigate('/admin/metrc-additive-templates')}
+          onClick={() => navigate('/admin/metrc-setup?tab=additive-templates')}
           className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
           style={{ minHeight: '56px' }}
         >

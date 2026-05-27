@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 
 const TABS = ['Reference Data', 'Sublocations', 'Tag Pools', 'Employees', 'Additive Templates', 'Downloads'];
@@ -954,14 +954,32 @@ function EmployeesTab() {
 
 // ── Tab 5: Additive Templates ─────────────────────────────────────────────────
 
+const ADDITIVE_TYPES = ['Fertilizer', 'Pesticide', 'Other'];
+
+function emptyIngredient() { return { name: '', percentage: '' }; }
+
+function emptyAdditiveForm() {
+  return {
+    name: '', additive_type: 'Fertilizer', product_trade_name: '',
+    epa_registration_number: '', note: '', rei_quantity: '', rei_time_unit: '',
+    product_supplier: '', application_device: '',
+    active_ingredients: [emptyIngredient()],
+  };
+}
+
 function AdditiveTemplatesTab() {
-  const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState(emptyAdditiveForm());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [lastResult, setLastResult] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
   function load() {
+    setLoading(true);
     api.getAdditiveTemplates()
       .then(setTemplates)
       .catch(() => {})
@@ -970,94 +988,226 @@ function AdditiveTemplatesTab() {
 
   useEffect(() => { load(); }, []);
 
+  function updateField(field, value) { setForm((prev) => ({ ...prev, [field]: value })); }
+  function addIngredient() { setForm((prev) => ({ ...prev, active_ingredients: [...prev.active_ingredients, emptyIngredient()] })); }
+  function removeIngredient(idx) { setForm((prev) => ({ ...prev, active_ingredients: prev.active_ingredients.filter((_, i) => i !== idx) })); }
+  function updateIngredient(idx, field, value) {
+    setForm((prev) => {
+      const updated = [...prev.active_ingredients];
+      updated[idx] = { ...updated[idx], [field]: value };
+      return { ...prev, active_ingredients: updated };
+    });
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaveError(null);
+    setSaving(true);
+    const ingredients = form.active_ingredients
+      .filter((ing) => ing.name.trim() !== '')
+      .map((ing) => ({ name: ing.name.trim(), percentage: parseFloat(ing.percentage) || 0 }));
+    if (ingredients.length === 0) { setSaveError('At least one active ingredient is required.'); setSaving(false); return; }
+    const payload = { templates: [{ name: form.name.trim(), additive_type: form.additive_type,
+      product_trade_name: form.product_trade_name.trim() || null, epa_registration_number: form.epa_registration_number.trim() || null,
+      note: form.note.trim() || null, rei_quantity: form.rei_quantity.trim() || null, rei_time_unit: form.rei_time_unit.trim() || null,
+      product_supplier: form.product_supplier.trim() || null, application_device: form.application_device.trim() || null,
+      active_ingredients: ingredients }] };
+    try {
+      const result = await api.createAdditiveTemplates(payload);
+      setLastResult(result); setForm(emptyAdditiveForm()); setShowForm(false); load();
+    } catch (err) { setSaveError(err.message); }
+    finally { setSaving(false); }
+  }
+
   async function handleDelete(templateId) {
     setDeleting(templateId);
-    try {
-      await api.deleteAdditiveTemplate(templateId);
-      setConfirmDelete(null);
-      load();
-    } catch (e) {
-      alert(e.message);
-    } finally {
-      setDeleting(null);
-    }
+    try { await api.deleteAdditiveTemplate(templateId); setConfirmDelete(null); load(); }
+    catch (e) { alert(e.message); }
+    finally { setDeleting(null); }
   }
 
   return (
     <div>
-      <p className="text-xs text-gray-500 mb-4">
-        Additive templates register products with their active ingredient breakdowns for METRC
-        upload type #1. Each template generates a CSV row when created.
-      </p>
-      <button
-        onClick={() => navigate('/admin/metrc-additive-templates')}
-        className="w-full flex items-center justify-between px-4 py-3.5 bg-white border border-gray-200 rounded-2xl hover:bg-gray-50 transition-colors mb-6"
-        style={{ minHeight: '56px' }}
-      >
-        <div className="text-left">
-          <div className="text-sm font-semibold text-gray-800">+ New Additive Template</div>
-          <div className="text-xs text-gray-500">Create template with active ingredients and generate CSV</div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs text-gray-500">
+          Register products with active ingredient breakdowns for METRC upload type #1.
+        </p>
+        <button
+          onClick={() => { setShowForm((v) => !v); setSaveError(null); setLastResult(null); }}
+          className="ml-3 px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors flex-shrink-0"
+          style={{ minHeight: '36px' }}
+        >
+          {showForm ? 'Cancel' : '+ New Template'}
+        </button>
+      </div>
+
+      {lastResult && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
+          <div className="font-semibold">Template created — CSV generated</div>
+          <div className="mt-1 text-green-600 text-xs">{lastResult.row_count} ingredient row{lastResult.row_count !== 1 ? 's' : ''} · see Downloads tab to retrieve file</div>
         </div>
-        <span className="text-gray-400">→</span>
-      </button>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="mb-6 bg-white border border-gray-200 rounded-2xl p-5">
+          <h2 className="text-base font-semibold text-gray-800 mb-4">New Additive Template</h2>
+          {saveError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{saveError}</div>}
+
+          <div className="grid grid-cols-1 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Template Name <span className="text-red-500">*</span></label>
+              <input type="text" required maxLength={100} value={form.name} onChange={(e) => updateField('name', e.target.value)}
+                placeholder="e.g. Organic Gem Fish Hydrolysate"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Additive Type <span className="text-red-500">*</span></label>
+              <select required value={form.additive_type} onChange={(e) => updateField('additive_type', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }}>
+                {ADDITIVE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                EPA Registration Number
+                {form.additive_type === 'Pesticide' ? <span className="text-red-500"> *</span> : <span className="text-gray-400 font-normal"> (if applicable)</span>}
+              </label>
+              <input type="text" required={form.additive_type === 'Pesticide'} maxLength={50} value={form.epa_registration_number}
+                onChange={(e) => updateField('epa_registration_number', e.target.value)} placeholder="e.g. 70299-19"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+              {form.additive_type !== 'Pesticide' && <p className="text-xs text-gray-400 mt-1">Required in MN if this product has an EPA registration number.</p>}
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Product Trade Name</label>
+              <input type="text" maxLength={200} value={form.product_trade_name} onChange={(e) => updateField('product_trade_name', e.target.value)}
+                placeholder="e.g. Wonder Sprout"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Product Supplier</label>
+              <input type="text" maxLength={200} value={form.product_supplier} onChange={(e) => updateField('product_supplier', e.target.value)}
+                placeholder="e.g. G Labs"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Application Device</label>
+              <input type="text" maxLength={200} value={form.application_device} onChange={(e) => updateField('application_device', e.target.value)}
+                placeholder="e.g. Drip system, Backpack sprayer"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">REI Quantity</label>
+                <input type="text" maxLength={10} value={form.rei_quantity} onChange={(e) => updateField('rei_quantity', e.target.value)}
+                  placeholder="e.g. 4"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">REI Time Unit</label>
+                <input type="text" maxLength={50} value={form.rei_time_unit} onChange={(e) => updateField('rei_time_unit', e.target.value)}
+                  placeholder="e.g. hours, days"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+              </div>
+            </div>
+            {((form.rei_quantity.trim() !== '') !== (form.rei_time_unit.trim() !== '')) && (
+              <p className="text-xs text-amber-600 -mt-2">REI quantity and time unit must both be filled or both empty.</p>
+            )}
+
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Note</label>
+              <textarea rows={2} value={form.note} onChange={(e) => updateField('note', e.target.value)}
+                placeholder="Optional note for METRC"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs font-medium text-gray-600">Active Ingredients <span className="text-red-500">*</span></label>
+                <button type="button" onClick={addIngredient} className="text-xs text-green-700 font-semibold hover:text-green-900">+ Add row</button>
+              </div>
+              <div className="space-y-2">
+                {form.active_ingredients.map((ing, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input type="text" required={idx === 0} value={ing.name} onChange={(e) => updateIngredient(idx, 'name', e.target.value)}
+                      placeholder="Ingredient name"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                    <input type="number" required={idx === 0} min="0" max="100" step="0.01" value={ing.percentage}
+                      onChange={(e) => updateIngredient(idx, 'percentage', e.target.value)} placeholder="%"
+                      className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                      style={{ minHeight: '44px' }} inputMode="decimal" />
+                    {form.active_ingredients.length > 1 && (
+                      <button type="button" onClick={() => removeIngredient(idx)} className="text-red-400 hover:text-red-600 px-1" aria-label="Remove ingredient">×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end mt-5">
+            <button type="submit" disabled={saving}
+              className="px-6 py-3 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50 transition-colors"
+              style={{ minHeight: '56px' }}>
+              {saving ? 'Creating…' : 'Create Template & Generate CSV'}
+            </button>
+          </div>
+        </form>
+      )}
 
       {loading ? (
-        <div className="text-sm text-gray-400">Loading templates…</div>
-      ) : templates.length === 0 ? (
-        <div className="text-sm text-gray-500 text-center py-4">No templates created yet.</div>
-      ) : (
+        <div className="text-sm text-gray-400 py-4">Loading templates…</div>
+      ) : templates.length === 0 && !showForm ? (
+        <div className="text-sm text-gray-500 text-center py-6">No templates yet. Click + New Template above.</div>
+      ) : templates.length > 0 && (
         <div>
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            {templates.length} template{templates.length !== 1 ? 's' : ''} created
+            {templates.length} template{templates.length !== 1 ? 's' : ''}
           </div>
           <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
             {templates.map((t) => (
-              <div key={t.template_id} className="px-4 py-3 flex items-center justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm font-semibold text-gray-900">{t.name}</span>
-                    <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                      t.additive_type === 'Pesticide'
-                        ? 'bg-red-100 text-red-700'
-                        : t.additive_type === 'Fertilizer'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {t.additive_type}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}
-                    </span>
+              <div key={t.template_id} className="px-4 py-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-gray-900">{t.name}</span>
+                      <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+                        t.additive_type === 'Pesticide' ? 'bg-red-100 text-red-700'
+                          : t.additive_type === 'Fertilizer' ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-600'}`}>
+                        {t.additive_type}
+                      </span>
+                      <span className="text-xs text-gray-400">{t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    {t.product_trade_name && <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>}
+                    {t.epa_registration_number && <div className="text-xs text-gray-400 mt-0.5">EPA: {t.epa_registration_number}</div>}
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                      {t.active_ingredients.map((ing, i) => (
+                        <span key={i} className="text-xs text-gray-500">{ing.name} {ing.percentage}%</span>
+                      ))}
+                    </div>
                   </div>
-                  {t.product_trade_name && (
-                    <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>
-                  )}
+                  <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                    <div className="text-xs text-gray-400 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString()}</div>
+                    {confirmDelete === t.template_id ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-red-600">Delete?</span>
+                        <button onClick={() => handleDelete(t.template_id)} disabled={deleting === t.template_id}
+                          className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded disabled:opacity-50">
+                          {deleting === t.template_id ? '…' : 'Yes'}
+                        </button>
+                        <button onClick={() => setConfirmDelete(null)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded">Cancel</button>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDelete(t.template_id)} className="text-xs text-red-400 hover:text-red-600">Remove</button>
+                    )}
+                  </div>
                 </div>
-                {confirmDelete === t.template_id ? (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-red-600">Delete?</span>
-                    <button
-                      onClick={() => handleDelete(t.template_id)}
-                      disabled={deleting === t.template_id}
-                      className="text-xs text-white bg-red-600 hover:bg-red-700 px-2 py-1 rounded disabled:opacity-50"
-                    >
-                      {deleting === t.template_id ? '…' : 'Yes'}
-                    </button>
-                    <button
-                      onClick={() => setConfirmDelete(null)}
-                      className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDelete(t.template_id)}
-                    className="text-xs text-red-400 hover:text-red-600 flex-shrink-0"
-                  >
-                    Remove
-                  </button>
-                )}
               </div>
             ))}
           </div>
@@ -1193,8 +1343,17 @@ function DownloadsTab() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+const TAB_SLUGS = ['reference-data', 'sublocations', 'tag-pools', 'employees', 'additive-templates', 'downloads'];
+
 export default function MetrcSetup() {
-  const [tab, setTab] = useState(0);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = TAB_SLUGS.indexOf(searchParams.get('tab') ?? '');
+  const [tab, setTab] = useState(initialTab >= 0 ? initialTab : 0);
+
+  function handleTabChange(i) {
+    setTab(i);
+    setSearchParams({ tab: TAB_SLUGS[i] }, { replace: true });
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 pb-24">
@@ -1210,7 +1369,7 @@ export default function MetrcSetup() {
         {TABS.map((t, i) => (
           <button
             key={i}
-            onClick={() => setTab(i)}
+            onClick={() => handleTabChange(i)}
             className={`px-3 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors flex-shrink-0 ${
               tab === i
                 ? 'bg-white text-gray-900 shadow-sm'
