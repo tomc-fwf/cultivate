@@ -501,28 +501,22 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(400).send({ error: `Template names already exist: ${existing.map((e) => e.name).join(', ')}` });
     }
 
-    // Generate CSV and write file
-    const csvContent = generateAdditiveTemplateCsv(templates);
-    const productLabel = `Additive-Templates-${templates.length}-product${templates.length !== 1 ? 's' : ''}`;
-    const { filePath, rowCount } = await writeCsv(csvContent, 'additive-template', undefined, productLabel);
-
     const now = new Date().toISOString();
     const userId = (req as { user: { id: number } }).user.id;
 
     const templateIds: number[] = [];
-    let uploadId: number;
 
-    const insertFn = db.transaction(() => {
+    db.transaction(() => {
       for (const t of templates) {
         const result = db.prepare(`
           INSERT INTO cv_metrc_additive_templates
             (name, additive_type, product_trade_name, epa_registration_number, note,
              rei_quantity, rei_time_unit, product_supplier, application_device,
-             active_ingredients, metrc_csv_generated_at, metrc_csv_file_path,
+             active_ingredients,
              category, unit, manufacturer, phi_days, phi_days_operational, phi_notes,
              rei_hours, omri_listed, restricted_use, signal_word, target_organisms, sds_url,
              created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           t.name,
           t.additive_type,
@@ -534,8 +528,6 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
           t.product_supplier ?? null,
           t.application_device ?? null,
           JSON.stringify(t.active_ingredients),
-          now,
-          filePath,
           t.category ?? null,
           t.unit ?? null,
           t.manufacturer ?? null,
@@ -554,23 +546,10 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
         );
         templateIds.push(Number(result.lastInsertRowid));
       }
-
-      const uploadResult = db.prepare(`
-        INSERT INTO cv_metrc_csv_uploads
-          (upload_type, file_path, row_count, generated_at, generated_by, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'generated', ?, ?)
-      `).run('additive-template', filePath, rowCount, now, userId, now, now);
-
-      return Number(uploadResult.lastInsertRowid);
-    });
-
-    uploadId = insertFn();
+    })();
 
     return reply.code(201).send({
       template_ids: templateIds,
-      csv_file_path: filePath,
-      row_count: rowCount,
-      upload_id: uploadId,
     });
   });
 

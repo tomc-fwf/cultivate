@@ -1205,9 +1205,15 @@ function AdditiveTemplatesTab() {
 
   return (
     <div>
+      <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+        <span className="font-semibold">Template names must match METRC exactly.</span> These templates are registered
+        in METRC's web UI under <em>Reports → Additive Templates</em>. The name you enter here must be identical to
+        the name in your MN METRC account — application CSV uploads reference templates by name.
+      </div>
+
       <div className="flex items-center justify-between mb-4">
         <p className="text-xs text-gray-500">
-          Register products with active ingredient breakdowns for METRC upload type #1.
+          Manage your product catalog for use in plant and immature plant additive application CSVs.
         </p>
         <button
           onClick={() => { setShowForm((v) => !v); setSaveError(null); setLastResult(null); setShowProductDetails(false); }}
@@ -1220,8 +1226,8 @@ function AdditiveTemplatesTab() {
 
       {lastResult && (
         <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800">
-          <div className="font-semibold">Template created — CSV generated</div>
-          <div className="mt-1 text-green-600 text-xs">{lastResult.row_count} ingredient row{lastResult.row_count !== 1 ? 's' : ''} · see Downloads tab to retrieve file</div>
+          <div className="font-semibold">Template saved</div>
+          <div className="mt-1 text-green-600 text-xs">{(lastResult.template_ids ?? []).length} template{(lastResult.template_ids ?? []).length !== 1 ? 's' : ''} saved</div>
         </div>
       )}
 
@@ -1448,7 +1454,7 @@ function AdditiveTemplatesTab() {
             <button type="submit" disabled={saving}
               className="px-6 py-3 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50 transition-colors"
               style={{ minHeight: '56px' }}>
-              {saving ? 'Creating…' : 'Create Template & Generate CSV'}
+              {saving ? 'Saving…' : 'Save Template'}
             </button>
           </div>
         </form>
