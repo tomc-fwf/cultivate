@@ -1,5 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
 import {
@@ -555,6 +557,41 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       active_ingredients: JSON.parse(r['active_ingredients'] as string),
     }));
     return reply.send(result);
+  });
+
+  // GET /api/metrc/csv/uploads — list all generated CSV uploads
+  fastify.get('/uploads', { preHandler: [requireAuth] }, async (_req, reply) => {
+    const db = getDB();
+    const rows = db
+      .prepare('SELECT * FROM cv_metrc_csv_uploads ORDER BY generated_at DESC')
+      .all() as Record<string, unknown>[];
+    return reply.send(rows);
+  });
+
+  // GET /api/metrc/csv/uploads/:id/download — stream CSV file to browser
+  fastify.get('/uploads/:id/download', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const db = getDB();
+    const upload = db
+      .prepare('SELECT * FROM cv_metrc_csv_uploads WHERE upload_id = ?')
+      .get(Number(id)) as Record<string, unknown> | undefined;
+
+    if (!upload) {
+      return reply.code(404).send({ error: 'Upload not found' });
+    }
+
+    const filePath = upload['file_path'] as string;
+    if (!fs.existsSync(filePath)) {
+      return reply.code(404).send({ error: 'CSV file not found on disk. It may have been lost after a redeploy. Set METRC_CSV_OUTPUT_DIR to a persistent volume to prevent this.' });
+    }
+
+    const filename = path.basename(filePath);
+    const content = await fs.promises.readFile(filePath, 'utf8');
+
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .send(content);
   });
 
   // GET /api/metrc/csv/plants-waste/pending

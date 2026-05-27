@@ -342,6 +342,28 @@ export const api = {
   importMetrcPackageTags: (data) => req('POST', '/metrc/csv/admin/package-tags', data),
   resetMetrcPackageTags: () => req('DELETE', '/metrc/csv/admin/package-tags/available'),
 
+  // METRC CSV uploads — list and download
+  getMetrcCsvUploads: () => req('GET', '/metrc/csv/uploads'),
+  downloadMetrcCsvUpload: async (uploadId, filename) => {
+    const token = getToken();
+    const res = await fetch(`/api/metrc/csv/uploads/${uploadId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Download failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || `metrc-upload-${uploadId}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+
   // METRC Setup admin — employees
   getMetrcEmployees: () => req('GET', '/metrc/csv/admin/employees'),
   createMetrcEmployee: (data) => req('POST', '/metrc/csv/admin/employees', data),

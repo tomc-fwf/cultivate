@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
-const TABS = ['Reference Data', 'Sublocations', 'Tag Pools', 'Employees', 'Additive Templates'];
+const TABS = ['Reference Data', 'Sublocations', 'Tag Pools', 'Employees', 'Additive Templates', 'Downloads'];
 
 const UOM_TYPES = ['weight', 'volume', 'count', 'area', 'length', 'other'];
 
@@ -1023,6 +1023,130 @@ function AdditiveTemplatesTab() {
   );
 }
 
+// ── Tab 6: Downloads ──────────────────────────────────────────────────────────
+
+const UPLOAD_TYPE_LABELS = {
+  'additive-template': 'Additive Templates (#1)',
+  'create-plantings': 'Create Plantings (#2)',
+  'plants-waste': 'Plants Waste (#21)',
+  'plantings-from-package': 'Plantings from Package (#17)',
+  'plantings-from-plant': 'Plantings from Plant (#18)',
+  'split-planting': 'Split Planting (#19)',
+  'destroy-immature': 'Destroy Immature (#20)',
+  'destroy-plants': 'Destroy Plants (#22)',
+  'immature-growth-phase': 'Immature Growth Phase (#3)',
+  'immature-packages': 'Immature Packages (#4)',
+  'immature-waste': 'Immature Waste (#5)',
+  'plants-growth-phase': 'Plants Growth Phase (#6)',
+  'plants-location': 'Plants Location (#7)',
+  'harvest-plants': 'Harvest Plants (#8)',
+  'manicure-plants': 'Manicure Plants (#9)',
+  'packages-from-harvest': 'Packages from Harvest (#10)',
+  'immature-additive-apps': 'Immature Additive Apps (#11)',
+  'location-additive-apps': 'Location Additive Apps (#12)',
+  'plant-additive-apps': 'Plant Additive Apps (#13)',
+  'package-adjustment': 'Package Adjustment (#14)',
+  'package-from-veg': 'Package from Veg (#15)',
+  'package-planting-from-plant': 'Package Planting from Plant (#16)',
+};
+
+function DownloadsTab() {
+  const [uploads, setUploads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [downloading, setDownloading] = useState(null);
+  const [dlError, setDlError] = useState(null);
+
+  useEffect(() => {
+    api.getMetrcCsvUploads()
+      .then(setUploads)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleDownload(upload) {
+    setDlError(null);
+    setDownloading(upload.upload_id);
+    try {
+      const filename = upload.file_path
+        ? upload.file_path.split('/').pop().split('\\').pop()
+        : `metrc-${upload.upload_type}-${upload.upload_id}.csv`;
+      await api.downloadMetrcCsvUpload(upload.upload_id, filename);
+    } catch (e) {
+      setDlError(`Download failed: ${e.message}`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  // Group uploads by date
+  const byDate = uploads.reduce((acc, u) => {
+    const date = u.generated_at ? u.generated_at.slice(0, 10) : 'Unknown';
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(u);
+    return acc;
+  }, {});
+  const sortedDates = Object.keys(byDate).sort((a, b) => b.localeCompare(a));
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-4">
+        All generated METRC CSV files. Download a file and upload it to METRC via the Import facility.
+        Files are stored on the server — set <code className="bg-gray-100 px-1 rounded">METRC_CSV_OUTPUT_DIR</code> to
+        a Railway persistent volume to prevent loss on redeploy.
+      </p>
+
+      {dlError && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {dlError}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-sm text-gray-400 py-8 text-center">Loading…</div>
+      ) : error ? (
+        <div className="text-sm text-red-600 py-4">{error}</div>
+      ) : uploads.length === 0 ? (
+        <div className="text-sm text-gray-500 py-8 text-center">No CSV files generated yet.</div>
+      ) : (
+        <div className="space-y-5">
+          {sortedDates.map((date) => (
+            <div key={date}>
+              <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">{date}</div>
+              <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+                {byDate[date].map((u) => (
+                  <div key={u.upload_id} className="px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-gray-900">
+                        {UPLOAD_TYPE_LABELS[u.upload_type] ?? u.upload_type}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {u.row_count} row{u.row_count !== 1 ? 's' : ''} ·{' '}
+                        {u.generated_at ? new Date(u.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        {u.status && u.status !== 'generated' && (
+                          <span className="ml-2 text-amber-600 font-medium">{u.status}</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDownload(u)}
+                      disabled={downloading === u.upload_id}
+                      className="px-3 py-1.5 text-xs font-semibold bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50 transition-colors flex-shrink-0"
+                      style={{ minHeight: '36px' }}
+                    >
+                      {downloading === u.upload_id ? 'Downloading…' : '↓ Download'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function MetrcSetup() {
@@ -1059,6 +1183,7 @@ export default function MetrcSetup() {
       {tab === 2 && <TagPoolsTab />}
       {tab === 3 && <EmployeesTab />}
       {tab === 4 && <AdditiveTemplatesTab />}
+      {tab === 5 && <DownloadsTab />}
     </div>
   );
 }
