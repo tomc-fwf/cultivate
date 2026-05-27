@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks, Droplets, Leaf, Bug, Package } from 'lucide-react';
+import { Sprout, Layers, ScanLine, FlaskConical, Eye, Grid2x2, MapPin, LogOut, MoreHorizontal, ClipboardList, BarChart2, X, LayoutGrid, Vault, ListChecks, Droplets, Leaf, Bug, Package, Settings2 } from 'lucide-react';
 import { useAuth } from '../App';
 import { useSyncStatus } from '../lib/offlineQueue';
 import { api } from '../api';
@@ -42,7 +42,7 @@ function useMetrcPending() {
   return count;
 }
 
-function MoreSheet({ onClose, metrcPending }) {
+function MoreSheet({ onClose, metrcPending, logout }) {
   const navigate = useNavigate();
   const go = (path) => { navigate(path); onClose(); };
 
@@ -92,6 +92,16 @@ function MoreSheet({ onClose, metrcPending }) {
               )}
             </button>
           ))}
+          <div className="border-t border-gray-100 mt-2 pt-2">
+            <button
+              onClick={() => { logout(); onClose(); }}
+              className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-red-600 font-medium hover:bg-red-50 active:bg-red-100 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              <span className="text-red-400"><LogOut size={20} /></span>
+              <span>Logout</span>
+            </button>
+          </div>
         </div>
       </div>
     </>
@@ -126,14 +136,9 @@ export default function NavBar() {
             </span>
           )}
         </div>
-        <button
-          onClick={logout}
-          className="flex flex-col items-center gap-0.5 text-xs pt-1 text-gray-600 hover:text-red-600 transition-colors"
-        >
-          <LogOut size={22} /><span>Logout</span>
-        </button>
+        <NavLink to="/admin" className={cls}><Settings2 size={22} /><span>Admin</span></NavLink>
       </nav>
-      {showMore && <MoreSheet onClose={() => setShowMore(false)} metrcPending={metrcPending} />}
+      {showMore && <MoreSheet onClose={() => setShowMore(false)} metrcPending={metrcPending} logout={logout} />}
     </>
   );
 }
