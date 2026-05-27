@@ -204,8 +204,8 @@ export default function ApplicationsHub() {
         </button>
       </div>
 
-      {/* ── Recipes ────────────────────────────────────────────────────── */}
-      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Recipes</h2>
+      {/* ── Recipes & Catalog ──────────────────────────────────────────── */}
+      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Recipes & Catalog</h2>
       <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
         <button
           onClick={() => navigate('/recipes/fertigation')}
@@ -223,6 +223,15 @@ export default function ApplicationsHub() {
         >
           <span className="text-lg flex-shrink-0">📘</span>
           <span className="text-sm font-semibold text-gray-800">Foliar Recipes</span>
+          <span className="ml-auto text-gray-400">→</span>
+        </button>
+        <button
+          onClick={() => navigate('/inputs')}
+          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
+          style={{ minHeight: '56px' }}
+        >
+          <span className="text-lg flex-shrink-0">📦</span>
+          <span className="text-sm font-semibold text-gray-800">Crop Inputs</span>
           <span className="ml-auto text-gray-400">→</span>
         </button>
       </div>
