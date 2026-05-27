@@ -503,7 +503,8 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
 
     // Generate CSV and write file
     const csvContent = generateAdditiveTemplateCsv(templates);
-    const { filePath, rowCount } = await writeCsv(csvContent, 'additive-template');
+    const productLabel = `Additive-Templates-${templates.length}-product${templates.length !== 1 ? 's' : ''}`;
+    const { filePath, rowCount } = await writeCsv(csvContent, 'additive-template', undefined, productLabel);
 
     const now = new Date().toISOString();
     const userId = (req as { user: { id: number } }).user.id;

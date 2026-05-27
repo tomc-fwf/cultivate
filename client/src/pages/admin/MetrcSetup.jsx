@@ -957,6 +957,15 @@ function EmployeesTab() {
 const ADDITIVE_TYPES = ['Fertilizer', 'Pesticide', 'Other'];
 const CATEGORY_OPTIONS = ['Fertilizer', 'Pesticide', 'Fungicide', 'Biocontrol', 'Amendment', 'FoliarNutrient', 'Other'];
 const SIGNAL_WORDS = ['', 'CAUTION', 'WARNING', 'DANGER'];
+const APPLICATION_DEVICES = [
+  'Drip Irrigation',
+  'Foliar Spray',
+  'Soil Drench',
+  'Top Dress',
+  'Broadcast Spreader',
+  'Hose-End Sprayer',
+  'Hand Application',
+];
 
 const CATEGORY_COLORS = {
   Fertilizer:    'bg-green-100 text-green-700',
@@ -986,6 +995,7 @@ function emptyAdditiveForm() {
 
 function AdditiveTemplatesTab() {
   const [templates, setTemplates] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showProductDetails, setShowProductDetails] = useState(false);
@@ -995,6 +1005,7 @@ function AdditiveTemplatesTab() {
   const [lastResult, setLastResult] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deleting, setDeleting] = useState(null);
+  const formRef = useCallback((node) => { if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []); // ref callback — called when form mounts/unmounts
 
   function load() {
     setLoading(true);
@@ -1005,6 +1016,11 @@ function AdditiveTemplatesTab() {
   }
 
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    api.getCatalogSuppliers()
+      .then((data) => setSuppliers(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, []);
 
   function updateField(field, value) { setForm((prev) => ({ ...prev, [field]: value })); }
   function addIngredient() { setForm((prev) => ({ ...prev, active_ingredients: [...prev.active_ingredients, emptyIngredient()] })); }
@@ -1065,6 +1081,39 @@ function AdditiveTemplatesTab() {
     finally { setDeleting(null); }
   }
 
+  function duplicateTemplate(t) {
+    setForm({
+      name: `${t.name} (copy)`,
+      additive_type: t.additive_type,
+      product_trade_name: t.product_trade_name ?? '',
+      epa_registration_number: t.epa_registration_number ?? '',
+      note: t.note ?? '',
+      rei_quantity: t.rei_quantity ?? '',
+      rei_time_unit: t.rei_time_unit ?? '',
+      product_supplier: t.product_supplier ?? '',
+      application_device: t.application_device ?? '',
+      active_ingredients: t.active_ingredients.length > 0
+        ? t.active_ingredients.map((i) => ({ name: i.name, percentage: String(i.percentage) }))
+        : [emptyIngredient()],
+      category: t.category ?? '',
+      unit: t.unit ?? '',
+      manufacturer: t.manufacturer ?? '',
+      phi_days: t.phi_days != null ? String(t.phi_days) : '',
+      phi_days_operational: t.phi_days_operational != null ? String(t.phi_days_operational) : '',
+      phi_notes: t.phi_notes ?? '',
+      rei_hours: t.rei_hours != null ? String(t.rei_hours) : '',
+      omri_listed: !!t.omri_listed,
+      restricted_use: !!t.restricted_use,
+      signal_word: t.signal_word ?? '',
+      target_organisms: t.target_organisms ?? '',
+      sds_url: t.sds_url ?? '',
+    });
+    setSaveError(null);
+    setLastResult(null);
+    setShowProductDetails(!!(t.category || t.manufacturer || t.phi_days != null));
+    setShowForm(true);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -1088,7 +1137,7 @@ function AdditiveTemplatesTab() {
       )}
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="mb-6 bg-white border border-gray-200 rounded-2xl p-5">
+        <form ref={formRef} onSubmit={handleSubmit} className="mb-6 bg-white border border-gray-200 rounded-2xl p-5">
           <h2 className="text-base font-semibold text-gray-800 mb-4">New Additive Template</h2>
           {saveError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{saveError}</div>}
 
@@ -1128,16 +1177,27 @@ function AdditiveTemplatesTab() {
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Product Supplier</label>
-              <input type="text" maxLength={200} value={form.product_supplier} onChange={(e) => updateField('product_supplier', e.target.value)}
-                placeholder="e.g. G Labs"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+              <select value={form.product_supplier} onChange={(e) => updateField('product_supplier', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }}>
+                <option value="">— Select supplier —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.name}>{s.name}</option>
+                ))}
+              </select>
+              {suppliers.length === 0 && (
+                <p className="text-xs text-gray-400 mt-1">No suppliers found — add them in Farmstock.</p>
+              )}
             </div>
 
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Application Device</label>
-              <input type="text" maxLength={200} value={form.application_device} onChange={(e) => updateField('application_device', e.target.value)}
-                placeholder="e.g. Drip system, Backpack sprayer"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+              <select value={form.application_device} onChange={(e) => updateField('application_device', e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }}>
+                <option value="">— Select device —</option>
+                {APPLICATION_DEVICES.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -1347,6 +1407,12 @@ function AdditiveTemplatesTab() {
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                     <div className="text-xs text-gray-400 whitespace-nowrap">{new Date(t.created_at).toLocaleDateString()}</div>
+                    <button
+                      onClick={() => duplicateTemplate(t)}
+                      className="text-xs text-green-700 hover:text-green-900 font-medium"
+                    >
+                      Duplicate
+                    </button>
                     {confirmDelete === t.template_id ? (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-red-600">Delete?</span>

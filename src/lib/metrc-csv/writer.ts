@@ -15,6 +15,7 @@ export async function writeCsv(
   content: string,
   uploadType: string,
   outputDir: string = process.env.METRC_CSV_OUTPUT_DIR ?? './Metrc-csv-uploads',
+  label?: string,
 ): Promise<{ filePath: string; rowCount: number }> {
   const dateSlug = getDateSlug();
   const dir = path.join(outputDir, dateSlug);
@@ -23,8 +24,14 @@ export async function writeCsv(
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const timestamp = Date.now();
-  const filename = `${uploadType}-${timestamp}`;
+  const now = new Date();
+  const timeSlug = [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('');
+  const base = label ?? uploadType;
+  const filename = `${base}-${dateSlug}-${timeSlug}`;
   const tmpPath = path.join(dir, `${filename}.tmp`);
   const finalPath = path.join(dir, `${filename}.csv`);
 

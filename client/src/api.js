@@ -32,6 +32,7 @@ export const api = {
 
   // Catalog (farmstock items proxy — ingredient picker source)
   getCatalogItems: () => req('GET', '/catalog/items'),
+  getCatalogSuppliers: () => req('GET', '/catalog/suppliers'),
 
   // Inventory (farmstock crop inputs including pesticides — cultivate Crop Inputs view)
   getInventory: (params = {}) => {
