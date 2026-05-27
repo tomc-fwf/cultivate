@@ -236,47 +236,6 @@ export default function ApplicationsHub() {
         </button>
       </div>
 
-      {/* ── Library & Reference ────────────────────────────────────────── */}
-      <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Library & Reference</h2>
-      <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100 mb-6">
-        <button
-          onClick={() => navigate('/recipes')}
-          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-          style={{ minHeight: '56px' }}
-        >
-          <span className="text-lg flex-shrink-0">📚</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-800">Recipe Library</div>
-            <div className="text-xs text-gray-500">Fertigation + foliar recipes</div>
-          </div>
-          <span className="text-gray-400 flex-shrink-0">→</span>
-        </button>
-        <button
-          onClick={() => navigate('/inputs')}
-          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-          style={{ minHeight: '56px' }}
-        >
-          <span className="text-lg flex-shrink-0">📦</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-800">Crop Input Inventory</div>
-            <div className="text-xs text-gray-500">Products, lots, EPA/OMRI registrations</div>
-          </div>
-          <span className="text-gray-400 flex-shrink-0">→</span>
-        </button>
-        <button
-          onClick={() => navigate('/rei')}
-          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 active:bg-gray-100 transition-colors"
-          style={{ minHeight: '56px' }}
-        >
-          <span className="text-lg flex-shrink-0">⚠️</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-800">REI Status Dashboard</div>
-            <div className="text-xs text-gray-500">Active re-entry intervals</div>
-          </div>
-          <span className="text-gray-400 flex-shrink-0">→</span>
-        </button>
-      </div>
-
       {/* ── Compliance & Reports ───────────────────────────────────────── */}
       <h2 className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-2">Compliance & Reports</h2>
       <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
@@ -625,21 +584,6 @@ export default function ApplicationsHub() {
               <span className="text-xs font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Admin</span>
             </div>
             <div className="text-xs text-gray-500">Historical temp/RH charts · per sensor / location</div>
-          </div>
-          <span className="text-gray-400 flex-shrink-0">→</span>
-        </button>
-        <button
-          onClick={() => navigate('/admin/metrc-setup?tab=additive-templates')}
-          className="w-full px-4 py-3.5 text-left flex items-center gap-3 hover:bg-gray-50 transition-colors"
-          style={{ minHeight: '56px' }}
-        >
-          <span className="text-lg flex-shrink-0">🧪</span>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-              METRC Additive Templates
-              <span className="text-xs font-medium bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Admin</span>
-            </div>
-            <div className="text-xs text-gray-500">Register products with active ingredients for METRC upload #1</div>
           </div>
           <span className="text-gray-400 flex-shrink-0">→</span>
         </button>
