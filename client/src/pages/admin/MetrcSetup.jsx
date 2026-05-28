@@ -961,6 +961,8 @@ const APPLICATION_DEVICES = [
   'Drip Irrigation',
   'Foliar Spray',
   'Soil Drench',
+  'Hose Watering',
+  'Root Drench',
   'Top Dress',
   'Broadcast Spreader',
   'Hose-End Sprayer',
@@ -971,9 +973,11 @@ const DEVICE_SHORT = {
   'Drip Irrigation':   'Drip',
   'Foliar Spray':      'Foliar',
   'Soil Drench':       'Drench',
+  'Hose Watering':     'Hose H₂O',
+  'Root Drench':       'Root Drench',
   'Top Dress':         'Top Dress',
   'Broadcast Spreader':'Broadcast',
-  'Hose-End Sprayer':  'Hose',
+  'Hose-End Sprayer':  'Hose Sprayer',
   'Hand Application':  'Hand',
 };
 
