@@ -243,7 +243,7 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
 
       db.prepare(`
         UPDATE cv_plant_assignments
-        SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ?
+        SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ?, metrc_sync_status = 'pending'
         WHERE assignment_id = ?
       `).run(metrc_plant_tag, now, userId, target['assignment_id']);
 
@@ -339,7 +339,7 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
             }
 
             db.prepare(`
-              UPDATE cv_plant_assignments SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ? WHERE assignment_id = ?
+              UPDATE cv_plant_assignments SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ?, metrc_sync_status = 'pending' WHERE assignment_id = ?
             `).run(item.metrc_plant_tag, now, userId, target['assignment_id']);
 
             results.push({ index: i, container_id: item.container_id, assignment_id: target['assignment_id'], metrc_plant_tag: item.metrc_plant_tag });
@@ -438,14 +438,14 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
         db.prepare(`
           UPDATE cv_plant_assignments
           SET metrc_plant_tag = NULL, tagged_at = NULL, tagged_by = NULL,
-              unassign_notes = ?
+              metrc_sync_status = 'not_required', unassign_notes = ?
           WHERE assignment_id = ?
         `).run(`Tag reassigned to container ${to_container_id}: ${reason.trim()}`, from_assignment_id);
 
         // Apply the tag to the destination assignment
         db.prepare(`
           UPDATE cv_plant_assignments
-          SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ?
+          SET metrc_plant_tag = ?, tagged_at = ?, tagged_by = ?, metrc_sync_status = 'pending'
           WHERE assignment_id = ?
         `).run(metrc_plant_tag, now, userId, toTarget['assignment_id']);
       })();
@@ -586,6 +586,43 @@ const tagAssignmentsRoutes: FastifyPluginAsync = async (app) => {
         to_container_id,
         moved_at: now,
       });
+    },
+  );
+
+  // ── POST /mark-synced — bulk mark assignments as synced after METRC entry ───
+  //
+  // Called after the operator manually enters tag assignments in METRC.
+  // Accepts a list of assignment_ids; marks all as 'synced' with current timestamp.
+  // Supervisor role required — this is a compliance state change.
+
+  const MarkSyncedSchema = z.object({
+    assignment_ids: z.array(z.number().int().positive()).min(1),
+    synced_at: z.string().optional(), // ISO string; defaults to now
+  });
+
+  app.post<{ Body: z.infer<typeof MarkSyncedSchema> }>(
+    '/mark-synced',
+    { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      let body: z.infer<typeof MarkSyncedSchema>;
+      try { body = MarkSyncedSchema.parse(request.body); }
+      catch (e: unknown) {
+        if (e instanceof z.ZodError) return reply.code(400).send({ error: 'Validation failed', issues: e.issues });
+        throw e;
+      }
+      const { assignment_ids, synced_at } = body;
+      const db = getDB();
+      const ts = synced_at ?? new Date().toISOString();
+
+      const placeholders = assignment_ids.map(() => '?').join(', ');
+      const result = db.prepare(`
+        UPDATE cv_plant_assignments
+        SET metrc_sync_status = 'synced', metrc_synced_at = ?
+        WHERE assignment_id IN (${placeholders})
+          AND metrc_plant_tag IS NOT NULL
+      `).run(ts, ...assignment_ids);
+
+      return reply.send({ updated: result.changes, synced_at: ts });
     },
   );
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 
-const TABS = ['Reference Data', 'Sublocations', 'Tag Pools', 'Employees', 'Additive Templates', 'Downloads'];
+const TABS = ['Reference Data', 'Sublocations', 'Tag Pools', 'Employees', 'Additive Templates', 'Tag Sync', 'Downloads'];
 
 const UOM_TYPES = ['weight', 'volume', 'count', 'area', 'length', 'other'];
 
@@ -1863,7 +1863,200 @@ function AdditiveTemplatesTab() {
   );
 }
 
-// ── Tab 6: Downloads ──────────────────────────────────────────────────────────
+// ── Tab 6: Tag Sync ───────────────────────────────────────────────────────────
+
+const SYNC_STATUS_COLORS = {
+  pending: 'bg-amber-100 text-amber-800',
+  synced: 'bg-green-100 text-green-700',
+  failed: 'bg-red-100 text-red-700',
+  not_required: 'bg-gray-100 text-gray-500',
+};
+
+function TagSyncTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [marking, setMarking] = useState(false);
+  const [markError, setMarkError] = useState(null);
+  const [filterBatch, setFilterBatch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('pending');
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const params = {};
+      if (filterBatch) params.batch_id = filterBatch;
+      const result = await api.getMetrcTagAssignments(params);
+      setData(result);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+    setSelected(new Set());
+  }, [filterBatch]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const assignments = data?.assignments ?? [];
+  const filtered = filterStatus === 'all'
+    ? assignments
+    : assignments.filter(a => a.metrc_sync_status === filterStatus);
+
+  const allFilteredIds = filtered.map(a => a.assignment_id);
+  const allSelected = allFilteredIds.length > 0 && allFilteredIds.every(id => selected.has(id));
+
+  function toggleAll() {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(allFilteredIds));
+  }
+
+  function toggleOne(id) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function handleMarkSynced() {
+    if (selected.size === 0) return;
+    setMarking(true); setMarkError(null);
+    try {
+      const res = await api.markTagAssignmentsSynced({ assignment_ids: Array.from(selected) });
+      if (!res.ok) throw new Error(res.data?.error ?? 'Failed to mark synced');
+      await load();
+    } catch (e) {
+      setMarkError(e.message);
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  const pendingCount = assignments.filter(a => a.metrc_sync_status === 'pending').length;
+  const syncedCount = assignments.filter(a => a.metrc_sync_status === 'synced').length;
+
+  return (
+    <div>
+      <p className="text-xs text-gray-500 mb-4">
+        Track which METRC plant tag assignments have been manually entered into METRC.
+        After entering assignments in METRC, select them here and click "Mark Synced."
+      </p>
+
+      {/* Summary chips */}
+      <div className="flex gap-2 mb-4 flex-wrap">
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">
+          {pendingCount} pending
+        </span>
+        <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+          {syncedCount} synced
+        </span>
+        <button
+          onClick={() => api.downloadMetrcTagAssignmentsCsv(filterBatch ? { batch_id: filterBatch } : {})}
+          className="ml-auto px-3 py-1 rounded-full text-xs font-semibold bg-green-700 text-white hover:bg-green-800"
+        >
+          ↓ Download CSV
+        </button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <input
+          type="number"
+          placeholder="Batch ID filter…"
+          value={filterBatch}
+          onChange={e => setFilterBatch(e.target.value)}
+          className="text-xs border border-gray-200 rounded-lg px-3 py-1.5 w-36"
+        />
+        {['pending', 'synced', 'all'].map(s => (
+          <button
+            key={s}
+            onClick={() => setFilterStatus(s)}
+            className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+              filterStatus === s
+                ? 'bg-green-700 text-white border-green-700'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+            }`}
+          >
+            {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {markError && (
+        <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">{markError}</div>
+      )}
+
+      {loading ? (
+        <div className="text-sm text-gray-400 py-8 text-center">Loading…</div>
+      ) : error ? (
+        <div className="text-sm text-red-600 py-4">{error}</div>
+      ) : filtered.length === 0 ? (
+        <div className="text-sm text-gray-500 py-8 text-center">
+          {filterStatus === 'pending' ? 'No pending tag assignments.' : 'No assignments match the filter.'}
+        </div>
+      ) : (
+        <>
+          {/* Bulk action bar */}
+          {filterStatus !== 'synced' && (
+            <div className="flex items-center gap-3 mb-2">
+              <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                <input type="checkbox" checked={allSelected} onChange={toggleAll} className="rounded" />
+                Select all ({filtered.length})
+              </label>
+              {selected.size > 0 && (
+                <button
+                  onClick={handleMarkSynced}
+                  disabled={marking}
+                  className="px-4 py-1.5 text-xs font-semibold bg-green-700 text-white rounded-lg hover:bg-green-800 disabled:opacity-50"
+                  style={{ minHeight: '36px' }}
+                >
+                  {marking ? 'Marking…' : `Mark ${selected.size} synced`}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
+            {filtered.map(a => (
+              <div key={a.assignment_id} className="px-4 py-3 flex items-center gap-3">
+                {filterStatus !== 'synced' && (
+                  <input
+                    type="checkbox"
+                    checked={selected.has(a.assignment_id)}
+                    onChange={() => toggleOne(a.assignment_id)}
+                    className="rounded flex-shrink-0"
+                  />
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-mono font-medium text-gray-900 truncate">
+                    {a.metrc_plant_tag}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    {a.strain_name} · {a.container_id} · Batch {a.batch_id}
+                    {a.metrc_plant_batch_uid && (
+                      <span className="ml-1 text-gray-400">({a.metrc_plant_batch_uid.slice(-6)})</span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    Tagged {a.tagged_at ? new Date(a.tagged_at).toLocaleDateString() : '—'}
+                    {a.metrc_synced_at && ` · Synced ${new Date(a.metrc_synced_at).toLocaleDateString()}`}
+                  </div>
+                </div>
+                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${SYNC_STATUS_COLORS[a.metrc_sync_status] ?? 'bg-gray-100 text-gray-500'}`}>
+                  {a.metrc_sync_status}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Tab 7: Downloads ──────────────────────────────────────────────────────────
 
 const UPLOAD_TYPE_LABELS = {
   'additive-template': 'Additive Templates (#1)',
@@ -1989,7 +2182,7 @@ function DownloadsTab() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-const TAB_SLUGS = ['reference-data', 'sublocations', 'tag-pools', 'employees', 'additive-templates', 'downloads'];
+const TAB_SLUGS = ['reference-data', 'sublocations', 'tag-pools', 'employees', 'additive-templates', 'tag-sync', 'downloads'];
 
 export default function MetrcSetup() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2032,7 +2225,8 @@ export default function MetrcSetup() {
       {tab === 2 && <TagPoolsTab />}
       {tab === 3 && <EmployeesTab />}
       {tab === 4 && <AdditiveTemplatesTab />}
-      {tab === 5 && <DownloadsTab />}
+      {tab === 5 && <TagSyncTab />}
+      {tab === 6 && <DownloadsTab />}
     </div>
   );
 }

@@ -1143,7 +1143,7 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
 
     const rows = db.prepare(`
       SELECT pa.assignment_id, pa.metrc_plant_tag, pa.placed_at, pa.tagged_at,
-             pa.metrc_sync_status, pa.container_id,
+             pa.metrc_sync_status, pa.metrc_synced_at, pa.container_id,
              b.metrc_plant_batch_uid, b.batch_id,
              s.name AS strain_name,
              c.row_id
@@ -1159,7 +1159,7 @@ const exportsRoutes: FastifyPluginAsync = async (app) => {
       const columns = [
         'assignment_id', 'metrc_plant_tag', 'metrc_plant_batch_uid', 'batch_id',
         'strain_name', 'container_id', 'row_id', 'placed_at', 'tagged_at',
-        'metrc_sync_status',
+        'metrc_sync_status', 'metrc_synced_at',
       ];
       const dateStr = new Date().toISOString().slice(0, 10);
       reply.header('Content-Type', 'text/csv; charset=utf-8');

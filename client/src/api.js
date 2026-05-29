@@ -165,6 +165,7 @@ export const api = {
   bulkAssignTags: (body) => req('POST', '/tag-assignments/bulk', body),
   reassignTag: (body) => req('POST', '/tag-assignments/reassign', body),
   moveTagAssignment: (assignmentId, body) => req('POST', `/tag-assignments/${assignmentId}/move`, body),
+  markTagAssignmentsSynced: (body) => req('POST', '/tag-assignments/mark-synced', body),
 
   // Plant loss
   recordPlantLoss: (data) => req('POST', '/plant-loss', data),
