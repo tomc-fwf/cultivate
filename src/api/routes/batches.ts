@@ -68,7 +68,7 @@ const METRC_LOCATION_EVENT: Partial<Record<string, boolean>> = {
 };
 
 const BatchCreateSchema = z.object({
-  name: z.string().nullable().optional(),
+  name: z.string().min(1, 'Batch name is required'),
   strain_id: z.number().int().positive().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
   plant_count_initial: z.number().int().positive(),
@@ -88,7 +88,7 @@ const BatchCreateSchema = z.object({
 type BatchCreateBody = z.infer<typeof BatchCreateSchema>;
 
 const BatchUpdateSchema = z.object({
-  name: z.string().nullable().optional(),
+  name: z.string().min(1).nullable().optional(),
   metrc_plant_batch_uid: z.string().min(1).max(200).nullable().optional(),
   notes: z.string().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
