@@ -645,7 +645,6 @@ export default function LocationView() {
   const alertParts = [];
   if (alerts.losses_unsynced > 0) alertParts.push(`${alerts.losses_unsynced} unsynced ${alerts.losses_unsynced === 1 ? 'loss' : 'losses'}`);
   if (alerts.teardown_pending > 0) alertParts.push(`${alerts.teardown_pending} teardown pending`);
-  if (alerts.startup_pending > 0) alertParts.push(`${alerts.startup_pending} startup pending`);
   if (alerts.lab_samples_awaiting > 0) alertParts.push(`${alerts.lab_samples_awaiting} awaiting lab`);
 
   return (
