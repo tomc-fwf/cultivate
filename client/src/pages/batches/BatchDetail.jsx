@@ -410,6 +410,7 @@ export default function BatchDetail() {
   const [error, setError] = useState('');
   const [showRecipeModal, setShowRecipeModal] = useState(false);
   const [showTransitionModal, setShowTransitionModal] = useState(false);
+  const [showMoveToFieldModal, setShowMoveToFieldModal] = useState(false);
   const [showBulkTeardownModal, setShowBulkTeardownModal] = useState(false);
   const [bulkTeardownLoading, setBulkTeardownLoading] = useState(false);
   const [readinessSummary, setReadinessSummary] = useState(null);
@@ -638,7 +639,7 @@ export default function BatchDetail() {
           setFertiPanelOpen(true);
           setTimeout(() => fertiRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
         }}
-        onOpenTransitionModal={() => setShowTransitionModal(true)}
+        onOpenTransitionModal={() => nextStatus === 'field-veg' ? setShowMoveToFieldModal(true) : setShowTransitionModal(true)}
         isSupervisor={isSupervisor}
       />
 
@@ -951,7 +952,7 @@ export default function BatchDetail() {
       {nextStatus && isSupervisor && batch.status !== 'closed' && (
         <div className="mb-4">
           <button
-            onClick={() => setShowTransitionModal(true)}
+            onClick={() => nextStatus === 'field-veg' ? setShowMoveToFieldModal(true) : setShowTransitionModal(true)}
             className="w-full py-4 bg-green-800 text-white font-semibold rounded-2xl hover:bg-green-900 transition-colors text-sm shadow-sm"
             style={{ minHeight: '56px' }}
           >
@@ -1032,6 +1033,17 @@ export default function BatchDetail() {
           loading={bulkTeardownLoading}
           onClose={() => setShowBulkTeardownModal(false)}
           onConfirm={handleBulkTeardown}
+        />
+      )}
+
+      {showMoveToFieldModal && (
+        <MoveToFieldModal
+          batch={batch}
+          onClose={() => setShowMoveToFieldModal(false)}
+          onConfirm={(notes, moveDate) => {
+            setShowMoveToFieldModal(false);
+            handleTransition('field-veg', notes, null, null, null, null, moveDate);
+          }}
         />
       )}
     </div>
@@ -1749,6 +1761,140 @@ function BulkTeardownModal({ containerCount, loading, onClose, onConfirm }) {
             style={{ minHeight: '56px' }}
           >
             {loading ? 'Starting…' : `Start Teardown for ${containerCount} Container${containerCount !== 1 ? 's' : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MoveToFieldModal({ batch, onClose, onConfirm }) {
+  const [fieldData, setFieldData] = useState(null);
+  const [loadingField, setLoadingField] = useState(true);
+  const [fieldError, setFieldError] = useState('');
+  const [notes, setNotes] = useState('');
+  const [moveDate, setMoveDate] = useState(localDatetimeValue());
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getFieldAssignment(batch.batch_id)
+      .then(data => { setFieldData(data); setLoadingField(false); })
+      .catch(e => { setFieldError(e.message || 'Failed to load assignment data'); setLoadingField(false); });
+  }, [batch.batch_id]);
+
+  const assignedZones = fieldData ? fieldData.zones.filter(z => z.assigned_count > 0) : [];
+  const totalPlants = fieldData?.total_plants ?? batch.plant_count_initial;
+  const totalAssigned = fieldData?.total_assigned ?? 0;
+  const hasGap = totalAssigned < totalPlants;
+  const canConfirm = !saving && !loadingField && assignedZones.length > 0;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end justify-center">
+      <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-20 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
+            Move to Field
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-4">
+          Confirm that plants are physically in the field before advancing the batch status to Field — Veg.
+        </p>
+
+        {/* Assignment summary */}
+        {loadingField ? (
+          <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm text-gray-500">Loading assignment data…</div>
+        ) : fieldError ? (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 mb-4 text-sm">{fieldError}</div>
+        ) : assignedZones.length === 0 ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+            <p className="text-sm text-amber-800 font-semibold">No containers assigned yet</p>
+            <p className="text-xs text-amber-700 mt-1">
+              Use "Assign Zone" on each sub-zone to place plants in containers before confirming the field move.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-xl p-4 mb-4">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Container Assignments</div>
+            <div className="flex flex-col gap-2">
+              {assignedZones.map(z => (
+                <div key={z.sub_zone_id} className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-gray-800">{z.sub_zone_id}</span>
+                  <span className="text-sm text-gray-600">
+                    {z.assigned_count} plant{z.assigned_count !== 1 ? 's' : ''}
+                    <span className="text-gray-400 ml-1.5">/ {z.total_containers} containers</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-gray-200 mt-3 pt-3 flex items-center justify-between">
+              <span className="text-sm font-bold text-gray-700">Total</span>
+              <span className={`text-sm font-bold ${hasGap ? 'text-amber-700' : 'text-green-700'}`}>
+                {totalAssigned} / {totalPlants} plants assigned
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Gap warning — shown when some plants still unplaced */}
+        {!loadingField && !fieldError && hasGap && assignedZones.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+            <p className="text-sm text-amber-800 font-semibold">
+              {totalPlants - totalAssigned} plant{totalPlants - totalAssigned !== 1 ? 's' : ''} not yet in containers
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              You can proceed — remaining plants can be assigned to containers after the batch moves to field.
+            </p>
+          </div>
+        )}
+
+        {/* Move date */}
+        <div className="mb-4">
+          <label className="block text-sm font-semibold text-gray-700 mb-1">Move date</label>
+          <input
+            type="datetime-local"
+            value={moveDate}
+            max={localDatetimeValue()}
+            onChange={e => setMoveDate(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-green-600"
+            style={{ minHeight: '56px' }}
+          />
+        </div>
+
+        {/* Notes */}
+        <div className="mb-5">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Notes (optional)</label>
+          <textarea
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-600"
+            rows={3}
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+            placeholder="Optional notes about this field move…"
+          />
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!canConfirm}
+            onClick={async () => {
+              setSaving(true);
+              await onConfirm(
+                notes.trim() || null,
+                moveDate ? new Date(moveDate).toISOString() : null,
+              );
+              setSaving(false);
+            }}
+            className="flex-1 py-3 bg-green-800 text-white rounded-xl text-sm font-semibold hover:bg-green-900 disabled:opacity-50"
+            style={{ minHeight: '56px' }}
+          >
+            {saving ? 'Moving…' : 'Confirm — Plants are in the field'}
           </button>
         </div>
       </div>
