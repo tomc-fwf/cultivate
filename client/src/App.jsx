@@ -70,6 +70,7 @@ import TagAssignmentWalkthrough from './pages/containers/TagAssignmentWalkthroug
 import PlantingPlanList from './pages/planting-plans/PlantingPlanList';
 import PlantingPlanNew from './pages/planting-plans/PlantingPlanNew';
 import PlantingPlanDetail from './pages/planting-plans/PlantingPlanDetail';
+import AssignToField from './pages/batches/AssignToField';
 import LocationView from './pages/locations/LocationView';
 import ContainerLabels from './pages/admin/ContainerLabels';
 import AuditMode from './pages/containers/AuditMode';
@@ -170,6 +171,7 @@ export default function App() {
               <Route path="/inputs/:id" element={<Protected><CropInputDetail /></Protected>} />
               <Route path="/batches" element={<Protected><Batches /></Protected>} />
               <Route path="/batches/new" element={<Protected minRole="supervisor"><BatchNew /></Protected>} />
+              <Route path="/batches/:id/assign-to-field" element={<Protected minRole="supervisor"><AssignToField /></Protected>} />
               <Route path="/batches/:id/phase/:status" element={<Protected><BatchPhaseDetail /></Protected>} />
               <Route path="/batches/:id" element={<Protected><BatchDetail /></Protected>} />
               <Route path="/strains" element={<Protected minRole="supervisor"><Strains /></Protected>} />

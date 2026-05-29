@@ -266,6 +266,10 @@ export const api = {
   supersedePlantingPlan: (planId, body = {}) => req('POST', `/planting-plans/${planId}/supersede`, body),
   cancelPlantingPlan: (planId) => req('PATCH', `/planting-plans/${planId}/cancel`),
 
+  // Field assignment (quick-assign flow)
+  getFieldAssignment: (batchId) => req('GET', `/batches/${batchId}/field-assignment`),
+  assignZone: (batchId, body) => req('POST', `/batches/${batchId}/assign-zone`, body),
+
   // Batches
   getBatches: (params = {}) => {
     const q = new URLSearchParams(params).toString();

@@ -1318,6 +1318,268 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       return reply.send({ deleted: rowId });
     },
   );
+
+  // ── GET /:id/field-assignment — current zone assignment state for a batch ──
+
+  app.get<{ Params: IdParams }>(
+    '/:id/field-assignment',
+    { preHandler: requireAuth },
+    async (request, reply) => {
+      const batchId = Number(request.params.id);
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid id' });
+      const db = getDB();
+
+      const batch = db.prepare(
+        'SELECT batch_id, plant_count_initial, plant_count_current, plants_per_container, status FROM cv_batches WHERE batch_id = ?'
+      ).get(batchId) as Record<string, unknown> | undefined;
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      // Active plant assignments per sub-zone
+      const assigned = db.prepare(`
+        SELECT r.sub_zone_id, COUNT(pa.assignment_id) AS assigned_count
+        FROM cv_plant_assignments pa
+        JOIN cv_containers c ON c.container_id = pa.container_id
+        JOIN cv_rows r ON r.row_id = c.row_id
+        WHERE pa.batch_id = ? AND pa.unassigned_at IS NULL
+        GROUP BY r.sub_zone_id
+      `).all(batchId) as Array<{ sub_zone_id: string; assigned_count: number }>;
+
+      const assignedByZone = new Map(assigned.map(r => [r.sub_zone_id, r.assigned_count]));
+
+      // Ready container counts per sub-zone
+      const ready = db.prepare(`
+        SELECT sz.sub_zone_id, sz.pot_size_gal, sz.container_count AS total_containers,
+               COUNT(cs.container_id) AS ready_count
+        FROM cv_sub_zones sz
+        LEFT JOIN cv_rows r ON r.sub_zone_id = sz.sub_zone_id
+        LEFT JOIN cv_containers c ON c.row_id = r.row_id
+        LEFT JOIN cv_container_state cs ON cs.container_id = c.container_id AND cs.current_state = 'ready'
+        GROUP BY sz.sub_zone_id, sz.pot_size_gal, sz.container_count
+        ORDER BY sz.zone_id, sz.designation
+      `).all() as Array<{ sub_zone_id: string; pot_size_gal: number; total_containers: number; ready_count: number }>;
+
+      const zones = ready.map(sz => ({
+        sub_zone_id: sz.sub_zone_id,
+        pot_size_gal: sz.pot_size_gal,
+        total_containers: sz.total_containers,
+        ready_count: sz.ready_count ?? 0,
+        assigned_count: assignedByZone.get(sz.sub_zone_id) ?? 0,
+      }));
+
+      const totalAssigned = assigned.reduce((s, r) => s + r.assigned_count, 0);
+      const totalPlants = Number(batch.plant_count_current ?? batch.plant_count_initial ?? 0);
+
+      // Latest plan snapshot for this batch
+      const latestPlan = db.prepare(`
+        SELECT plan_id, version, snapshot_type, change_summary, created_at
+        FROM cv_planting_plans
+        WHERE batch_id = ?
+        ORDER BY version DESC LIMIT 1
+      `).get(batchId) as Record<string, unknown> | undefined;
+
+      return reply.send({
+        batch_id: batchId,
+        total_plants: totalPlants,
+        total_assigned: totalAssigned,
+        total_unassigned: Math.max(0, totalPlants - totalAssigned),
+        zones,
+        latest_plan: latestPlan ?? null,
+      });
+    },
+  );
+
+  // ── POST /:id/assign-zone — bulk-assign ready containers in a sub-zone ──────
+
+  const AssignZoneSchema = z.object({
+    sub_zone_id: z.string().min(1),
+    count: z.number().int().positive(),
+  });
+
+  app.post<{ Params: IdParams; Body: z.infer<typeof AssignZoneSchema> }>(
+    '/:id/assign-zone',
+    { preHandler: requireRole('supervisor') },
+    async (request, reply) => {
+      const batchId = Number(request.params.id);
+      if (isNaN(batchId)) return reply.code(400).send({ error: 'Invalid id' });
+
+      const parsed = AssignZoneSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? 'Invalid body' });
+      const { sub_zone_id, count } = parsed.data;
+      const userId = (request as any).user.id;
+      const now = new Date().toISOString();
+      const db = getDB();
+
+      const batch = db.prepare('SELECT * FROM cv_batches WHERE batch_id = ?')
+        .get(batchId) as Record<string, unknown> | undefined;
+      if (!batch) return reply.code(404).send({ error: 'Batch not found' });
+
+      // Verify sub-zone exists
+      const subZone = db.prepare('SELECT * FROM cv_sub_zones WHERE sub_zone_id = ?').get(sub_zone_id);
+      if (!subZone) return reply.code(404).send({ error: `Sub-zone ${sub_zone_id} not found` });
+
+      // Resolve field location for this sub-zone
+      const locRow = db.prepare(
+        'SELECT location_id FROM cv_locations WHERE sub_zone_id = ? AND active = 1'
+      ).get(sub_zone_id) as { location_id: number } | undefined;
+      if (!locRow) return reply.code(500).send({ error: `No field location found for ${sub_zone_id}` });
+      const fieldLocationId = locRow.location_id;
+
+      // Get ready containers in this sub-zone, ordered by row then position
+      const readyContainers = db.prepare(`
+        SELECT c.container_id, c.row_id, c.position, cs.current_state
+        FROM cv_containers c
+        JOIN cv_rows r ON r.row_id = c.row_id
+        JOIN cv_container_state cs ON cs.container_id = c.container_id
+        WHERE r.sub_zone_id = ? AND cs.current_state = 'ready'
+        ORDER BY r.row_number, c.position
+        LIMIT ?
+      `).all(sub_zone_id, count) as Array<{ container_id: string; row_id: string; position: number }>;
+
+      if (readyContainers.length === 0) {
+        return reply.code(400).send({ error: `No ready containers available in ${sub_zone_id}` });
+      }
+
+      const plantsPerContainer = Number(batch.plants_per_container ?? 1);
+      let newPlanId: number;
+
+      db.transaction(() => {
+        for (const container of readyContainers) {
+          // Create plant assignment(s)
+          for (let i = 0; i < plantsPerContainer; i++) {
+            db.prepare(`
+              INSERT INTO cv_plant_assignments
+                (batch_id, container_id, metrc_plant_tag, placed_at, placed_by, created_at)
+              VALUES (?, ?, NULL, ?, ?, ?)
+            `).run(batchId, container.container_id, now, userId, now);
+          }
+
+          // Container: ready → active
+          db.prepare(`
+            UPDATE cv_container_state
+            SET current_state = 'active', current_batch_id = ?, state_since = ?, updated_at = ?
+            WHERE container_id = ?
+          `).run(batchId, now, now, container.container_id);
+
+          db.prepare(`
+            INSERT INTO cv_container_state_transitions
+              (container_id, from_state, to_state, transitioned_at, transitioned_by,
+               batch_id, trigger_event, notes, created_at)
+            VALUES (?, 'ready', 'active', ?, ?, ?, 'batch_assigned', ?, ?)
+          `).run(container.container_id, now, userId, batchId,
+                 `Assigned via quick-assign to batch ${batchId} in ${sub_zone_id}`, now);
+        }
+
+        // Advance batch cult-hoop → field-veg on first field assignment
+        if (batch.status === 'cult-hoop') {
+          const fromLocationId = batch.current_location_id as number | null;
+          db.prepare(`
+            UPDATE cv_batches
+            SET status = 'field-veg', current_stage_since = ?, field_move_date = ?,
+                current_location_id = ?, sub_zone_id = ?, updated_at = ?
+            WHERE batch_id = ?
+          `).run(now, now, fieldLocationId, sub_zone_id, now, batchId);
+
+          db.prepare(`
+            INSERT INTO cv_batch_phase_history
+              (batch_id, from_status, to_status, transitioned_at, transitioned_by,
+               notes, metrc_sync_status, created_at)
+            VALUES (?, 'cult-hoop', 'field-veg', ?, ?, ?, 'pending', ?)
+          `).run(batchId, now, userId,
+                 `First field assignment: ${readyContainers.length} containers in ${sub_zone_id}`, now);
+
+          db.prepare(`
+            INSERT INTO cv_batch_location_history
+              (batch_id, from_location_id, to_location_id, moved_at, moved_by,
+               trigger, planting_plan_id, metrc_sync_status, created_at)
+            VALUES (?, ?, ?, ?, ?, 'planting_plan_commit', NULL, 'pending', ?)
+          `).run(batchId, fromLocationId ?? null, fieldLocationId, now, userId, now);
+        }
+
+        // Auto-snapshot: capture current full assignment state as a new plan version
+        const prevVersion = db.prepare(
+          'SELECT MAX(version) AS v FROM cv_planting_plans WHERE batch_id = ?'
+        ).get(batchId) as { v: number | null };
+        const newVersion = (prevVersion?.v ?? 0) + 1;
+
+        const changeSummary = `+${readyContainers.length} containers assigned in ${sub_zone_id}`;
+
+        const planRow = db.prepare(`
+          INSERT INTO cv_planting_plans
+            (batch_id, sub_zone_id, version, status, snapshot_type, plants_to_place,
+             change_summary, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, 'active', 'auto', ?, ?, ?, ?, ?)
+        `).run(batchId, sub_zone_id, newVersion,
+               readyContainers.length * plantsPerContainer,
+               changeSummary, userId, now, now);
+        newPlanId = Number(planRow.lastInsertRowid);
+
+        // Snapshot items: all current active assignments for this batch
+        const allCurrentAssignments = db.prepare(`
+          SELECT pa.container_id, r.sub_zone_id AS item_sub_zone_id, COUNT(*) AS plants_count
+          FROM cv_plant_assignments pa
+          JOIN cv_containers c ON c.container_id = pa.container_id
+          JOIN cv_rows r ON r.row_id = c.row_id
+          WHERE pa.batch_id = ? AND pa.unassigned_at IS NULL
+          GROUP BY pa.container_id, r.sub_zone_id
+        `).all(batchId) as Array<{ container_id: string; item_sub_zone_id: string; plants_count: number }>;
+
+        const insertItem = db.prepare(`
+          INSERT INTO cv_planting_plan_items
+            (plan_id, container_id, status, plants_count, committed_at, committed_by, created_at)
+          VALUES (?, ?, 'committed', ?, ?, ?, ?)
+        `);
+        for (const a of allCurrentAssignments) {
+          insertItem.run(newPlanId, a.container_id, a.plants_count, now, userId, now);
+        }
+      })();
+
+      // Return updated field-assignment state
+      const assigned = db.prepare(`
+        SELECT r.sub_zone_id, COUNT(pa.assignment_id) AS assigned_count
+        FROM cv_plant_assignments pa
+        JOIN cv_containers c ON c.container_id = pa.container_id
+        JOIN cv_rows r ON r.row_id = c.row_id
+        WHERE pa.batch_id = ? AND pa.unassigned_at IS NULL
+        GROUP BY r.sub_zone_id
+      `).all(batchId) as Array<{ sub_zone_id: string; assigned_count: number }>;
+
+      const assignedByZone = new Map(assigned.map(r => [r.sub_zone_id, r.assigned_count]));
+      const ready = db.prepare(`
+        SELECT sz.sub_zone_id, sz.pot_size_gal, sz.container_count AS total_containers,
+               COUNT(cs.container_id) AS ready_count
+        FROM cv_sub_zones sz
+        LEFT JOIN cv_rows r ON r.sub_zone_id = sz.sub_zone_id
+        LEFT JOIN cv_containers c ON c.row_id = r.row_id
+        LEFT JOIN cv_container_state cs ON cs.container_id = c.container_id AND cs.current_state = 'ready'
+        GROUP BY sz.sub_zone_id, sz.pot_size_gal, sz.container_count
+        ORDER BY sz.zone_id, sz.designation
+      `).all() as Array<{ sub_zone_id: string; pot_size_gal: number; total_containers: number; ready_count: number }>;
+
+      const updatedBatch = db.prepare('SELECT plant_count_current, plant_count_initial FROM cv_batches WHERE batch_id = ?')
+        .get(batchId) as Record<string, unknown>;
+      const totalPlants = Number(updatedBatch.plant_count_current ?? updatedBatch.plant_count_initial ?? 0);
+      const totalAssigned = assigned.reduce((s, r) => s + r.assigned_count, 0);
+
+      return reply.code(201).send({
+        assigned: readyContainers.length,
+        sub_zone_id,
+        plan_id: newPlanId!,
+        field_assignment: {
+          batch_id: batchId,
+          total_plants: totalPlants,
+          total_assigned: totalAssigned,
+          total_unassigned: Math.max(0, totalPlants - totalAssigned),
+          zones: ready.map(sz => ({
+            sub_zone_id: sz.sub_zone_id,
+            pot_size_gal: sz.pot_size_gal,
+            total_containers: sz.total_containers,
+            ready_count: sz.ready_count ?? 0,
+            assigned_count: assignedByZone.get(sz.sub_zone_id) ?? 0,
+          })),
+        },
+      });
+    },
+  );
 };
 
 export default batchesRoutes;
