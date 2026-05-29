@@ -62,14 +62,14 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
   app.get('/summary', { preHandler: requireAuth }, async (_request, reply) => {
     const db = getDB();
 
-    // Returns at most 8 sub-zones × 6 states = 48 rows instead of loading all 1,180 containers
+    // Start from cv_sub_zones so all zones appear even if containers have no state records yet
     const rows = db.prepare(`
       SELECT sz.sub_zone_id, sz.zone_id, sz.designation, sz.pot_size_gal, sz.container_count,
-             cs.current_state, COUNT(*) AS count
-      FROM cv_container_state cs
-      JOIN cv_containers c ON c.container_id = cs.container_id
-      JOIN cv_rows r ON r.row_id = c.row_id
-      JOIN cv_sub_zones sz ON sz.sub_zone_id = r.sub_zone_id
+             cs.current_state, COUNT(cs.container_id) AS count
+      FROM cv_sub_zones sz
+      LEFT JOIN cv_rows r ON r.sub_zone_id = sz.sub_zone_id
+      LEFT JOIN cv_containers c ON c.row_id = r.row_id
+      LEFT JOIN cv_container_state cs ON cs.container_id = c.container_id
       GROUP BY sz.sub_zone_id, sz.zone_id, sz.designation, sz.pot_size_gal, sz.container_count, cs.current_state
       ORDER BY sz.zone_id, sz.designation
     `).all() as Array<Record<string, unknown>>;
