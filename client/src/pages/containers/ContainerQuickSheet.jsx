@@ -158,7 +158,7 @@ export default function ContainerQuickSheet({ container, subZonePotSize, onClose
                   </div>
                   <div>
                     <div className="font-medium text-gray-900 text-sm">
-                      {currentBatch?.strain_name ?? container.strain_name ?? '—'}
+                      {currentBatch?.batch_name ?? currentBatch?.strain_name ?? container.batch_name ?? container.strain_name ?? '—'}
                     </div>
                     {(currentBatch?.strain_type ?? container.strain_type) && (
                       <span className={`text-xs px-1.5 py-0.5 rounded font-semibold ${

@@ -526,7 +526,7 @@ export default function ContainerDetail() {
           <h2 className="font-semibold text-gray-800 text-sm uppercase tracking-wide mb-3">Current Occupancy</h2>
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <span className="font-bold text-green-900 text-base" style={{ fontFamily: 'Fraunces, serif' }}>
-              {current_batch.strain_name}
+              {current_batch.batch_name || current_batch.strain_name}
             </span>
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
               current_batch.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
@@ -936,7 +936,7 @@ export default function ContainerDetail() {
             {past_batches.map(b => (
               <div key={b.batch_id} className="flex items-center gap-3 text-sm">
                 <div className="flex-1 min-w-0">
-                  <span className="font-medium text-gray-800">{b.strain_name}</span>
+                  <span className="font-medium text-gray-800">{b.batch_name || b.strain_name}</span>
                   <span className={`ml-2 text-xs font-bold px-1.5 py-0.5 rounded-full ${
                     b.strain_type === 'auto' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
                   }`}>

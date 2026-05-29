@@ -335,7 +335,7 @@ export default function SubZoneFieldMap() {
               onClick={() => navigate(`/batches/${activeBatch.batch_id}`)}
             >
               <div className="flex items-center gap-2 flex-wrap mb-1">
-                <span className="font-semibold text-gray-900">{activeBatch.strain_name}</span>
+                <span className="font-semibold text-gray-900">{activeBatch.batch_name || activeBatch.strain_name}</span>
                 <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[activeBatch.status] ?? 'bg-gray-100 text-gray-600'}`}>
                   {STATUS_LABELS[activeBatch.status] ?? activeBatch.status}
                 </span>

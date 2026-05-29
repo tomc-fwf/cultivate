@@ -130,7 +130,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
         c.container_id, c.position, c.notes AS container_notes,
         r.row_id, r.row_number,
         cs.current_state, cs.state_since, cs.current_batch_id, cs.notes AS state_notes,
-        b.status AS batch_status,
+        b.batch_id AS batch_id, b.name AS batch_name, b.status AS batch_status,
         s.name AS strain_name, s.type AS strain_type,
         pa.metrc_plant_tag,
         (
@@ -208,7 +208,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
     if (currentState && currentState['current_batch_id']) {
       currentBatch = db.prepare(`
         SELECT
-          b.batch_id, b.status, b.sow_date, b.plant_count_initial,
+          b.batch_id, b.name AS batch_name, b.status, b.sow_date, b.plant_count_initial,
           s.name AS strain_name, s.type AS strain_type,
           fr.name AS active_recipe_name
         FROM cv_batches b
@@ -273,7 +273,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
 
     // Past batches — distinct batches that appear in state transitions for this container
     const pastBatches = db.prepare(`
-      SELECT DISTINCT b.batch_id, b.status, b.sow_date, b.harvest_date, b.closed_date,
+      SELECT DISTINCT b.batch_id, b.name AS batch_name, b.status, b.sow_date, b.harvest_date, b.closed_date,
                       s.name AS strain_name, s.type AS strain_type
       FROM cv_container_state_transitions t
       JOIN cv_batches b ON b.batch_id = t.batch_id
