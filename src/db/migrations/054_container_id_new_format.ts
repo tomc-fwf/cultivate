@@ -1,5 +1,9 @@
 import type { Knex } from 'knex';
 
+// PRAGMA foreign_keys = OFF is silently ignored inside a transaction in SQLite,
+// so this migration must run outside any transaction.
+export const config = { transaction: false };
+
 /**
  * Reformat container_id and row_id to match physical QR label format.
  *
