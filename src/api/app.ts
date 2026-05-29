@@ -6,6 +6,7 @@ import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyJwt from '@fastify/jwt';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import authRoutes from './routes/auth.js';
 import fertigationRecipesRoutes from './routes/fertigation-recipes.js';
 import foliarRecipesRoutes from './routes/foliar-recipes.js';
@@ -66,6 +67,8 @@ export async function buildApp(opts: { skipStatic?: boolean } = {}) {
   });
 
   await app.register(fastifyCookie);
+
+  await app.register(multipart, { limits: { fileSize: 20 * 1024 * 1024 } });
 
   if (!opts.skipStatic) {
     await app.register(fastifyStatic, {
