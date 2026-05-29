@@ -4,9 +4,6 @@ import { api } from '../../api';
 
 const DRAFT_KEY = 'cv_draft_planting_plan_new';
 
-const SUB_ZONES = [
-  'Z1A', 'Z1B', 'Z2A', 'Z2B', 'Z3A', 'Z3B', 'Z4A', 'Z4B',
-];
 
 function Toast({ message, type = 'success', onDone }) {
   useEffect(() => { const t = setTimeout(onDone, 2200); return () => clearTimeout(t); }, [onDone]);
@@ -111,7 +108,8 @@ export default function PlantingPlanNew() {
     }
   }
 
-  // Ready counts per sub-zone from summary
+  // Derive sub-zone list and ready counts from summary (reflects actual DB sub-zones)
+  const subZones = summary.map(sz => sz.sub_zone_id).sort();
   const readyBySubZone = {};
   for (const sz of summary) {
     readyBySubZone[sz.sub_zone_id] = sz.counts?.ready ?? 0;
@@ -141,8 +139,11 @@ export default function PlantingPlanNew() {
       ) : batch ? (
         <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 mb-6">
           <div className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-1">Batch</div>
-          <div className="font-semibold text-green-900" style={{ fontFamily: 'Fraunces, serif' }}>{batch.strain_name}</div>
+          <div className="font-semibold text-green-900" style={{ fontFamily: 'Fraunces, serif' }}>
+            {batch.name || batch.strain_name}
+          </div>
           <div className="text-xs text-green-700 mt-0.5">
+            {batch.name && batch.strain_name !== batch.name && <span className="mr-2">{batch.strain_name} ·</span>}
             {batch.plant_count_current} plants · {batch.status}
           </div>
         </div>
@@ -166,7 +167,7 @@ export default function PlantingPlanNew() {
           Sub-zone <span className="text-red-500">*</span>
         </label>
         <div className="grid grid-cols-4 gap-2">
-          {SUB_ZONES.map(sz => {
+          {subZones.map(sz => {
             const ready = readyBySubZone[sz] ?? 0;
             const selected = subZoneId === sz;
             return (
