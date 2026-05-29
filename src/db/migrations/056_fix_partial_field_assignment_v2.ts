@@ -37,7 +37,7 @@ export async function up(knex: Knex): Promise<void> {
       .where({ batch_id, trigger: 'planting_plan_commit' })
       .whereNotNull('from_location_id')
       .orderBy('created_at', 'desc')
-      .first() as { location_history_id: number; from_location_id: number } | undefined;
+      .first() as { move_id: number; from_location_id: number } | undefined;
 
     // Step 3: find the spurious phase_history entry
     const badPhaseHistory = await knex('cv_batch_phase_history')
@@ -68,11 +68,11 @@ export async function up(knex: Knex): Promise<void> {
       console.log(`[056] Removed bad phase_history entry ${badPhaseHistory.phase_history_id}`);
     }
 
-    if (badLocHistory?.location_history_id) {
+    if (badLocHistory?.move_id) {
       await knex('cv_batch_location_history')
-        .where('location_history_id', badLocHistory.location_history_id)
+        .where('move_id', badLocHistory.move_id)
         .delete();
-      console.log(`[056] Removed bad location_history entry ${badLocHistory.location_history_id}`);
+      console.log(`[056] Removed bad location_history entry ${badLocHistory.move_id}`);
     }
   }
 }

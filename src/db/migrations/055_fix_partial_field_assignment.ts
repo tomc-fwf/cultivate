@@ -23,7 +23,7 @@ export async function up(knex: Knex): Promise<void> {
       (SELECT COUNT(*) FROM cv_plant_assignments pa
        WHERE pa.batch_id = b.batch_id AND pa.unassigned_at IS NULL) AS active_count,
       lh.from_location_id AS restore_location_id,
-      lh.location_history_id AS bad_location_history_id,
+      lh.move_id AS bad_location_history_id,
       ph.phase_history_id AS bad_phase_history_id
     FROM cv_batches b
     JOIN cv_batch_location_history lh
@@ -74,7 +74,7 @@ export async function up(knex: Knex): Promise<void> {
     // Remove the spurious location history entry
     if (row.bad_location_history_id) {
       await knex('cv_batch_location_history')
-        .where('location_history_id', row.bad_location_history_id)
+        .where('move_id', row.bad_location_history_id)
         .delete();
     }
 
