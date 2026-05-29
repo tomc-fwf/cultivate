@@ -79,7 +79,7 @@ function QuickActionSheet({ container, onClose }) {
       style={{ background: 'rgba(0,0,0,0.45)' }}
       onClick={handleBackdrop}
     >
-      <div className="w-full bg-white rounded-t-2xl p-5 pb-8 shadow-xl">
+      <div className="w-full bg-white rounded-t-2xl p-5 pb-24 shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <div>
             <p className="font-bold text-gray-900 text-base">{container.container_id}</p>

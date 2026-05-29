@@ -43,7 +43,7 @@ function ReassignModal({ conflict, targetContainerId, targetAssignmentId, onReas
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md px-6 pt-6 pb-24 shadow-2xl">
         <div className="flex items-center gap-2 mb-4">
           <span className="text-2xl">⚠️</span>
           <h2 className="text-lg font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>

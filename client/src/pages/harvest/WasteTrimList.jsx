@@ -78,7 +78,7 @@ function DisposeModal({ record, onClose, onSaved }) {
       style={{ background: 'rgba(0,0,0,0.45)' }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-w-lg bg-white rounded-t-3xl px-5 pt-5 pb-8 shadow-2xl">
+      <div className="w-full max-w-lg bg-white rounded-t-3xl px-5 pt-5 pb-24 shadow-2xl">
         <div className="flex items-start justify-between mb-4">
           <div>
             <h2 className="text-base font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>

@@ -17,7 +17,7 @@ function HowItWorksModal({ onClose }) {
           </h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
-        <div className="overflow-y-auto px-5 py-4 pb-8 space-y-5 text-sm text-gray-700">
+        <div className="overflow-y-auto px-5 py-4 pb-24 space-y-5 text-sm text-gray-700">
 
           <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-800 leading-relaxed">
             <strong>Where you are:</strong> This grid shows every container in the sub-zone.

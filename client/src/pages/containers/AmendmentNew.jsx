@@ -159,7 +159,7 @@ function ProductPickerSheet({ onSelect, onClose }) {
             </button>
           ))}
         </div>
-        <div className="overflow-y-auto flex-1 px-4 pb-6">
+        <div className="overflow-y-auto flex-1 px-4 pb-24">
           {loading ? (
             <div className="text-center text-gray-400 text-sm py-8">Loading…</div>
           ) : items.length === 0 ? (

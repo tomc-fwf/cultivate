@@ -18,7 +18,7 @@ function HowItWorksModal({ onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
         </div>
 
-        <div className="overflow-y-auto px-5 py-4 pb-8 space-y-5 text-sm text-gray-700">
+        <div className="overflow-y-auto px-5 py-4 pb-24 space-y-5 text-sm text-gray-700">
 
           <Step n={1} title="Start from a Batch">
             Planting Plans are created from the Batch detail page — not from here.

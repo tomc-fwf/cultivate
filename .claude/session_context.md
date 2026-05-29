@@ -4071,3 +4071,137 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - FertigationNew.jsx and FoliarNew.jsx were explicitly not modified (ingredient structure differs; deferred per task spec)
 - `label_file_name` is stored but currently only displayed in the template form/card — could be used as the link text in future iterations
 - The docs endpoint is open to all authenticated users (not admin-only) since growers need it during application entry
+
+---
+
+## Task: Install @fastify/multipart and add types
+**Completed:** 2026-05-29
+
+### What Was Done
+- Installed `@fastify/multipart` (runtime) and `@types/node` (dev) via npm
+- Added `import multipart from '@fastify/multipart'` to `src/api/app.ts`
+- Registered the plugin with a 20 MB file size limit, placed after `fastifyCookie` and before route registrations
+- `npx tsc --noEmit` passes clean
+- Committed and pushed as `chore: install @fastify/multipart for document uploads`
+
+### Key Decisions
+- Plugin registered before all route registrations so any upload route can rely on it being available
+- 20 MB limit per the task specification
+
+### Files Modified/Created
+- `src/api/app.ts` — added multipart import and plugin registration
+- `package.json` / `package-lock.json` — new dependency entries
+
+### Notes for Next Tasks
+- `@fastify/multipart` is now available for any Phase 2 document upload routes
+- File storage approach (local disk vs. object storage) still needs to be decided before building upload endpoints
+
+---
+
+## Task: Migration 051 — add sds_file_name column
+**Completed:** 2026-05-29
+
+### What Was Done
+- Created `src/db/migrations/051_additive_template_sds_filename.ts` adding `sds_file_name TEXT nullable` to `cv_metrc_additive_templates`
+- Ran migration via compiled `dist/db/index.js` — applied successfully
+- npx tsc --noEmit passed clean
+
+### Key Decisions
+- Mirrors the pattern from migration 050 (`label_file_name` companion to `label_url`); `sds_file_name` is a companion to the existing `sds_url` column
+- down() is a no-op comment explaining SQLite's DROP COLUMN limitation, consistent with migration 050
+
+### Files Modified/Created
+- `src/db/migrations/051_additive_template_sds_filename.ts` (new)
+
+### Notes for Next Tasks
+- `cv_metrc_additive_templates` now has both `sds_url` + `sds_file_name` and `label_url` + `label_file_name` for document tracking
+- Upload endpoint for SDS documents should write both `sds_url` and `sds_file_name` on save
+
+---
+
+## Task: Backend: document upload, serve, delete, and template PATCH endpoints
+**Completed:** 2026-05-29
+
+### What Was Done
+- Created `src/lib/product-docs.ts`: `getDocsDir`, `getDocPath`, `ensureDocsDir`, `docExists` utilities; base path from `PRODUCT_DOCS_DIR` env var (defaults to `./data/product-docs`)
+- Added `sds_file_name` to `AdditiveTemplateSchema` and the POST INSERT in `metrc-csv.ts` (was missing from schema despite migration 051 adding the column)
+- **PATCH `/api/metrc/csv/additive-templates/:id`**: accepts any subset of template fields; builds SET clause dynamically from provided keys; returns updated row
+- **POST `/api/metrc/csv/additive-templates/:id/documents/:type`**: multipart upload via `request.file()`; validates PDF mimetype; uses `stream/promises pipeline` for safe write; on label upload clears `label_url`, on sds upload clears `sds_url`
+- **GET `/api/metrc/csv/additive-templates/:id/documents/:type`**: streams stored PDF with `Content-Disposition: inline`
+- **DELETE `/api/metrc/csv/additive-templates/:id/documents/:type`**: deletes file if present, clears file_name column
+- Added to `client/src/api.js`: `patchAdditiveTemplate`, `uploadAdditiveTemplateDoc` (raw fetch with FormData), `deleteAdditiveTemplateDoc`
+
+### Key Decisions
+- `uploadAdditiveTemplateDoc` uses raw `fetch` instead of the `req()` helper because FormData upload must not set `Content-Type: application/json`
+- Uploading a file clears the corresponding `*_url` column (URL and file are mutually exclusive in practice); the PATCH handler can set either independently
+- `PatchAdditiveTemplateSchema` is defined inline in the handler; no new top-level export needed
+
+### Files Modified/Created
+- `src/lib/product-docs.ts` (new)
+- `src/api/routes/metrc-csv.ts` (4 new routes + sds_file_name in schema/INSERT)
+- `client/src/api.js` (3 new API methods)
+
+### Notes for Next Tasks
+- The document serve/upload endpoints are ready for frontend integration (e.g. in AdditiveTemplateDetail or an SDS upload form)
+- `PRODUCT_DOCS_DIR` must be set to a persistent volume path in Railway; otherwise files are lost on redeploy (same caveat as `METRC_CSV_OUTPUT_DIR`)
+
+## Task: Frontend: template edit mode and document upload UI
+**Completed:** 2026-05-29
+
+### What Was Done
+- Added `DocUploadField` component (before `TemplateActionSheet`) with upload/replace/view/delete actions; validates PDF mimetype client-side; opens uploaded file via `/api/metrc/csv/additive-templates/:id/documents/:type`
+- Added `editingTemplateId` state to `AdditiveTemplatesTab`; added `editTemplate()` that populates form fields and sets editingTemplateId (no name suffix, unlike duplicate)
+- Added **Edit** as first action in `TemplateActionSheet` (wired via `onEdit` prop); appears before Duplicate
+- Form heading switches: "Edit Additive Template" vs "New Additive Template"
+- Submit button: "Save Changes" (edit) / "Save Template" (create) / "Saving…" (both)
+- `handleSubmit` routes to `patchAdditiveTemplate(id, template)` when editing, `createAdditiveTemplates({ templates: [t] })` when creating
+- Added Cancel button inside the form (bottom-left) that clears editingTemplateId
+- **Documents section** appears in form when editingTemplateId is set; shows `DocUploadField` for label and SDS; shows "Save the template first to attach documents." when creating
+- `currentFileName` for DocUploadField is looked up from `templates` array by template_id (live after `load()` on upload)
+- Updated label/SDS card badges: prefer `label_file_name`/`sds_file_name` (served via API) over `label_url`/`sds_url`; badge text shows "Label ↓"/"SDS ↓" for uploaded files vs "Label ↗"/"SDS ↗" for external URLs
+
+### Key Decisions
+- DocUploadField uses `window.open` for view (not a link) to avoid form submit interference
+- Documents section is form-only when editing; no separate doc modal needed
+- `patchAdditiveTemplate` receives the flat template object (not `{ templates: [...] }`) — matches PATCH endpoint schema
+
+### Files Modified/Created
+- `client/src/pages/admin/MetrcSetup.jsx`
+
+### Notes for Next Tasks
+- `PRODUCT_DOCS_DIR` still needs a Railway persistent volume path for production file persistence
+- `sds_file_name` column exists (migration 051); both label_file_name and sds_file_name are returned in GET `/additive-templates` response
+
+---
+
+## Task: Audit and fix slide-up dialogs overlapping bottom nav
+**Completed:** 2026-05-29
+
+### What Was Done
+- Grepped all JSX files in `client/src/pages/` for `fixed inset-0` to find slide-up sheet components
+- Audited inner content/scroll container bottom padding against the pb-20 (80px) threshold
+- Fixed 11 files where bottom padding was insufficient (below pb-20), upgrading all to pb-24 (96px)
+
+### Key Decisions
+- Files with `pb-20` (exactly 80px) were left alone per the task rule ("less than pb-20" triggers fix): BatchDetail.jsx (3 sheets), MetrcSetup.jsx
+- Files with sticky footers outside the scroll container (LocationView.jsx) were left alone — the footer itself handles nav clearance via `SHEET_FOOTER_PB = 'max(72px, ...)'`
+- ContainerScanner.jsx, InspectionMode.jsx, PlantMoveForm.jsx, ProtocolsAdmin.jsx were skipped — they are full-screen overlays (not slide-up bottom sheets) or use `items-center` centered modals
+- TagAssignmentWalkthrough conflict dialog uses `p-6` (shorthand) — changed to `px-6 pt-6 pb-24` to override just the bottom while keeping other sides at 24px
+- FoliarNew.jsx has two picker sheets (product picker + recipe picker); both were fixed using replace_all:true
+
+### Files Modified/Created
+- `client/src/pages/containers/SubZoneFieldMap.jsx` — QuickActionSheet: pb-8 → pb-24
+- `client/src/pages/harvest/WasteTrimList.jsx` — DisposeModal: pb-8 → pb-24
+- `client/src/pages/tasks/TaskDetail.jsx` — PostponeSheet: pb-10 → pb-24
+- `client/src/pages/containers/ContainerQuickSheet.jsx` — scrollable body: pb-8 → pb-24
+- `client/src/pages/applications/FoliarNew.jsx` — both picker scroll areas: pb-6 → pb-24 (×2)
+- `client/src/pages/applications/PesticideNew.jsx` — picker scroll area: pb-6 → pb-24
+- `client/src/pages/containers/AmendmentNew.jsx` — picker scroll area: pb-6 → pb-24
+- `client/src/pages/containers/StartupForm.jsx` — picker scroll area: pb-6 → pb-24
+- `client/src/pages/containers/TagAssignmentWalkthrough.jsx` — conflict dialog: p-6 → px-6 pt-6 pb-24
+- `client/src/pages/planting-plans/PlantingPlanDetail.jsx` — HowItWorksModal scroll body: pb-8 → pb-24
+- `client/src/pages/planting-plans/PlantingPlanList.jsx` — HowItWorksModal scroll body: pb-8 → pb-24
+
+### Notes for Next Tasks
+- All slide-up sheets now use pb-24 minimum; the confirmed-correct files (AssignToField, ContainerDashboard bulk sheet, SubZoneFieldMap bulk sheet) already had pb-24
+- BatchDetail.jsx has 3 sheets at pb-20 (80px) — technically at the threshold; could be upgraded to pb-24 for full consistency if desired

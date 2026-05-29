@@ -110,7 +110,7 @@ export default function ContainerQuickSheet({ container, subZonePotSize, onClose
         </div>
 
         {/* ── Scrollable body ── */}
-        <div className="flex-1 overflow-y-auto pb-8">
+        <div className="flex-1 overflow-y-auto pb-24">
 
           {/* Plant / METRC tag */}
           <div className="px-5 py-4 border-b border-gray-100">

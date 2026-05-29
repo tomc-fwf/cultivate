@@ -171,7 +171,7 @@ function PostponeSheet({ task, onClose, onPostponed }) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-10 max-h-[80vh] overflow-y-auto">
+      <div className="relative bg-white rounded-t-2xl px-4 pt-4 pb-24 max-h-[80vh] overflow-y-auto">
         <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
         <h3 className="text-base font-semibold text-gray-900 mb-1">Postpone task</h3>
         <p className="text-sm text-gray-500 mb-4">{task.title} · {task.batch_name ?? task.strain_name}</p>
