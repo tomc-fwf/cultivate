@@ -1393,12 +1393,15 @@ function BatchNameInline({ batch, onSaved }) {
     return (
       <button
         onClick={() => { setValue(batch.name ?? ''); setEditing(true); setErr(''); }}
-        className="group flex items-baseline gap-2 text-left w-full"
+        className="group flex flex-col text-left w-full"
       >
-        <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
-          {batch.name || <span className="text-gray-400 italic">Unnamed batch</span>}
-        </h1>
-        <span className="text-xs text-green-700 font-semibold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">Edit</span>
+        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">METRC Batch Name</span>
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight" style={{ fontFamily: 'Fraunces, serif' }}>
+            {batch.name || <span className="text-gray-400 italic">Unnamed batch</span>}
+          </h1>
+          <span className="text-xs text-green-700 font-semibold opacity-0 group-hover:opacity-100 transition-opacity shrink-0">Edit</span>
+        </div>
       </button>
     );
   }
@@ -1473,9 +1476,9 @@ function MetrcBatchNameInline({ batch, onSaved }) {
         className="group flex items-center gap-1.5 text-left"
       >
         {batch.metrc_plant_batch_uid ? (
-          <span className="text-xs text-green-700 font-medium">METRC: {batch.metrc_plant_batch_uid}</span>
+          <span className="text-xs text-green-700 font-medium">Display: {batch.metrc_plant_batch_uid}</span>
         ) : (
-          <span className="text-xs text-amber-600 font-medium">+ Set METRC batch name</span>
+          <span className="text-xs text-amber-600 font-medium">+ Set display name</span>
         )}
         <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
       </button>
