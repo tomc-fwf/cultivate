@@ -43,6 +43,7 @@ export default function FertigationRecipeDetail() {
   const [recipe, setRecipe] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [ingredientDocs, setIngredientDocs] = useState({});
 
   const isSupervisor = user && (user.role === 'supervisor' || user.role === 'admin');
 
@@ -51,6 +52,23 @@ export default function FertigationRecipeDetail() {
       .then((data) => { setRecipe(data); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
   }, [id]);
+
+  useEffect(() => {
+    if (!recipe) return;
+    const ings = recipe.ingredients ?? [];
+    if (ings.length === 0) return;
+    Promise.all(
+      ings.map((ing) =>
+        api.getAdditiveTemplateDocs(ing.item_name ?? '')
+          .then((docs) => ({ name: ing.item_name, docs }))
+          .catch(() => ({ name: ing.item_name, docs: { label_url: null, sds_url: null } }))
+      )
+    ).then((results) => {
+      const map = {};
+      for (const r of results) { if (r.name) map[r.name] = r.docs; }
+      setIngredientDocs(map);
+    });
+  }, [recipe]);
 
   if (loading) {
     return (
@@ -242,21 +260,36 @@ export default function FertigationRecipeDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {ingredients.map((ing, i) => (
-                    <tr key={ing.id} className="border-t border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-400" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                        {ing.order_index ?? i + 1}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {ing.item_name ?? <span className="text-gray-400">Product #{ing.input_id}</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right font-bold text-green-800" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
-                        {ing.rate_value}
-                      </td>
-                      <td className="px-4 py-3 text-gray-600">{RATE_UNIT_LABELS[ing.rate_unit] ?? ing.rate_unit}</td>
-                      <td className="px-4 py-3 text-gray-400 text-xs">{ing.notes ?? ''}</td>
-                    </tr>
-                  ))}
+                  {ingredients.map((ing, i) => {
+                    const docs = ingredientDocs[ing.item_name] ?? {};
+                    return (
+                      <tr key={ing.id} className="border-t border-gray-100 hover:bg-gray-50">
+                        <td className="px-4 py-3 text-gray-400" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                          {ing.order_index ?? i + 1}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{ing.item_name ?? <span className="text-gray-400">Product #{ing.input_id}</span>}</span>
+                            {docs.label_url && (
+                              <a href={docs.label_url} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                                style={{ minHeight: '22px' }} aria-label="Product label">Label</a>
+                            )}
+                            {docs.sds_url && (
+                              <a href={docs.sds_url} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center text-xs font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                                style={{ minHeight: '22px' }} aria-label="Safety data sheet">SDS</a>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-green-800" style={{ fontFamily: 'JetBrains Mono, monospace' }}>
+                          {ing.rate_value}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">{RATE_UNIT_LABELS[ing.rate_unit] ?? ing.rate_unit}</td>
+                        <td className="px-4 py-3 text-gray-400 text-xs">{ing.notes ?? ''}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

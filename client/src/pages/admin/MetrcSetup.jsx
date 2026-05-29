@@ -1007,7 +1007,7 @@ function emptyAdditiveForm() {
     category: '', unit: '', manufacturer: '',
     phi_days: '', phi_days_operational: '', phi_notes: '',
     rei_hours: '', omri_listed: false, restricted_use: false,
-    signal_word: '', target_organisms: '', sds_url: '',
+    signal_word: '', target_organisms: '', sds_url: '', label_url: '', label_file_name: '',
   };
 }
 
@@ -1157,6 +1157,8 @@ function AdditiveTemplatesTab() {
       signal_word: form.signal_word || null,
       target_organisms: form.target_organisms.trim() || null,
       sds_url: form.sds_url.trim() || null,
+      label_url: form.label_url.trim() || null,
+      label_file_name: form.label_file_name.trim() || null,
     };
     const payload = { templates: [template] };
     try {
@@ -1197,6 +1199,8 @@ function AdditiveTemplatesTab() {
       signal_word: t.signal_word ?? '',
       target_organisms: t.target_organisms ?? '',
       sds_url: t.sds_url ?? '',
+      label_url: t.label_url ?? '',
+      label_file_name: t.label_file_name ?? '',
     });
     setSaveError(null);
     setLastResult(null);
@@ -1430,6 +1434,20 @@ function AdditiveTemplatesTab() {
                       placeholder="https://…"
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
                   </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Product Label URL</label>
+                    <input type="url" value={form.label_url} onChange={(e) => updateField('label_url', e.target.value)}
+                      placeholder="https://…"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Label File Name <span className="text-gray-400 font-normal">(optional)</span></label>
+                    <input type="text" value={form.label_file_name} onChange={(e) => updateField('label_file_name', e.target.value)}
+                      placeholder="e.g. ZeroTol 2.0 Label.pdf"
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
+                  </div>
                 </div>
               )}
             </div>
@@ -1511,6 +1529,32 @@ function AdditiveTemplatesTab() {
                         <span className="text-xs text-gray-500">{t.unit}</span>
                       )}
                       <span className="text-xs text-gray-400">{t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}</span>
+                      {t.label_url && (
+                        <a
+                          href={t.label_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                          style={{ minHeight: '22px' }}
+                          aria-label="Product label"
+                        >
+                          Label
+                        </a>
+                      )}
+                      {t.sds_url && (
+                        <a
+                          href={t.sds_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                          style={{ minHeight: '22px' }}
+                          aria-label="Safety data sheet"
+                        >
+                          SDS
+                        </a>
+                      )}
                     </div>
                     {t.product_trade_name && <div className="text-xs text-gray-500 mt-0.5">{t.product_trade_name}</div>}
                     {t.epa_registration_number && <div className="text-xs text-gray-400 mt-0.5">EPA: {t.epa_registration_number}</div>}

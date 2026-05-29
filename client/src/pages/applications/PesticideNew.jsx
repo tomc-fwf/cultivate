@@ -320,6 +320,7 @@ export default function PesticideNew() {
   // Product
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [productDocs, setProductDocs] = useState({ label_url: null, sds_url: null });
 
   // Required fields
   const [inputLotId, setInputLotId] = useState('');
@@ -454,6 +455,14 @@ export default function PesticideNew() {
     const appliedMs = new Date(appliedAt).getTime();
     setReiPreview(new Date(appliedMs + rei * 3600000).toISOString());
   }, [selectedProduct, appliedAt]);
+
+  // ── Fetch label/SDS docs when product changes ────────────────────────────
+  useEffect(() => {
+    if (!selectedProduct?.name) { setProductDocs({ label_url: null, sds_url: null }); return; }
+    api.getAdditiveTemplateDocs(selectedProduct.name)
+      .then((docs) => setProductDocs(docs))
+      .catch(() => setProductDocs({ label_url: null, sds_url: null }));
+  }, [selectedProduct]);
 
   // ── Skill validation — real-time precondition badges ────────────────────
   // Calls GET /api/skills/pesticide-application/validate whenever batch or product changes.
@@ -761,6 +770,34 @@ export default function PesticideNew() {
               <span className="text-gray-400 font-medium text-sm">Tap to select pesticide →</span>
             )}
           </button>
+          {selectedProduct && (productDocs.label_url || productDocs.sds_url) && (
+            <div className="flex gap-2 mt-2">
+              {productDocs.label_url && (
+                <a
+                  href={productDocs.label_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"
+                  style={{ minHeight: '36px' }}
+                  aria-label="Product label"
+                >
+                  Product Label ↗
+                </a>
+              )}
+              {productDocs.sds_url && (
+                <a
+                  href={productDocs.sds_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors border border-amber-200"
+                  style={{ minHeight: '36px' }}
+                  aria-label="Safety data sheet"
+                >
+                  Safety Data Sheet ↗
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── LOT ID (required) ── */}

@@ -87,6 +87,8 @@ const AdditiveTemplateSchema = z.object({
   signal_word: z.enum(['CAUTION', 'WARNING', 'DANGER']).optional().nullable(),
   target_organisms: z.string().optional().nullable(),
   sds_url: z.string().max(500).optional().nullable(),
+  label_url: z.string().max(500).optional().nullable(),
+  label_file_name: z.string().max(200).optional().nullable(),
 }).refine(
   (t) => t.additive_type !== 'Pesticide' || (!!t.epa_registration_number && t.epa_registration_number.trim().length > 0),
   { message: 'epa_registration_number is required when additive_type is Pesticide', path: ['epa_registration_number'] },
@@ -515,8 +517,9 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
              active_ingredients,
              category, unit, manufacturer, phi_days, phi_days_operational, phi_notes,
              rei_hours, omri_listed, restricted_use, signal_word, target_organisms, sds_url,
+             label_url, label_file_name,
              created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           t.name,
           t.additive_type,
@@ -540,6 +543,8 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
           t.signal_word ?? null,
           t.target_organisms ?? null,
           t.sds_url ?? null,
+          t.label_url ?? null,
+          t.label_file_name ?? null,
           userId,
           now,
           now,
@@ -588,6 +593,29 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       restricted_use: Number(r['restricted_use'] ?? 0),
     }));
     return reply.send(result);
+  });
+
+  // GET /api/metrc/csv/additive-templates/docs — fuzzy product name lookup for Label/SDS URLs
+  fastify.get('/additive-templates/docs', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { name } = req.query as { name?: string };
+    if (!name || name.trim() === '') {
+      return reply.send({ label_url: null, sds_url: null });
+    }
+    const db = getDB();
+    const row = db
+      .prepare(`
+        SELECT label_url, sds_url, name
+        FROM cv_metrc_additive_templates
+        WHERE LOWER(product_trade_name) LIKE LOWER('%' || ? || '%')
+           OR LOWER(name) LIKE LOWER('%' || ? || '%')
+        ORDER BY LENGTH(name) ASC
+        LIMIT 1
+      `)
+      .get(name.trim(), name.trim()) as { label_url: string | null; sds_url: string | null } | undefined;
+    return reply.send({
+      label_url: row?.label_url ?? null,
+      sds_url: row?.sds_url ?? null,
+    });
   });
 
   // DELETE /api/metrc/csv/additive-templates/:id

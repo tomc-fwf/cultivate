@@ -3947,3 +3947,127 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 - 435/436 tests pass; 1 pre-existing failure in `foliar.test.ts` (422 vs 400) unchanged before and after
 - `cv_batches.plant_count_current` does NOT exist as a real column; other metrc-csv route handlers still reference it (lines ~1011, ~1694, ~1834) in SELECT/UPDATE — those routes are untested and will fail at runtime too
 - `destroy-immature` is the only route in metrc-csv.ts that was tested and fixed; the other broken references are left for a follow-up
+
+---
+
+## Task: Audit additive template field gaps — farmstock refactor Phase 1 design
+**Completed:** 2026-05-26
+
+### What Was Done
+- Read all 7 application/recipe form files: FoliarNew, PesticideNew, AmendmentNew, StartupForm, FertigationRecipeEdit, FoliarRecipeEdit
+- Read CropInputs.jsx and CropInputDetail.jsx for the full field set displayed in the inventory view
+- Read migrations 042 and 045 to establish the current cv_metrc_additive_templates column set
+- Read catalog.ts to understand the proxy routes (/api/catalog/inventory, /api/catalog/items)
+- Produced `docs/farmstock-refactor-phase1.md`
+
+### Key Decisions
+- Phase 1 = schema only (migration 048 adds 19 columns) + farmstock linkage mechanism + new /api/additive-templates endpoint. No form switches in Phase 1.
+- additive_type (Fertilizer|Pesticide|Other) is METRC-specific; forms need the more granular category_code (FERT|FOLIAR|AMEND|BIOL|ADDITIVE|PEST|FUNG) as a separate column — both coexist
+- rei_quantity + rei_time_unit stay for METRC CSV; add rei_hours (REAL) as the numeric form for form-level calculations
+- product_supplier stays for METRC CSV; add manufacturer as the consumer-facing alias
+- CropInputs.jsx and CropInputDetail.jsx stay pointing at farmstock in Phase 1 and likely Phase 2 — stock data (lots, total_stock, earliest_expiry) lives in farmstock and is not replicated to templates
+- Farmstock linkage: add cultivate_template_id INTEGER to farmstock items table; Cultivate exposes GET /api/additive-templates for farmstock to look up templates
+- active_ingredients format difference: templates use JSON array [{name, percentage}]; farmstock returns comma-separated text — Phase 2 forms must handle both at API layer
+
+### Files Modified/Created
+- `docs/farmstock-refactor-phase1.md` (new — design document only, no code changes)
+
+### Notes for Next Tasks
+- Next migration is 048 — `048_additive_template_product_fields.ts`
+- The document includes a ready-to-use migration skeleton with all 19 columns
+- FertigationRecipeEdit and FoliarRecipeEdit use api.getCatalogItems() (→ /api/catalog/items), not api.getInventory() — these will switch to getAdditiveTemplates() in Phase 2
+- PesticideNew uses item.epa_reg_number || item.epa_reg_no (two farmstock field names); Cultivate templates use epa_registration_number — Phase 2 must update all three references in PesticideNew
+- The farmstock proxy routes (/api/catalog/inventory, /api/catalog/items) must stay through Phase 2
+
+---
+
+## Task: Extend cv_metrc_additive_templates with product catalog fields
+**Completed:** 2026-05-26
+
+### What Was Done
+- Migration 048 (`src/db/migrations/048_additive_template_product_fields.ts`): adds 12 new columns to `cv_metrc_additive_templates` — `category`, `unit`, `manufacturer`, `phi_days`, `phi_days_operational`, `phi_notes`, `rei_hours`, `omri_listed`, `restricted_use`, `signal_word`, `target_organisms`, `sds_url`. All nullable / safe defaults. Backfills `manufacturer` from `product_supplier` for existing rows.
+- `src/api/routes/metrc-csv.ts`: extended `AdditiveTemplateSchema` with all 12 new fields (all optional/nullable); updated POST INSERT statement to persist them; updated GET `/additive-templates` to cast `omri_listed`/`restricted_use` as numbers; added new `GET /additive-templates/catalog` endpoint ordered by category then name, returning the product-picker field set.
+- `client/src/api.js`: added `getAdditiveCatalog: () => req('GET', '/metrc/csv/additive-templates/catalog')`.
+- `client/src/pages/admin/MetrcSetup.jsx`: updated `emptyAdditiveForm()` and `handleSubmit` payload to include all 12 new fields; added collapsible "Product Details" section to the create form (category select, unit, manufacturer, PHI group, REI hours, signal word, OMRI/RUP checkboxes, target organisms, SDS URL); updated template list to show category badge and unit next to the additive_type badge.
+
+### Key Decisions
+- Task spec uses a single `category` field (Fertilizer | Pesticide | Fungicide | Biocontrol | Amendment | FoliarNutrient | Other) rather than the three-field approach (`category_code`, `category_name`, `category_color`) in the design doc — followed task spec.
+- `phi_days` and `phi_days_operational` stored as REAL (not INTEGER as in design doc sketch) to allow fractional days (e.g. 0.5).
+- Catalog endpoint uses a fixed SELECT rather than `SELECT *` to give a stable, documented response contract for Phase 2 forms.
+- `omri_listed` and `restricted_use` coerced to numbers (0/1) in GET responses so JS consumers get consistent integer type.
+- `showProductDetails` state collapses on cancel so reopening the form starts fresh.
+
+### Files Modified/Created
+- `src/db/migrations/048_additive_template_product_fields.ts` (new)
+- `src/api/routes/metrc-csv.ts` (AdditiveTemplateSchema + INSERT + GET handlers)
+- `client/src/api.js` (getAdditiveCatalog)
+- `client/src/pages/admin/MetrcSetup.jsx` (emptyAdditiveForm, handleSubmit, form UI, template list)
+
+### Notes for Next Tasks
+- Phase 2 form switches: application forms (FoliarNew, PesticideNew, AmendmentNew, StartupForm) and recipe edit forms (FertigationRecipeEdit, FoliarRecipeEdit) should call `api.getAdditiveCatalog()` instead of `api.getInventory()` / `api.getCatalogItems()`. See `docs/farmstock-refactor-phase1.md` section 6 for the full field remapping table.
+- The farmstock proxy routes (`/api/catalog/inventory`, `/api/catalog/items`) stay until Phase 2 form switches are complete.
+- `npx tsc --noEmit` passes clean. Commit: `feat(metrc): extend additive templates with product catalog fields` → c8cb019.
+
+## Task: Seed 16 METRC additive templates via migration
+**Completed:** 2026-05-29
+
+### What Was Done
+- Created `src/db/migrations/049_seed_additive_templates.ts` with `INSERT OR IGNORE` for all 16 active product templates
+- Migration `up()` inserts all 16 templates; `down()` deletes by name
+- Used `created_by = 1` (admin user); note: FK is not enforced by Knex migration connection (no `foreign_keys=ON` pragma), so safe for fresh databases too
+- Built TypeScript (`npm run build:ts`) and verified migration runs cleanly — all 16 rows inserted
+- `npx tsc --noEmit` passes clean
+- Committed: `migration: seed 16 METRC additive templates from active product list` → 0d30734
+
+### Key Decisions
+- Template 4 (Athena IPM) has `additive_type: 'Pesticide'` but `epa_registration_number: null` (FIFRA 25(b) exempt). The API Zod schema would block this, but the migration bypasses the API and goes directly to the DB, which has no CHECK constraint for this combination. This is correct behavior for a 25(b)-exempt product.
+- `active_ingredients` column is TEXT storing a JSON-stringified array — stringified in the TEMPLATES array before passing to the SQL query.
+- `omri_listed` and `restricted_use` hardcoded to `0` for all 16 templates (none are OMRI-listed or restricted use based on current product data).
+
+### Files Modified/Created
+- `src/db/migrations/049_seed_additive_templates.ts` (new)
+
+### Notes for Next Tasks
+- The seeded templates are now available via `GET /api/metrc/csv/additive-templates/catalog` for use in Phase 2 application form switches.
+- Running the migration on Railway happens automatically on next deploy (server startup calls `k.migrate.latest()`).
+- `INSERT OR IGNORE` makes the migration safe to re-run — templates already in the DB won't be duplicated.
+
+---
+
+## Task: Add label/SDS document links to additive templates
+**Completed:** 2026-05-29
+
+### What Was Done
+- **Migration 050** (`src/db/migrations/050_additive_template_documents.ts`): added `label_url TEXT nullable` and `label_file_name TEXT nullable` to `cv_metrc_additive_templates`. Note: `sds_url` already existed from migration 048 — was NOT re-added.
+- **Backend** (`src/api/routes/metrc-csv.ts`):
+  - Extended `AdditiveTemplateSchema` with `label_url` (max 500) and `label_file_name` (max 200), both optional nullable
+  - Updated POST `/additive-templates` INSERT to write both new columns (25 bound params + created_by/at/at = 27 total)
+  - Added `GET /additive-templates/docs?name=<str>`: case-insensitive LIKE search against `product_trade_name` OR `name`, returns `{ label_url, sds_url }` (200 even on no-match)
+- **API client** (`client/src/api.js`): added `getAdditiveTemplateDocs(name)`
+- **MetrcSetup.jsx** (`client/src/pages/admin/MetrcSetup.jsx`):
+  - `emptyAdditiveForm()`: added `label_url: ''`, `label_file_name: ''`
+  - `handleSubmit`: maps both fields to payload (nullable strings)
+  - `duplicateTemplate`: copies both fields from source template
+  - Product Details section: added Label URL (type=url) and Label File Name (type=text) fields below SDS URL
+  - Template card: added blue "Label" and amber "SDS" anchor tags inline with the badge row when URLs present; `e.stopPropagation()` prevents card click
+- **FertigationRecipeDetail.jsx** / **FoliarRecipeDetail.jsx**: added `ingredientDocs` state + useEffect that `Promise.all`s `getAdditiveTemplateDocs` for each ingredient by `item_name`; renders Label/SDS chips inline in the Product column of each ingredient row
+- **PesticideNew.jsx**: added `productDocs` state + useEffect that fetches docs on `selectedProduct` change; renders "Product Label ↗" and "Safety Data Sheet ↗" links (36px touch target) below the product picker button when a product is selected
+
+### Key Decisions
+- `/additive-templates/docs` returns 200 with `{ label_url: null, sds_url: null }` on no match (not 404) — consistent with the task spec to avoid error-throwing in the frontend fetch
+- Fastify route ordering: `GET /additive-templates/docs` placed before `DELETE /additive-templates/:id` to avoid param conflict with the dynamic `:id` route (Fastify matches static segments before param segments, but ordering is explicit here)
+- PesticideNew uses `selectedProduct.name` (from farmstock inventory) for the docs lookup — the LIKE search covers variations between farmstock names and METRC template names
+
+### Files Modified/Created
+- `src/db/migrations/050_additive_template_documents.ts` (new)
+- `src/api/routes/metrc-csv.ts` (schema + INSERT + new docs route)
+- `client/src/api.js` (getAdditiveTemplateDocs)
+- `client/src/pages/admin/MetrcSetup.jsx` (form + card)
+- `client/src/pages/recipes/FertigationRecipeDetail.jsx` (ingredient doc links)
+- `client/src/pages/recipes/FoliarRecipeDetail.jsx` (ingredient doc links)
+- `client/src/pages/applications/PesticideNew.jsx` (product doc links)
+
+### Notes for Next Tasks
+- FertigationNew.jsx and FoliarNew.jsx were explicitly not modified (ingredient structure differs; deferred per task spec)
+- `label_file_name` is stored but currently only displayed in the template form/card — could be used as the link text in future iterations
+- The docs endpoint is open to all authenticated users (not admin-only) since growers need it during application entry
