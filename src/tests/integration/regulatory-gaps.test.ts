@@ -19,8 +19,8 @@ describe('Batch close — container cascade to teardown', () => {
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
 
     // Two containers: C1 gets final-harvested, C2 had a prior plant loss → empty
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerEmpty(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     // Final-harvest the only remaining active plant → batch auto-closes
     await ctx.app.inject({
@@ -33,7 +33,7 @@ describe('Batch close — container cascade to teardown', () => {
     expect(batch.status).toBe('closed');
 
     // C2 (previously empty) must now be in teardown
-    const c2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C2') as Record<string, unknown>;
+    const c2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C002') as Record<string, unknown>;
     expect(c2.current_state).toBe('teardown');
   });
 
@@ -42,8 +42,8 @@ describe('Batch close — container cascade to teardown', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
 
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerEmpty(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
@@ -54,7 +54,7 @@ describe('Batch close — container cascade to teardown', () => {
     const transition = ctx.db.prepare(`
       SELECT * FROM cv_container_state_transitions
       WHERE container_id = ? AND to_state = 'teardown' AND trigger_event = 'batch_closed'
-    `).get('Z1-A-R1-C2') as Record<string, unknown> | undefined;
+    `).get('Z1-30-R01-C002') as Record<string, unknown> | undefined;
     expect(transition).toBeDefined();
   });
 
@@ -64,9 +64,9 @@ describe('Batch close — container cascade to teardown', () => {
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
 
     // Two active containers
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerEmpty(ctx.db, 'Z1-A-R1-C2', b.batch_id);
-    putContainerActive(ctx.db, 'Z1-A-R1-C3', b.batch_id);
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-30-R01-C002', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C003', b.batch_id);
 
     // Harvest only one of two active plants
     await ctx.app.inject({
@@ -79,7 +79,7 @@ describe('Batch close — container cascade to teardown', () => {
     const batch = ctx.db.prepare('SELECT status FROM cv_batches WHERE batch_id = ?').get(b.batch_id) as Record<string, unknown>;
     expect(batch.status).toBe('harvesting');
 
-    const c2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C2') as Record<string, unknown>;
+    const c2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C002') as Record<string, unknown>;
     expect(c2.current_state).toBe('empty');
   });
 });
@@ -97,8 +97,8 @@ describe('Multi-plant containers (plants_per_container=2)', () => {
     ctx.db.prepare('UPDATE cv_batches SET plants_per_container = 2 WHERE batch_id = ?').run(b.batch_id);
 
     // Place two plants in the same container
-    putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    const a2 = createPlantAssignment(ctx.db, b.batch_id, 'Z1-A-R1-C1');
+    putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    const a2 = createPlantAssignment(ctx.db, b.batch_id, 'Z1-30-R01-C001');
 
     // Record loss for a2 via API — container should stay active (a1 still lives)
     const res = await ctx.app.inject({
@@ -106,7 +106,7 @@ describe('Multi-plant containers (plants_per_container=2)', () => {
       headers: authHeader(ctx.app, 'grower'),
       payload: {
         batch_id: b.batch_id,
-        container_id: 'Z1-A-R1-C1',
+        container_id: 'Z1-30-R01-C001',
         plant_assignment_id: a2.assignment_id,
         loss_type: 'death_natural',
         plant_disposition: 'disposed_compost',
@@ -114,7 +114,7 @@ describe('Multi-plant containers (plants_per_container=2)', () => {
     });
     expect(res.statusCode).toBe(201);
 
-    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C1') as Record<string, unknown>;
+    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C001') as Record<string, unknown>;
     expect(state.current_state).toBe('active');
   });
 
@@ -123,25 +123,25 @@ describe('Multi-plant containers (plants_per_container=2)', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg' });
     ctx.db.prepare('UPDATE cv_batches SET plants_per_container = 2 WHERE batch_id = ?').run(b.batch_id);
 
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    const a2 = createPlantAssignment(ctx.db, b.batch_id, 'Z1-A-R1-C1');
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    const a2 = createPlantAssignment(ctx.db, b.batch_id, 'Z1-30-R01-C001');
 
     // Lose first plant
     await ctx.app.inject({
       method: 'POST', url: '/api/plant-loss',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { batch_id: b.batch_id, container_id: 'Z1-A-R1-C1', plant_assignment_id: a1, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
+      payload: { batch_id: b.batch_id, container_id: 'Z1-30-R01-C001', plant_assignment_id: a1, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
     });
 
     // Lose second plant
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/plant-loss',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { batch_id: b.batch_id, container_id: 'Z1-A-R1-C1', plant_assignment_id: a2.assignment_id, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
+      payload: { batch_id: b.batch_id, container_id: 'Z1-30-R01-C001', plant_assignment_id: a2.assignment_id, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
     });
     expect(res.statusCode).toBe(201);
 
-    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C1') as Record<string, unknown>;
+    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C001') as Record<string, unknown>;
     expect(state.current_state).toBe('empty');
   });
 
@@ -149,12 +149,12 @@ describe('Multi-plant containers (plants_per_container=2)', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg' });
 
-    putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    createPlantAssignment(ctx.db, b.batch_id, 'Z1-A-R1-C1');
+    putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    createPlantAssignment(ctx.db, b.batch_id, 'Z1-30-R01-C001');
 
     const activeCount = (ctx.db.prepare(
       'SELECT COUNT(*) AS n FROM cv_plant_assignments WHERE container_id = ? AND unassigned_at IS NULL'
-    ).get('Z1-A-R1-C1') as { n: number }).n;
+    ).get('Z1-30-R01-C001') as { n: number }).n;
 
     expect(activeCount).toBe(2);
   });
@@ -303,8 +303,8 @@ describe('plant_count_current is derived from active assignments', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', plant_count_initial: 3 });
 
-    putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerActive(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     const res = await ctx.app.inject({
       method: 'GET', url: `/api/batches/${b.batch_id}`,
@@ -318,8 +318,8 @@ describe('plant_count_current is derived from active assignments', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', plant_count_initial: 2 });
 
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerActive(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     // Before loss: 2 active assignments
     const before = await ctx.app.inject({
@@ -332,7 +332,7 @@ describe('plant_count_current is derived from active assignments', () => {
     await ctx.app.inject({
       method: 'POST', url: '/api/plant-loss',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { batch_id: b.batch_id, container_id: 'Z1-A-R1-C1', plant_assignment_id: a1, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
+      payload: { batch_id: b.batch_id, container_id: 'Z1-30-R01-C001', plant_assignment_id: a1, loss_type: 'death_natural', plant_disposition: 'disposed_compost' },
     });
 
     // After loss: 1 active assignment
@@ -363,7 +363,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
   beforeEach(async () => { ctx = await createTestContext(); });
   afterEach(async () => { await teardownTestContext(ctx); });
 
-  function setupUntaggedContainer(batchId: number, containerId = 'Z1-A-R1-C1') {
+  function setupUntaggedContainer(batchId: number, containerId = 'Z1-30-R01-C001') {
     putContainerActive(ctx.db, containerId, batchId);
     return containerId;
   }
@@ -376,7 +376,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: 'ABC123' },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: 'ABC123' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -389,7 +389,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: 'A'.repeat(25) },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: 'A'.repeat(25) },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -403,7 +403,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: '1A2B3C4D5E6F7G8H9I0J-123' },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: '1A2B3C4D5E6F7G8H9I0J-123' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -417,7 +417,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: validTag },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: validTag },
     });
     expect(res.statusCode).toBe(201);
     expect(JSON.parse(res.body).metrc_plant_tag).toBe(validTag);
@@ -432,7 +432,7 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: validTag },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: validTag },
     });
     expect(res.statusCode).toBe(201);
   });
@@ -440,8 +440,8 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
   it('rejects duplicate tag assignment (tag already active elsewhere)', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg' });
-    setupUntaggedContainer(b.batch_id, 'Z1-A-R1-C1');
-    setupUntaggedContainer(b.batch_id, 'Z1-A-R1-C2');
+    setupUntaggedContainer(b.batch_id, 'Z1-30-R01-C001');
+    setupUntaggedContainer(b.batch_id, 'Z1-30-R01-C002');
 
     const tag = 'A'.repeat(24);
 
@@ -449,14 +449,14 @@ describe('METRC tag format validation (tag-assignments endpoint)', () => {
     await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C1', metrc_plant_tag: tag },
+      payload: { container_id: 'Z1-30-R01-C001', metrc_plant_tag: tag },
     });
 
     // Try to assign same tag to C2 — must be rejected
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { container_id: 'Z1-A-R1-C2', metrc_plant_tag: tag },
+      payload: { container_id: 'Z1-30-R01-C002', metrc_plant_tag: tag },
     });
     expect(res.statusCode).toBe(409);
   });

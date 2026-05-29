@@ -32,7 +32,7 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
   it('returns 401 without auth', async () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments/1/move',
-      payload: { to_container_id: 'Z1-A-R2-C1', reason: 'test' },
+      payload: { to_container_id: 'Z1-30-R02-C001', reason: 'test' },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -41,7 +41,7 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
     const res = await ctx.app.inject({
       method: 'POST', url: '/api/tag-assignments/99999/move',
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R2-C1', reason: 'test move' },
+      payload: { to_container_id: 'Z1-30-R02-C001', reason: 'test move' },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -49,12 +49,12 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
   it('returns 400 when destination is the same as source container', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
 
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R1-C1', reason: 'same container' },
+      payload: { to_container_id: 'Z1-30-R01-C001', reason: 'same container' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -62,14 +62,14 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
   it('returns 400 when destination container is occupied (active state)', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     // Destination already has an active plant
-    putContainerActive(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R1-C2', reason: 'move to occupied' },
+      payload: { to_container_id: 'Z1-30-R01-C002', reason: 'move to occupied' },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -77,39 +77,39 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
   it('moves assignment to a ready container and returns move details', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
 
-    // Z1-A-R2-C1 is 'ready' by default from seed data
+    // Z1-30-R02-C001 is 'ready' by default from seed data
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R2-C1', reason: 'transplant to larger pot' },
+      payload: { to_container_id: 'Z1-30-R02-C001', reason: 'transplant to larger pot' },
     });
     expect(res.statusCode).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.assignment_id).toBe(assignmentId);
-    expect(body.from_container_id).toBe('Z1-A-R1-C1');
-    expect(body.to_container_id).toBe('Z1-A-R2-C1');
+    expect(body.from_container_id).toBe('Z1-30-R01-C001');
+    expect(body.to_container_id).toBe('Z1-30-R02-C001');
     expect(body.moved_at).toBeDefined();
   });
 
   it('updates source to empty and destination to active in the database', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C3', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C003', b.batch_id);
 
     await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R2-C3', reason: 'transplant' },
+      payload: { to_container_id: 'Z1-30-R02-C003', reason: 'transplant' },
     });
 
     const src = ctx.db.prepare(
       'SELECT current_state FROM cv_container_state WHERE container_id = ?'
-    ).get('Z1-A-R1-C3') as { current_state: string };
+    ).get('Z1-30-R01-C003') as { current_state: string };
     const dst = ctx.db.prepare(
       'SELECT current_state FROM cv_container_state WHERE container_id = ?'
-    ).get('Z1-A-R2-C3') as { current_state: string };
+    ).get('Z1-30-R02-C003') as { current_state: string };
 
     expect(src.current_state).toBe('empty');
     expect(dst.current_state).toBe('active');
@@ -118,34 +118,34 @@ describe('Tag assignment move — POST /tag-assignments/:id/move', () => {
   it('moves assignment to an empty container in the same batch', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C4', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C004', b.batch_id);
     // Empty container in same batch (no active assignments)
-    putContainerEmpty(ctx.db, 'Z1-A-R1-C5', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-30-R01-C005', b.batch_id);
 
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R1-C5', reason: 'fill empty slot' },
+      payload: { to_container_id: 'Z1-30-R01-C005', reason: 'fill empty slot' },
     });
     expect(res.statusCode).toBe(200);
-    expect(JSON.parse(res.body).to_container_id).toBe('Z1-A-R1-C5');
+    expect(JSON.parse(res.body).to_container_id).toBe('Z1-30-R01-C005');
   });
 
   it('logs a plant_replaced state transition for the destination container', async () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg', sub_zone_id: 'Z1A' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C6', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C006', b.batch_id);
 
     await ctx.app.inject({
       method: 'POST', url: `/api/tag-assignments/${assignmentId}/move`,
       headers: authHeader(ctx.app, 'grower'),
-      payload: { to_container_id: 'Z1-A-R3-C1', reason: 'transplant' },
+      payload: { to_container_id: 'Z1-30-R03-C001', reason: 'transplant' },
     });
 
     const transitions = ctx.db.prepare(`
       SELECT * FROM cv_container_state_transitions
       WHERE container_id = ? AND to_state = 'active'
-    `).all('Z1-A-R3-C1') as Array<Record<string, unknown>>;
+    `).all('Z1-30-R03-C001') as Array<Record<string, unknown>>;
     expect(transitions.length).toBeGreaterThan(0);
     expect(transitions[transitions.length - 1]['trigger_event']).toBe('plant_replaced');
   });

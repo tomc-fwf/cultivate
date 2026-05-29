@@ -4,17 +4,7 @@ import jsQR from 'jsqr';
 import { X, Zap, ZapOff, Keyboard } from 'lucide-react';
 import { api } from '../../api';
 
-// Accepts canonical format (Z1-A-R3-C12) and QR-label format (Z1-30-R05-C001)
-const CONTAINER_PATTERN = /^Z\d-(?:[AB]|\d{2})-R\d{1,3}-C\d{1,4}$/i;
-
-function normalizeContainerId(raw) {
-  const m = raw.match(/^Z(\d+)-(30|10)-R(\d+)-C(\d+)$/i);
-  if (m) {
-    const designation = m[2] === '30' ? 'A' : 'B';
-    return `Z${m[1]}-${designation}-R${parseInt(m[3], 10)}-C${parseInt(m[4], 10)}`;
-  }
-  return raw;
-}
+const CONTAINER_PATTERN = /^Z\d+-(10|30)-R\d{1,3}-C\d{1,4}$/i;
 
 export default function ContainerScanner() {
   const navigate = useNavigate();
@@ -62,7 +52,7 @@ export default function ContainerScanner() {
       const val = code.data.trim();
       if (CONTAINER_PATTERN.test(val)) {
         stopStream();
-        setPendingContainerId(normalizeContainerId(val));
+        setPendingContainerId(val);
         return;
       } else {
         setErrorMsg(`Unrecognized QR code: ${val}. This does not match a container ID.`);
@@ -182,10 +172,10 @@ export default function ContainerScanner() {
     e.preventDefault();
     const val = manualId.trim().toUpperCase();
     if (!CONTAINER_PATTERN.test(val)) {
-      setManualError(`"${val}" is not a valid container ID. Expected format: Z1-30-R05-C001 or Z1-A-R3-C12`);
+      setManualError(`"${val}" is not a valid container ID. Expected format: Z1-30-R05-C001`);
       return;
     }
-    setPendingContainerId(normalizeContainerId(val));
+    setPendingContainerId(val);
   }
 
   // REI gate — full-screen, must be acknowledged before navigating to the container
@@ -338,7 +328,7 @@ export default function ContainerScanner() {
               type="text"
               value={manualId}
               onChange={e => { setManualId(e.target.value); setManualError(''); }}
-              placeholder="Z1-A-R3-C12"
+              placeholder="Z1-30-R05-C001"
               className="w-full px-4 py-3 rounded-xl bg-white text-gray-900 text-base font-mono uppercase"
               autoFocus
               autoCapitalize="characters"

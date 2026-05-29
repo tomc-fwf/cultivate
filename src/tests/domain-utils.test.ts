@@ -7,7 +7,7 @@ import {
 } from '../lib/domain-utils.js';
 
 const METRC_UID_RE = /^[A-Za-z0-9]{24}$/;
-const CONTAINER_ID_RE = /^Z\d-[AB]-R\d{1,2}-C\d{1,2}$/;
+const CONTAINER_ID_RE = /^Z\d+-(10|30)-R\d{1,2}-C\d{1,3}$/;
 
 describe('formatMetrcDate', () => {
   it('converts ISO date to MM/DD/YYYY', () => {
@@ -112,24 +112,24 @@ describe('METRC UID format', () => {
 
 describe('Container ID format', () => {
   it('accepts a valid container ID', () => {
-    expect(CONTAINER_ID_RE.test('Z1-A-R3-C12')).toBe(true);
-    expect(CONTAINER_ID_RE.test('Z4-B-R5-C29')).toBe(true);
-    expect(CONTAINER_ID_RE.test('Z2-A-R1-C1')).toBe(true);
+    expect(CONTAINER_ID_RE.test('Z1-30-R03-C012')).toBe(true);
+    expect(CONTAINER_ID_RE.test('Z4-10-R05-C029')).toBe(true);
+    expect(CONTAINER_ID_RE.test('Z2-30-R01-C001')).toBe(true);
   });
 
   it('rejects a container ID with a lowercase sub-zone', () => {
-    expect(CONTAINER_ID_RE.test('Z1-a-R3-C12')).toBe(false);
+    expect(CONTAINER_ID_RE.test('Z1-30-r03-C012')).toBe(false);
   });
 
   it('rejects a container ID missing the zone prefix', () => {
-    expect(CONTAINER_ID_RE.test('1-A-R3-C12')).toBe(false);
+    expect(CONTAINER_ID_RE.test('1-30-R03-C012')).toBe(false);
   });
 
-  it('rejects a container ID with an invalid sub-zone letter', () => {
-    expect(CONTAINER_ID_RE.test('Z1-C-R3-C12')).toBe(false);
+  it('rejects a container ID with an invalid pot size', () => {
+    expect(CONTAINER_ID_RE.test('Z1-20-R03-C012')).toBe(false);
   });
 
   it('rejects a container ID with missing row segment', () => {
-    expect(CONTAINER_ID_RE.test('Z1-A-C12')).toBe(false);
+    expect(CONTAINER_ID_RE.test('Z1-30-C012')).toBe(false);
   });
 });

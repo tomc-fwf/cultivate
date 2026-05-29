@@ -5,15 +5,6 @@ import { requireAuth, requireAdmin, requireRole } from '../middleware/auth.middl
 
 interface IdParams { id: string }
 
-/** Translate QR-label format (Z1-30-R05-C001) → canonical DB format (Z1-A-R5-C1). */
-function normalizeContainerId(raw: string): string {
-  const m = raw.match(/^Z(\d+)-(30|10)-R(\d+)-C(\d+)$/i);
-  if (m) {
-    const designation = m[2] === '30' ? 'A' : 'B';
-    return `Z${m[1]}-${designation}-R${parseInt(m[3], 10)}-C${parseInt(m[4], 10)}`;
-  }
-  return raw;
-}
 
 const VALID_STATES = ['ready', 'active', 'empty', 'teardown', 'startup', 'out_of_service'] as const;
 type ContainerState = (typeof VALID_STATES)[number];
@@ -189,7 +180,7 @@ const containersRoutes: FastifyPluginAsync = async (app) => {
    * container_id is a path param like Z1-A-R3-C12.
    */
   app.get<{ Params: IdParams }>('/:id', { preHandler: requireAuth }, async (request, reply) => {
-    const containerId = normalizeContainerId(request.params.id);
+    const containerId = request.params.id;
     const db = getDB();
 
     // Base container info

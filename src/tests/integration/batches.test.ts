@@ -319,8 +319,8 @@ describe('Bulk teardown', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
     advanceBatchTo(ctx.db, b.batch_id, 'closed');
 
-    putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerEmpty(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerEmpty(ctx.db, 'Z1-30-R01-C002', b.batch_id);
 
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
@@ -333,8 +333,8 @@ describe('Bulk teardown', () => {
     expect(body.transitioned_count).toBe(2);
     expect(body.teardown_ids).toHaveLength(2);
 
-    const state1 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C1') as { current_state: string };
-    const state2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C2') as { current_state: string };
+    const state1 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C001') as { current_state: string };
+    const state2 = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C002') as { current_state: string };
     expect(state1.current_state).toBe('teardown');
     expect(state2.current_state).toBe('teardown');
   });
@@ -343,7 +343,7 @@ describe('Bulk teardown', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
     advanceBatchTo(ctx.db, b.batch_id, 'closed');
-    putContainerActive(ctx.db, 'Z1-A-R1-C3', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C003', b.batch_id);
 
     await ctx.app.inject({
       method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
@@ -351,7 +351,7 @@ describe('Bulk teardown', () => {
       payload: {},
     });
 
-    const events = ctx.db.prepare('SELECT * FROM cv_teardown_events WHERE container_id = ?').all('Z1-A-R1-C3') as Array<Record<string, unknown>>;
+    const events = ctx.db.prepare('SELECT * FROM cv_teardown_events WHERE container_id = ?').all('Z1-30-R01-C003') as Array<Record<string, unknown>>;
     expect(events).toHaveLength(1);
     expect(events[0]['batch_id']).toBe(b.batch_id);
   });
@@ -360,7 +360,7 @@ describe('Bulk teardown', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'closed', sub_zone_id: 'Z1A' });
     advanceBatchTo(ctx.db, b.batch_id, 'closed');
-    putContainerActive(ctx.db, 'Z1-A-R1-C4', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C004', b.batch_id);
 
     await ctx.app.inject({
       method: 'POST', url: `/api/batches/${b.batch_id}/bulk-teardown`,
@@ -370,7 +370,7 @@ describe('Bulk teardown', () => {
 
     const transitions = ctx.db.prepare(
       "SELECT * FROM cv_container_state_transitions WHERE container_id = ? AND to_state = 'teardown'"
-    ).all('Z1-A-R1-C4') as Array<Record<string, unknown>>;
+    ).all('Z1-30-R01-C004') as Array<Record<string, unknown>>;
     expect(transitions).toHaveLength(1);
     expect(transitions[0]['trigger_event']).toBe('batch_closed');
   });

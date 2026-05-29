@@ -17,21 +17,23 @@ export async function up(knex: Knex): Promise<void> {
   ]);
 
   // 3. Rows
+  // Zone 5: pot_size=10, so Z5-10-R01, Z5-10-R02
+  // Zone 6: pot_size=30, so Z6-30-R01
   await knex('cv_rows').insert([
-    { row_id: 'Z5-A-R1', sub_zone_id: 'Z5', row_number: 1, container_count: 30 },
-    { row_id: 'Z5-A-R2', sub_zone_id: 'Z5', row_number: 2, container_count: 30 },
-    { row_id: 'Z6-A-R1', sub_zone_id: 'Z6', row_number: 1, container_count: 60 },
+    { row_id: 'Z5-10-R01', sub_zone_id: 'Z5', row_number: 1, container_count: 30 },
+    { row_id: 'Z5-10-R02', sub_zone_id: 'Z5', row_number: 2, container_count: 30 },
+    { row_id: 'Z6-30-R01', sub_zone_id: 'Z6', row_number: 1, container_count: 60 },
   ]);
 
   // 4. Containers
   const containers: { container_id: string; row_id: string; position: number; qr_code: null; notes: null }[] = [];
 
   for (let c = 1; c <= 30; c++) {
-    containers.push({ container_id: `Z5-A-R1-C${c}`, row_id: 'Z5-A-R1', position: c, qr_code: null, notes: null });
-    containers.push({ container_id: `Z5-A-R2-C${c}`, row_id: 'Z5-A-R2', position: c, qr_code: null, notes: null });
+    containers.push({ container_id: `Z5-10-R01-C${String(c).padStart(3, '0')}`, row_id: 'Z5-10-R01', position: c, qr_code: null, notes: null });
+    containers.push({ container_id: `Z5-10-R02-C${String(c).padStart(3, '0')}`, row_id: 'Z5-10-R02', position: c, qr_code: null, notes: null });
   }
   for (let c = 1; c <= 60; c++) {
-    containers.push({ container_id: `Z6-A-R1-C${c}`, row_id: 'Z6-A-R1', position: c, qr_code: null, notes: null });
+    containers.push({ container_id: `Z6-30-R01-C${String(c).padStart(3, '0')}`, row_id: 'Z6-30-R01', position: c, qr_code: null, notes: null });
   }
 
   const CHUNK = 500;

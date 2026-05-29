@@ -57,7 +57,7 @@ describe('Harvest event — harvest_batch gate', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
     ctx.db.prepare(`UPDATE cv_harvest_batches SET status='force_closed' WHERE harvest_batch_id=?`).run(harvest_batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -71,7 +71,7 @@ describe('Harvest event — harvest_batch gate', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
     ctx.db.prepare(`UPDATE cv_harvest_batches SET status='completed' WHERE harvest_batch_id=?`).run(harvest_batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -84,7 +84,7 @@ describe('Harvest event — harvest_batch gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -97,7 +97,7 @@ describe('Harvest event — harvest_batch gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -116,7 +116,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'field-veg' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -129,7 +129,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'germ' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -142,7 +142,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'seedling' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -155,7 +155,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'cult-hoop' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -169,7 +169,7 @@ describe('Harvest event — batch status gate', () => {
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id, 1, { batch_type: 'manicure' });
     advanceBatchTo(ctx.db, b.batch_id, 'closed');
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -182,7 +182,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvest_window' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -195,7 +195,7 @@ describe('Harvest event — batch status gate', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'flush' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const res = await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -214,7 +214,7 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -229,13 +229,13 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
       payload: { plant_assignment_id: assignmentId, event_type: 'final_harvest', product_type: 'flower', wet_weight: 100, weight_unit: 'g' },
     });
-    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-A-R1-C1') as Record<string, unknown>;
+    const state = ctx.db.prepare('SELECT current_state FROM cv_container_state WHERE container_id = ?').get('Z1-30-R01-C001') as Record<string, unknown>;
     expect(state.current_state).toBe('teardown');
   });
 
@@ -243,7 +243,7 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -257,7 +257,7 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -271,9 +271,9 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    // Two plants: Z1-A-R1-C1 and Z1-A-R1-C2
-    const a1 = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
-    putContainerActive(ctx.db, 'Z1-A-R1-C2', b.batch_id);
+    // Two plants: Z1-30-R01-C001 and Z1-30-R01-C002
+    const a1 = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
+    putContainerActive(ctx.db, 'Z1-30-R01-C002', b.batch_id);
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,
       headers: authHeader(ctx.app, 'grower'),
@@ -287,7 +287,7 @@ describe('Final harvest side effects', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id, { status: 'harvesting' });
     const { harvest_batch_id } = createHarvestBatch(ctx.db, b.batch_id);
-    const assignmentId = putContainerActive(ctx.db, 'Z1-A-R1-C1', b.batch_id);
+    const assignmentId = putContainerActive(ctx.db, 'Z1-30-R01-C001', b.batch_id);
     const payload = { plant_assignment_id: assignmentId, event_type: 'final_harvest', product_type: 'flower', wet_weight: 100, weight_unit: 'g' };
     await ctx.app.inject({
       method: 'POST', url: `/api/harvest/batches/${harvest_batch_id}/events`,

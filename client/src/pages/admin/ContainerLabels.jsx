@@ -190,7 +190,7 @@ export default function ContainerLabels() {
             type="text"
             value={customId}
             onChange={e => setCustomId(e.target.value)}
-            placeholder="e.g. Z1-A-R3 or Z1-A-R3-C12"
+            placeholder="e.g. Z1-30-R03 or Z1-30-R03-C012"
             className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-900 text-base font-mono uppercase mb-3"
             autoCapitalize="characters"
             autoCorrect="off"

@@ -92,7 +92,7 @@ describe('Exports — GET /exports/metrc-tag-assignments', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id);
     const tag = 'TESTTAG123456789012ABCD'; // 24 chars
-    createPlantAssignment(ctx.db, b.batch_id, 'Z1-A-R1-C1', { metrc_plant_tag: tag });
+    createPlantAssignment(ctx.db, b.batch_id, 'Z1-30-R01-C001', { metrc_plant_tag: tag });
 
     const res = await ctx.app.inject({
       method: 'GET', url: `/api/exports/metrc-tag-assignments?batch_id=${b.batch_id}`,
@@ -109,7 +109,7 @@ describe('Exports — GET /exports/metrc-tag-assignments', () => {
     const s = createTestStrain(ctx.db);
     const b = createTestBatch(ctx.db, s.strain_id);
     // Untagged assignment (no metrc_plant_tag)
-    createPlantAssignment(ctx.db, b.batch_id, 'Z1-A-R1-C2', {});
+    createPlantAssignment(ctx.db, b.batch_id, 'Z1-30-R01-C002', {});
 
     const res = await ctx.app.inject({
       method: 'GET', url: `/api/exports/metrc-tag-assignments?batch_id=${b.batch_id}`,

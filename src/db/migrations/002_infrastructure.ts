@@ -72,10 +72,11 @@ export async function up(knex: Knex): Promise<void> {
   const rows = [];
   for (let z = 1; z <= 4; z++) {
     for (const des of ['A', 'B']) {
+      const potSize = des === 'A' ? 30 : 10;
       const containersPerRow = des === 'A' ? 30 : 29;
       for (let r = 1; r <= 5; r++) {
         rows.push({
-          row_id: `Z${z}-${des}-R${r}`,
+          row_id: `Z${z}-${potSize}-R${String(r).padStart(2, '0')}`,
           sub_zone_id: `Z${z}${des}`,
           row_number: r,
           container_count: containersPerRow,
@@ -90,12 +91,13 @@ export async function up(knex: Knex): Promise<void> {
   const containers = [];
   for (let z = 1; z <= 4; z++) {
     for (const des of ['A', 'B']) {
+      const potSize = des === 'A' ? 30 : 10;
       const containersPerRow = des === 'A' ? 30 : 29;
       for (let r = 1; r <= 5; r++) {
         for (let c = 1; c <= containersPerRow; c++) {
           containers.push({
-            container_id: `Z${z}-${des}-R${r}-C${c}`,
-            row_id: `Z${z}-${des}-R${r}`,
+            container_id: `Z${z}-${potSize}-R${String(r).padStart(2, '0')}-C${String(c).padStart(3, '0')}`,
+            row_id: `Z${z}-${potSize}-R${String(r).padStart(2, '0')}`,
             position: c,
             qr_code: null,
             notes: null,
