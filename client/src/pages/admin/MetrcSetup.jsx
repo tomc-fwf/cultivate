@@ -1011,7 +1011,95 @@ function emptyAdditiveForm() {
   };
 }
 
-function TemplateActionSheet({ template, onClose, onDuplicate, onDelete }) {
+function DocUploadField({ label, docType, templateId, currentFileName, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  const inputRef = useRef(null);
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      setError('Only PDF files are accepted');
+      return;
+    }
+    setError(null);
+    setUploading(true);
+    try {
+      await api.uploadAdditiveTemplateDoc(templateId, docType, file);
+      onUploaded();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
+  }
+
+  async function handleDelete() {
+    setError(null);
+    try {
+      await api.deleteAdditiveTemplateDoc(templateId, docType);
+      onUploaded();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function handleView() {
+    window.open(`/api/metrc/csv/additive-templates/${templateId}/documents/${docType}`, '_blank');
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-2">{label}</label>
+      {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+      {currentFileName ? (
+        <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <span className="text-xs text-green-800 flex-1 truncate">{currentFileName}</span>
+          <button
+            type="button"
+            onClick={handleView}
+            className="text-xs font-medium text-green-700 hover:text-green-900 px-2 py-1 rounded"
+            style={{ minHeight: '32px' }}
+          >View</button>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="text-xs font-medium text-gray-600 hover:text-gray-800 px-2 py-1 rounded"
+            style={{ minHeight: '32px' }}
+          >{uploading ? 'Uploading…' : 'Replace'}</button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            className="text-xs font-medium text-red-500 hover:text-red-700 px-2 py-1 rounded"
+            style={{ minHeight: '32px' }}
+          >✕</button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center justify-center gap-2 w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-green-400 hover:text-green-700 transition-colors disabled:opacity-50"
+          style={{ minHeight: '56px' }}
+        >
+          {uploading ? 'Uploading…' : `Upload ${label} PDF`}
+        </button>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={handleFile}
+      />
+    </div>
+  );
+}
+
+function TemplateActionSheet({ template, onClose, onEdit, onDuplicate, onDelete }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -1035,6 +1123,13 @@ function TemplateActionSheet({ template, onClose, onDuplicate, onDelete }) {
           <div className="text-xs text-gray-400 mt-0.5">{template.additive_type}{template.application_device ? ` · ${template.application_device}` : ''}</div>
         </div>
         <div className="px-3 py-3 flex flex-col gap-1">
+          <button
+            onClick={() => { onEdit(template); onClose(); }}
+            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            style={{ minHeight: '56px' }}
+          >
+            Edit
+          </button>
           <button
             onClick={() => { onDuplicate(template); onClose(); }}
             className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
@@ -1096,6 +1191,7 @@ function AdditiveTemplatesTab() {
   const [saveError, setSaveError] = useState(null);
   const [lastResult, setLastResult] = useState(null);
   const [actionSheet, setActionSheet] = useState(null);
+  const [editingTemplateId, setEditingTemplateId] = useState(null);
   const longPressTimer = useRef(null);
   const formRef = useCallback((node) => { if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []); // ref callback — called when form mounts/unmounts
 
@@ -1160,10 +1256,18 @@ function AdditiveTemplatesTab() {
       label_url: form.label_url.trim() || null,
       label_file_name: form.label_file_name.trim() || null,
     };
-    const payload = { templates: [template] };
     try {
-      const result = await api.createAdditiveTemplates(payload);
-      setLastResult(result); setForm(emptyAdditiveForm()); setShowForm(false); load();
+      if (editingTemplateId) {
+        await api.patchAdditiveTemplate(editingTemplateId, template);
+        setEditingTemplateId(null);
+        setLastResult(null);
+      } else {
+        const result = await api.createAdditiveTemplates({ templates: [template] });
+        setLastResult(result);
+      }
+      setForm(emptyAdditiveForm());
+      setShowForm(false);
+      load();
     } catch (err) { setSaveError(err.message); }
     finally { setSaving(false); }
   }
@@ -1208,6 +1312,42 @@ function AdditiveTemplatesTab() {
     setShowForm(true);
   }
 
+  function editTemplate(t) {
+    setForm({
+      name: t.name,
+      additive_type: t.additive_type,
+      product_trade_name: t.product_trade_name ?? '',
+      epa_registration_number: t.epa_registration_number ?? '',
+      note: t.note ?? '',
+      rei_quantity: t.rei_quantity ?? '',
+      rei_time_unit: t.rei_time_unit ?? '',
+      product_supplier: t.product_supplier ?? '',
+      application_device: t.application_device ?? '',
+      active_ingredients: t.active_ingredients.length > 0
+        ? t.active_ingredients.map((i) => ({ name: i.name, percentage: String(i.percentage) }))
+        : [emptyIngredient()],
+      category: t.category ?? '',
+      unit: t.unit ?? '',
+      manufacturer: t.manufacturer ?? '',
+      phi_days: t.phi_days != null ? String(t.phi_days) : '',
+      phi_days_operational: t.phi_days_operational != null ? String(t.phi_days_operational) : '',
+      phi_notes: t.phi_notes ?? '',
+      rei_hours: t.rei_hours != null ? String(t.rei_hours) : '',
+      omri_listed: !!t.omri_listed,
+      restricted_use: !!t.restricted_use,
+      signal_word: t.signal_word ?? '',
+      target_organisms: t.target_organisms ?? '',
+      sds_url: t.sds_url ?? '',
+      label_url: t.label_url ?? '',
+      label_file_name: t.label_file_name ?? '',
+    });
+    setEditingTemplateId(t.template_id);
+    setSaveError(null);
+    setLastResult(null);
+    setShowProductDetails(!!(t.category || t.manufacturer || t.phi_days != null));
+    setShowForm(true);
+  }
+
   function startLongPress(t) {
     longPressTimer.current = setTimeout(() => setActionSheet(t), 600);
   }
@@ -1228,7 +1368,7 @@ function AdditiveTemplatesTab() {
           Manage your product catalog for use in plant and immature plant additive application CSVs.
         </p>
         <button
-          onClick={() => { setShowForm((v) => !v); setSaveError(null); setLastResult(null); setShowProductDetails(false); }}
+          onClick={() => { setShowForm((v) => !v); setEditingTemplateId(null); setSaveError(null); setLastResult(null); setShowProductDetails(false); }}
           className="ml-3 px-3 py-1.5 bg-green-700 text-white text-xs font-semibold rounded-lg hover:bg-green-800 transition-colors flex-shrink-0"
           style={{ minHeight: '36px' }}
         >
@@ -1245,7 +1385,7 @@ function AdditiveTemplatesTab() {
 
       {showForm && (
         <form ref={formRef} onSubmit={handleSubmit} className="mb-6 bg-white border border-gray-200 rounded-2xl p-5">
-          <h2 className="text-base font-semibold text-gray-800 mb-4">New Additive Template</h2>
+          <h2 className="text-base font-semibold text-gray-800 mb-4">{editingTemplateId ? 'Edit Additive Template' : 'New Additive Template'}</h2>
           {saveError && <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{saveError}</div>}
 
           <div className="grid grid-cols-1 gap-4">
@@ -1452,6 +1592,32 @@ function AdditiveTemplatesTab() {
               )}
             </div>
 
+            {editingTemplateId ? (
+              <div className="border border-gray-200 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                  <span className="text-sm font-semibold text-gray-700">Documents</span>
+                </div>
+                <div className="p-4 grid grid-cols-1 gap-4">
+                  <DocUploadField
+                    label="Product Label"
+                    docType="label"
+                    templateId={editingTemplateId}
+                    currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.label_file_name ?? null}
+                    onUploaded={load}
+                  />
+                  <DocUploadField
+                    label="Safety Data Sheet (SDS)"
+                    docType="sds"
+                    templateId={editingTemplateId}
+                    currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.sds_file_name ?? null}
+                    onUploaded={load}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-gray-400 px-1">Save the template first to attach documents.</div>
+            )}
+
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-xs font-medium text-gray-600">Active Ingredients <span className="text-red-500">*</span></label>
@@ -1476,11 +1642,19 @@ function AdditiveTemplatesTab() {
             </div>
           </div>
 
-          <div className="flex justify-end mt-5">
+          <div className="flex items-center justify-between mt-5">
+            <button
+              type="button"
+              onClick={() => { setShowForm(false); setEditingTemplateId(null); setSaveError(null); setLastResult(null); setShowProductDetails(false); }}
+              className="px-4 py-3 text-sm font-medium text-gray-600 hover:text-gray-800 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              Cancel
+            </button>
             <button type="submit" disabled={saving}
               className="px-6 py-3 bg-green-700 text-white text-sm font-semibold rounded-lg hover:bg-green-800 disabled:opacity-50 transition-colors"
               style={{ minHeight: '56px' }}>
-              {saving ? 'Saving…' : 'Save Template'}
+              {saving ? 'Saving…' : editingTemplateId ? 'Save Changes' : 'Save Template'}
             </button>
           </div>
         </form>
@@ -1529,9 +1703,9 @@ function AdditiveTemplatesTab() {
                         <span className="text-xs text-gray-500">{t.unit}</span>
                       )}
                       <span className="text-xs text-gray-400">{t.active_ingredients.length} ingredient{t.active_ingredients.length !== 1 ? 's' : ''}</span>
-                      {t.label_url && (
+                      {(t.label_file_name || t.label_url) && (
                         <a
-                          href={t.label_url}
+                          href={t.label_file_name ? `/api/metrc/csv/additive-templates/${t.template_id}/documents/label` : t.label_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
@@ -1539,12 +1713,12 @@ function AdditiveTemplatesTab() {
                           style={{ minHeight: '22px' }}
                           aria-label="Product label"
                         >
-                          Label
+                          {t.label_file_name ? 'Label ↓' : 'Label ↗'}
                         </a>
                       )}
-                      {t.sds_url && (
+                      {(t.sds_file_name || t.sds_url) && (
                         <a
-                          href={t.sds_url}
+                          href={t.sds_file_name ? `/api/metrc/csv/additive-templates/${t.template_id}/documents/sds` : t.sds_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
@@ -1552,7 +1726,7 @@ function AdditiveTemplatesTab() {
                           style={{ minHeight: '22px' }}
                           aria-label="Safety data sheet"
                         >
-                          SDS
+                          {t.sds_file_name ? 'SDS ↓' : 'SDS ↗'}
                         </a>
                       )}
                     </div>
@@ -1586,6 +1760,7 @@ function AdditiveTemplatesTab() {
         <TemplateActionSheet
           template={actionSheet}
           onClose={() => setActionSheet(null)}
+          onEdit={editTemplate}
           onDuplicate={duplicateTemplate}
           onDelete={handleDelete}
         />
