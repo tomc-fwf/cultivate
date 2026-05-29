@@ -451,7 +451,7 @@ export default function ContainerDashboard() {
       {/* Zone-level bulk actions (admin) */}
       {isAdmin && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {[1, 2, 3, 4].map(zoneId => (
+          {[...new Set(summary.map(sz => sz.zone_id))].sort((a, b) => a - b).map(zoneId => (
             <button
               key={zoneId}
               onClick={() => { setBulkScope({ scope: 'zone', scope_id: String(zoneId), label: `Zone ${zoneId}` }); setBulkMsg(''); setBulkError(''); }}

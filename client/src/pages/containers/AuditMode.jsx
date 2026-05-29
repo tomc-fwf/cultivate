@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
 const ACTIVE_STATUSES = ['germ', 'seedling', 'cult-hoop', 'field-veg', 'field-flower', 'flush', 'harvest_window', 'harvesting'];
-const SUB_ZONES = ['Z1A', 'Z1B', 'Z2A', 'Z2B', 'Z3A', 'Z3B', 'Z4A', 'Z4B'];
 
 const OUTCOMES = {
   verified: { label: 'Verified ✓',    bgBtn: 'bg-green-600 border-green-700', bgBadge: 'bg-green-50 text-green-700' },
@@ -15,10 +14,17 @@ const OUTCOMES = {
 
 function SetupStep({ onStart }) {
   const [batches, setBatches] = useState([]);
+  const [subZones, setSubZones] = useState([]);
   const [batchId, setBatchId] = useState('');
   const [subZone, setSubZone] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getContainerSummary()
+      .then(d => setSubZones(d.map(sz => sz.sub_zone_id).sort()))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.getBatches()
@@ -79,7 +85,7 @@ function SetupStep({ onStart }) {
               >
                 All zones
               </button>
-              {(selectedBatch?.sub_zone_id ? [selectedBatch.sub_zone_id] : SUB_ZONES).map(sz => (
+              {(selectedBatch?.sub_zone_id ? [selectedBatch.sub_zone_id] : subZones).map(sz => (
                 <button
                   key={sz}
                   onClick={() => setSubZone(sz)}

@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { api } from '../../api';
 
-const SUB_ZONES = ['Z1A','Z1B','Z2A','Z2B','Z3A','Z3B','Z4A','Z4B'];
 
 const ZONE_COLORS = {
   Z1: '#2d6a2d', // green
@@ -116,12 +115,19 @@ async function generatePrintWindow(containers) {
 
 export default function ContainerLabels() {
   const navigate = useNavigate();
+  const [subZones, setSubZones] = useState([]);
   const [filter, setFilter] = useState('all'); // 'all' | sub_zone id | 'custom'
   const [customId, setCustomId] = useState('');
   const [containers, setContainers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    api.getContainerSummary()
+      .then(data => setSubZones(data.map(sz => sz.sub_zone_id).sort()))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -173,7 +179,7 @@ export default function ContainerLabels() {
           className="w-full px-4 py-3 rounded-xl border border-gray-200 text-gray-900 text-base mb-3"
         >
           <option value="all">All Containers (1,180)</option>
-          {SUB_ZONES.map(sz => (
+          {subZones.map(sz => (
             <option key={sz} value={sz}>{sz}</option>
           ))}
           <option value="custom">Search by Container ID</option>

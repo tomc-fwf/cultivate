@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
-const SUB_ZONES = ['Z1A', 'Z1B', 'Z2A', 'Z2B', 'Z3A', 'Z3B', 'Z4A', 'Z4B'];
 const WEEK_W  = 17;   // px per week column
 const ROW_H   = 48;   // px per sub-zone row
 const LABEL_W = 72;   // px for the sub-zone label column
@@ -33,11 +32,18 @@ const STATUS_LABELS = {
 export default function AnnualTracker() {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
-  const [year, setYear]       = useState(currentYear);
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [tooltip, setTooltip] = useState(null); // { batch, clientX, clientY }
+  const [year, setYear]         = useState(currentYear);
+  const [data, setData]         = useState(null);
+  const [subZones, setSubZones] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [tooltip, setTooltip]   = useState(null); // { batch, clientX, clientY }
+
+  useEffect(() => {
+    api.getContainerSummary()
+      .then(d => setSubZones(d.map(sz => sz.sub_zone_id).sort()))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     setLoading(true);
@@ -86,7 +92,7 @@ export default function AnnualTracker() {
   }));
 
   // Group batches by sub-zone.
-  const byZone = Object.fromEntries(SUB_ZONES.map(z => [z, []]));
+  const byZone = Object.fromEntries(subZones.map(z => [z, []]));
   (data?.batches ?? []).forEach(b => {
     if (b.sub_zone_id && byZone[b.sub_zone_id]) byZone[b.sub_zone_id].push(b);
   });
@@ -204,13 +210,13 @@ export default function AnnualTracker() {
               </div>
 
               {/* ── Sub-zone rows ── */}
-              {SUB_ZONES.map((zoneId, zi) => {
+              {subZones.map((zoneId, zi) => {
                 const batches = byZone[zoneId];
                 return (
                   <div key={zoneId} style={{
                     display: 'flex',
                     height: ROW_H,
-                    borderBottom: zi < SUB_ZONES.length - 1 ? '1px solid #f3f4f6' : 'none',
+                    borderBottom: zi < subZones.length - 1 ? '1px solid #f3f4f6' : 'none',
                     background: zi % 2 === 0 ? '#fafafa' : '#ffffff',
                   }}>
                     {/* Label */}

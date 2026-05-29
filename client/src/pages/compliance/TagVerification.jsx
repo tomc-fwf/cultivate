@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 
-const SUB_ZONES = ['Z1A', 'Z1B', 'Z2A', 'Z2B', 'Z3A', 'Z3B', 'Z4A', 'Z4B'];
 
 function formatDate(str) {
   if (!str) return '—';
@@ -12,10 +11,17 @@ function formatDate(str) {
 
 export default function TagVerification() {
   const navigate = useNavigate();
+  const [subZones, setSubZones] = useState([]);
   const [subZone, setSubZone] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.getContainerSummary()
+      .then(d => setSubZones(d.map(sz => sz.sub_zone_id).sort()))
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -86,7 +92,7 @@ export default function TagVerification() {
           >
             All zones
           </button>
-          {SUB_ZONES.map(sz => (
+          {subZones.map(sz => (
             <button
               key={sz}
               onClick={() => setSubZone(sz)}
