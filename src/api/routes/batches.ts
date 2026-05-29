@@ -1330,7 +1330,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       const db = getDB();
 
       const batch = db.prepare(
-        'SELECT batch_id, plant_count_initial, plant_count_current, plants_per_container, status FROM cv_batches WHERE batch_id = ?'
+        'SELECT batch_id, plant_count_initial, plants_per_container, status FROM cv_batches WHERE batch_id = ?'
       ).get(batchId) as Record<string, unknown> | undefined;
       if (!batch) return reply.code(404).send({ error: 'Batch not found' });
 
@@ -1367,7 +1367,7 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
       }));
 
       const totalAssigned = assigned.reduce((s, r) => s + r.assigned_count, 0);
-      const totalPlants = Number(batch.plant_count_current ?? batch.plant_count_initial ?? 0);
+      const totalPlants = Number(batch.plant_count_initial ?? 0);
 
       // Latest plan snapshot for this batch
       const latestPlan = db.prepare(`
