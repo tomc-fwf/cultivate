@@ -40,6 +40,15 @@ export default function PlantingPlanList() {
         <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
           Planting Plans
         </h1>
+        {user?.role !== 'grower' && (
+          <button
+            onClick={() => navigate('/planting-plans/new')}
+            className="px-4 py-2 bg-green-700 text-white text-sm font-semibold rounded-xl hover:bg-green-800 active:scale-95 transition-all"
+            style={{ minHeight: '44px' }}
+          >
+            + New Plan
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1 bg-gray-100 rounded-xl p-1 mb-5">
@@ -63,7 +72,18 @@ export default function PlantingPlanList() {
       {loading ? (
         <div className="text-gray-500 text-sm">Loading planting plans…</div>
       ) : plans.length === 0 ? (
-        <div className="text-center py-16 text-gray-500">No {filter || ''} planting plans found.</div>
+        <div className="text-center py-16 text-gray-500">
+          <div className="mb-3">No {filter || ''} planting plans found.</div>
+          {user?.role !== 'grower' && (
+            <button
+              onClick={() => navigate('/planting-plans/new')}
+              className="px-5 py-2.5 bg-green-700 text-white text-sm font-semibold rounded-xl hover:bg-green-800"
+              style={{ minHeight: '44px' }}
+            >
+              + Create First Plan
+            </button>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {plans.map(plan => (
