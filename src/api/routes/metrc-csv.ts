@@ -587,6 +587,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
           epa_registration_number, phi_days, phi_days_operational, phi_notes,
           rei_hours, omri_listed, restricted_use, signal_word, active_ingredients
         FROM cv_metrc_additive_templates
+        WHERE is_active = 1
         ORDER BY category NULLS LAST, name ASC
       `)
       .all() as Record<string, unknown>[];
@@ -690,6 +691,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       label_url: z.string().max(500).optional().nullable(),
       label_file_name: z.string().max(200).optional().nullable(),
       sds_file_name: z.string().max(200).optional().nullable(),
+      is_active: z.number().int().min(0).max(1).optional(),
     }).refine((d) => Object.keys(d).length > 0, { message: 'At least one field required' });
 
     const parse = PatchAdditiveTemplateSchema.safeParse(req.body);
@@ -724,6 +726,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
       label_url: 'label_url',
       label_file_name: 'label_file_name',
       sds_file_name: 'sds_file_name',
+      is_active: 'is_active',
     };
 
     const setClauses: string[] = [];

@@ -1099,9 +1099,11 @@ function DocUploadField({ label, docType, templateId, currentFileName, onUploade
   );
 }
 
-function TemplateActionSheet({ template, onClose, onEdit, onDuplicate, onDelete }) {
+function TemplateActionSheet({ template, onClose, onEdit, onDuplicate, onDelete, onToggleActive }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [toggling, setToggling] = useState(false);
+  const isActive = template.is_active !== 0;
 
   async function handleDelete() {
     setDeleting(true);
@@ -1114,28 +1116,58 @@ function TemplateActionSheet({ template, onClose, onEdit, onDuplicate, onDelete 
     }
   }
 
+  async function handleToggleActive() {
+    setToggling(true);
+    try {
+      await onToggleActive(template.template_id, isActive ? 0 : 1);
+      onClose();
+    } catch (e) {
+      alert(e.message);
+      setToggling(false);
+    }
+  }
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
       <div className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl z-50" style={{ paddingBottom: '80px' }}>
         <div className="px-5 py-4 border-b border-gray-100">
-          <div className="text-sm font-semibold text-gray-900 truncate">{template.name}</div>
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold text-gray-900 truncate">{template.name}</div>
+            {!isActive && <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">Inactive</span>}
+          </div>
           <div className="text-xs text-gray-400 mt-0.5">{template.additive_type}{template.application_device ? ` · ${template.application_device}` : ''}</div>
         </div>
         <div className="px-3 py-3 flex flex-col gap-1">
+          {isActive && (
+            <button
+              onClick={() => { onEdit(template); onClose(); }}
+              className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              Edit
+            </button>
+          )}
+          {isActive && (
+            <button
+              onClick={() => { onDuplicate(template); onClose(); }}
+              className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+              style={{ minHeight: '56px' }}
+            >
+              Duplicate
+            </button>
+          )}
           <button
-            onClick={() => { onEdit(template); onClose(); }}
-            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+            onClick={handleToggleActive}
+            disabled={toggling}
+            className={`flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left font-medium transition-colors disabled:opacity-50 ${
+              isActive
+                ? 'text-amber-700 hover:bg-amber-50 active:bg-amber-100'
+                : 'text-green-700 hover:bg-green-50 active:bg-green-100'
+            }`}
             style={{ minHeight: '56px' }}
           >
-            Edit
-          </button>
-          <button
-            onClick={() => { onDuplicate(template); onClose(); }}
-            className="flex items-center gap-4 w-full px-4 py-3 rounded-xl text-left text-gray-800 font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
-            style={{ minHeight: '56px' }}
-          >
-            Duplicate
+            {toggling ? '…' : isActive ? 'Deactivate' : 'Activate'}
           </button>
           {!confirmDelete ? (
             <button
@@ -1193,6 +1225,9 @@ function AdditiveTemplatesTab() {
   const [actionSheet, setActionSheet] = useState(null);
   const [editingTemplateId, setEditingTemplateId] = useState(null);
   const [docsExpanded, setDocsExpanded] = useState(false);
+  const [sortBy, setSortBy] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [showInactive, setShowInactive] = useState(false);
   const longPressTimer = useRef(null);
   const formRef = useCallback((node) => { if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []); // ref callback — called when form mounts/unmounts
 
@@ -1276,6 +1311,31 @@ function AdditiveTemplatesTab() {
     await api.deleteAdditiveTemplate(templateId);
     load();
   }
+
+  async function handleToggleActive(templateId, newValue) {
+    await api.patchAdditiveTemplate(templateId, { is_active: newValue });
+    load();
+  }
+
+  function cycleSort(field) {
+    if (sortBy === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(field);
+      setSortDir('asc');
+    }
+  }
+
+  const sortedTemplates = [...templates]
+    .filter((t) => showInactive || t.is_active !== 0)
+    .sort((a, b) => {
+      let av = '', bv = '';
+      if (sortBy === 'name') { av = a.name ?? ''; bv = b.name ?? ''; }
+      else if (sortBy === 'type') { av = a.additive_type ?? ''; bv = b.additive_type ?? ''; }
+      else if (sortBy === 'application') { av = a.application_device ?? ''; bv = b.application_device ?? ''; }
+      const cmp = av.localeCompare(bv);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
 
   function duplicateTemplate(t) {
     setForm({
@@ -1668,14 +1728,44 @@ function AdditiveTemplatesTab() {
         <div className="text-sm text-gray-500 text-center py-6">No templates yet. Click + New Template above.</div>
       ) : templates.length > 0 && (
         <div>
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            {templates.length} template{templates.length !== 1 ? 's' : ''}
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-1">
+              {[['name', 'Name'], ['type', 'Type'], ['application', 'Application']].map(([field, label]) => (
+                <button
+                  key={field}
+                  onClick={() => cycleSort(field)}
+                  className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
+                    sortBy === field
+                      ? 'bg-green-700 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  style={{ minHeight: '28px' }}
+                >
+                  {label}{sortBy === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowInactive((v) => !v)}
+              className={`text-xs px-2.5 py-1 rounded-full font-medium transition-colors ${
+                showInactive ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              }`}
+              style={{ minHeight: '28px' }}
+            >
+              {showInactive ? 'Hiding none' : 'Show inactive'}
+            </button>
+          </div>
+          <div className="text-xs text-gray-400 mb-2">
+            {sortedTemplates.length} template{sortedTemplates.length !== 1 ? 's' : ''}
+            {!showInactive && templates.filter((t) => t.is_active === 0).length > 0 && (
+              <span className="ml-1">· {templates.filter((t) => t.is_active === 0).length} inactive hidden</span>
+            )}
           </div>
           <div className="bg-white border border-gray-200 rounded-2xl divide-y divide-gray-100">
-            {templates.map((t) => (
+            {sortedTemplates.map((t) => (
               <div
                 key={t.template_id}
-                className="px-4 py-3.5 select-none"
+                className={`px-4 py-3.5 select-none ${t.is_active === 0 ? 'opacity-50' : ''}`}
                 onContextMenu={(e) => { e.preventDefault(); setActionSheet(t); }}
                 onTouchStart={() => startLongPress(t)}
                 onTouchEnd={cancelLongPress}
@@ -1684,7 +1774,8 @@ function AdditiveTemplatesTab() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-gray-900">{t.name}</span>
+                      <span className={`text-sm font-semibold ${t.is_active === 0 ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{t.name}</span>
+                      {t.is_active === 0 && <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-400">Inactive</span>}
                       <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
                         t.additive_type === 'Pesticide' ? 'bg-red-100 text-red-700'
                           : t.additive_type === 'Fertilizer' ? 'bg-green-100 text-green-700'
@@ -1765,6 +1856,7 @@ function AdditiveTemplatesTab() {
           onEdit={editTemplate}
           onDuplicate={duplicateTemplate}
           onDelete={handleDelete}
+          onToggleActive={handleToggleActive}
         />
       )}
     </div>
