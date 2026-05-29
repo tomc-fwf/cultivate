@@ -1555,9 +1555,9 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
         ORDER BY sz.zone_id, sz.designation
       `).all() as Array<{ sub_zone_id: string; pot_size_gal: number; total_containers: number; ready_count: number }>;
 
-      const updatedBatch = db.prepare('SELECT plant_count_current, plant_count_initial FROM cv_batches WHERE batch_id = ?')
+      const updatedBatch = db.prepare('SELECT plant_count_initial FROM cv_batches WHERE batch_id = ?')
         .get(batchId) as Record<string, unknown>;
-      const totalPlants = Number(updatedBatch.plant_count_current ?? updatedBatch.plant_count_initial ?? 0);
+      const totalPlants = Number(updatedBatch.plant_count_initial ?? 0);
       const totalAssigned = assigned.reduce((s, r) => s + r.assigned_count, 0);
 
       return reply.code(201).send({
