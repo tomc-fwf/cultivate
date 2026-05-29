@@ -20,6 +20,7 @@ const ASSIGNMENT_SELECT = `
          r.sub_zone_id,
          cs.current_state AS container_state,
          b.status AS batch_status,
+         b.name AS batch_name,
          s.name AS strain_name
   FROM cv_plant_assignments pa
   JOIN cv_containers c ON c.container_id = pa.container_id

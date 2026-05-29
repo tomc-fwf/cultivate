@@ -158,7 +158,7 @@ export default function TeardownForm() {
 
       {current_batch && (
         <div className="text-sm text-gray-500 mb-5">
-          <span className="font-medium text-green-800">{current_batch.strain_name}</span>
+          <span className="font-medium text-green-800">{current_batch.batch_name || current_batch.strain_name}</span>
           {' · '}
           <span className="font-mono text-xs">{containerId}</span>
           {' · '}

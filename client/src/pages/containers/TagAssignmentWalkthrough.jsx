@@ -60,9 +60,9 @@ function ReassignModal({ conflict, targetContainerId, targetAssignmentId, onReas
             Container:{' '}
             <span className="font-bold font-mono">{conflict.existing_assignment.container_id}</span>
           </div>
-          {conflict.existing_assignment.strain_name && (
+          {(conflict.existing_assignment.batch_name || conflict.existing_assignment.strain_name) && (
             <div className="text-xs text-amber-700 mt-0.5">
-              Batch: {conflict.existing_assignment.strain_name}
+              Batch: {conflict.existing_assignment.batch_name || conflict.existing_assignment.strain_name}
             </div>
           )}
         </div>
@@ -864,7 +864,7 @@ export default function TagAssignmentWalkthrough() {
           <option value="">All batches</option>
           {batches.map(b => (
             <option key={b.batch_id} value={b.batch_id}>
-              {b.strain_name} — {b.sub_zone_id ?? '(no sub-zone)'} ({b.status?.replace(/-/g, ' ')})
+              {b.name || b.strain_name} — {b.sub_zone_id ?? '(no sub-zone)'} ({b.status?.replace(/-/g, ' ')})
             </option>
           ))}
         </select>

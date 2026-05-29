@@ -663,7 +663,7 @@ function ContainerCard({ containerId, containerState, currentBatch }) {
       </div>
       {currentBatch && (
         <div className="text-xs text-gray-500">
-          {currentBatch.strain_name}
+          {currentBatch.batch_name || currentBatch.strain_name}
           {currentBatch.sub_zone_id && ` · ${currentBatch.sub_zone_id}`}
           {currentBatch.status && ` · ${currentBatch.status}`}
         </div>

@@ -66,7 +66,7 @@ function SetupStep({ onStart }) {
               <option value="">Select a batch…</option>
               {batches.map(b => (
                 <option key={b.batch_id} value={b.batch_id}>
-                  {b.strain_name ?? '—'} · {b.sub_zone_id ?? 'no zone'} · {b.status}
+                  {(b.name || b.strain_name) ?? '—'} · {b.sub_zone_id ?? 'no zone'} · {b.status}
                 </option>
               ))}
             </select>
@@ -323,7 +323,7 @@ function ReportStep({ setup, containers, results, onReset, onDone }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-gray-900 font-mono">{c.container_id}</div>
                   <div className="text-xs text-gray-500 mt-0.5">
-                    {c.strain_name ?? '—'} · Tag …{c.metrc_plant_tag ? String(c.metrc_plant_tag).slice(-4) : '—'}
+                    {(c.batch_name || c.strain_name) ?? '—'} · Tag …{c.metrc_plant_tag ? String(c.metrc_plant_tag).slice(-4) : '—'}
                   </div>
                 </div>
                 <span className={`text-xs font-bold px-2 py-1 rounded-lg ${results[c.assignment_id] === 'missing' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
