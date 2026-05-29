@@ -562,6 +562,7 @@ export default function BatchDetail() {
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex-1 min-w-0">
             <BatchNameInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
+            <MetrcBatchNameInline batch={batch} onSaved={updated => setBatch(b => ({ ...b, ...updated }))} />
             <div className="flex items-center gap-2 flex-wrap mt-1.5">
               <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[batch.status] ?? 'bg-gray-100 text-gray-600'}`}>
                 {STATUS_LABELS[batch.status] ?? batch.status}
@@ -1451,6 +1452,71 @@ function BatchNameInline({ batch, onSaved }) {
           onClick={save}
           disabled={saving}
           className="text-sm font-semibold text-white bg-green-700 hover:bg-green-800 px-4 py-1.5 rounded-lg disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={() => setEditing(false)} className="text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function MetrcBatchNameInline({ batch, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(batch.metrc_plant_batch_uid ?? '');
+  const [err, setErr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const updated = await api.updateBatch(batch.batch_id, { metrc_plant_batch_uid: value.trim() || null });
+      onSaved(updated);
+      setEditing(false);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setValue(batch.metrc_plant_batch_uid ?? ''); setEditing(true); setErr(''); }}
+        className="group flex items-center gap-1.5 text-left"
+      >
+        {batch.metrc_plant_batch_uid ? (
+          <span className="text-xs text-green-700 font-medium">METRC: {batch.metrc_plant_batch_uid}</span>
+        ) : (
+          <span className="text-xs text-amber-600 font-medium">+ Set METRC batch name</span>
+        )}
+        <span className="text-xs text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">Edit</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-1">
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={e => { setValue(e.target.value); setErr(''); }}
+        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+        className="w-full text-sm border border-green-400 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-green-200"
+        placeholder="e.g. Northern Lights Auto | 2026-05-01 | Auto"
+        maxLength={200}
+      />
+      {err && <p className="text-red-500 text-xs mt-1">{err}</p>}
+      <div className="flex items-center gap-3 mt-2">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="text-sm font-semibold text-white bg-green-700 hover:bg-green-800 px-4 py-1.5 rounded-lg disabled:opacity-50"
+          style={{ minHeight: '36px' }}
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

@@ -76,7 +76,7 @@ const BatchCreateSchema = z.object({
   sow_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'sow_date must be YYYY-MM-DD'),
   package_open_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   expected_harvest_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
+  metrc_plant_batch_uid: z.string().min(1).max(200).nullable().optional(),
   notes: z.string().nullable().optional(),
   source_type: z.enum(['seed', 'clone']).nullable().optional(),
   seed_package_id: z.number().int().positive().nullable().optional(),
@@ -89,7 +89,7 @@ type BatchCreateBody = z.infer<typeof BatchCreateSchema>;
 
 const BatchUpdateSchema = z.object({
   name: z.string().nullable().optional(),
-  metrc_plant_batch_uid: z.string().length(24).regex(/^[A-Za-z0-9]+$/).nullable().optional(),
+  metrc_plant_batch_uid: z.string().min(1).max(200).nullable().optional(),
   notes: z.string().nullable().optional(),
   sub_zone_id: z.string().nullable().optional(),
   plant_count_initial: z.number().int().positive().optional(),

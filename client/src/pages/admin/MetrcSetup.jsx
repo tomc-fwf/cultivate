@@ -2036,7 +2036,7 @@ function TagSyncTab() {
                   <div className="text-xs text-gray-500 mt-0.5">
                     {a.strain_name} · {a.container_id} · Batch {a.batch_id}
                     {a.metrc_plant_batch_uid && (
-                      <span className="ml-1 text-gray-400">({a.metrc_plant_batch_uid.slice(-6)})</span>
+                      <span className="ml-1 text-gray-400">({a.metrc_plant_batch_uid})</span>
                     )}
                   </div>
                   <div className="text-xs text-gray-400 mt-0.5">

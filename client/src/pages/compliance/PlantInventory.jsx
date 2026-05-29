@@ -147,7 +147,7 @@ export default function PlantInventory() {
                         <td className="px-3 py-2.5 text-gray-600">{b.current_recipe ?? '—'}</td>
                         <td className="px-3 py-2.5">
                           {b.metrc_uid_status === 'set' ? (
-                            <span className="text-green-700 font-mono text-xs">{String(b.metrc_plant_batch_uid).slice(0, 10)}…</span>
+                            <span className="text-green-700 text-xs">{String(b.metrc_plant_batch_uid)}</span>
                           ) : (
                             <span className="text-amber-600 font-semibold text-xs">Missing</span>
                           )}

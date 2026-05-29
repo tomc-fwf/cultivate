@@ -360,7 +360,7 @@ export default function AnnualTracker() {
           </div>
           {tooltip.batch.metrc_plant_batch_uid && (
             <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>
-              METRC …{tooltip.batch.metrc_plant_batch_uid.slice(-6)}
+              METRC {tooltip.batch.metrc_plant_batch_uid}
             </div>
           )}
         </div>
