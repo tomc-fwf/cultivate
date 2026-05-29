@@ -172,10 +172,15 @@ const BATCH_SELECT = `
   LEFT JOIN cv_fertigation_recipes fr ON fr.recipe_id = bsr.recipe_id
 `;
 
+const PRE_FIELD_STATUSES = new Set(['germ', 'seedling', 'cult-hoop']);
+
 function resolvedPlantCount(row: Record<string, unknown>): number {
+  const initial = Number(row['plant_count_initial'] ?? 0);
+  // Pre-field: plants are not individually assigned to containers yet.
+  // Active assignment count will be 0 or partial during field assignment — use initial.
+  if (PRE_FIELD_STATUSES.has(String(row['status'] ?? ''))) return initial;
   const activeCount = Number(row['active_assignment_count'] ?? 0);
-  if (activeCount > 0) return activeCount;
-  return Number(row['plant_count_initial'] ?? 0);
+  return activeCount > 0 ? activeCount : initial;
 }
 
 const batchesRoutes: FastifyPluginAsync = async (app) => {
@@ -1469,31 +1474,11 @@ const batchesRoutes: FastifyPluginAsync = async (app) => {
                  `Assigned via quick-assign to batch ${batchId} in ${sub_zone_id}`, now);
         }
 
-        // Advance batch cult-hoop → field-veg on first field assignment
-        if (batch.status === 'cult-hoop') {
-          const fromLocationId = batch.current_location_id as number | null;
-          db.prepare(`
-            UPDATE cv_batches
-            SET status = 'field-veg', current_stage_since = ?, field_move_date = ?,
-                current_location_id = ?, sub_zone_id = ?, updated_at = ?
-            WHERE batch_id = ?
-          `).run(now, now, fieldLocationId, sub_zone_id, now, batchId);
-
-          db.prepare(`
-            INSERT INTO cv_batch_phase_history
-              (batch_id, from_status, to_status, transitioned_at, transitioned_by,
-               notes, metrc_sync_status, created_at)
-            VALUES (?, 'cult-hoop', 'field-veg', ?, ?, ?, 'pending', ?)
-          `).run(batchId, now, userId,
-                 `First field assignment: ${readyContainers.length} containers in ${sub_zone_id}`, now);
-
-          db.prepare(`
-            INSERT INTO cv_batch_location_history
-              (batch_id, from_location_id, to_location_id, moved_at, moved_by,
-               trigger, planting_plan_id, metrc_sync_status, created_at)
-            VALUES (?, ?, ?, ?, ?, 'planting_plan_commit', NULL, 'pending', ?)
-          `).run(batchId, fromLocationId ?? null, fieldLocationId, now, userId, now);
-        }
+        // NOTE: batch status/location transition (cult-hoop → field-veg) is intentionally
+        // NOT triggered here. Container assignment is a separate action from moving the
+        // batch to the field. The supervisor explicitly triggers "Move to Field" via the
+        // phase transition endpoint, which handles location + METRC events correctly.
+        // See IMPLIED_LOCATION_MOVES and the phase transition handler for that flow.
 
         // Auto-snapshot: capture current full assignment state as a new plan version
         const prevVersion = db.prepare(
