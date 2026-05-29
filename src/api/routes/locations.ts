@@ -505,27 +505,32 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
       if (cat in tree) tree[cat].push(root);
     }
 
-    // ── Pre-field batch routing by status/name ────────────────────────────────
-    // Route germ/seedling/cult-hoop batches to the right indoor or hoop-house
-    // location by matching the batch status against the location name. This is
-    // more robust than location_id matching because it handles:
-    //   - the seeded Germ-01 (id=1) vs. user-created "Indoor Germination" cards
-    //   - operators who rename or recreate indoor locations
-    const PRE_FIELD_TERMS: Record<string, { cats: string[]; terms: string[] }> = {
-      'germ':      { cats: ['indoor'],               terms: ['germ'] },
-      'seedling':  { cats: ['indoor', 'hoop_house'], terms: ['seedling'] },
-      'cult-hoop': { cats: ['hoop_house', 'indoor'], terms: ['cult', 'hoop'] },
+    // ── Pre-field batch routing by location_type ──────────────────────────────
+    // Route germ/seedling/cult-hoop batches by matching batch status → location_type.
+    // location_type is a structural DB field (set by migrations) that remains stable
+    // even when operators rename the location via the admin UI (e.g. "Cult-Hoop" → "Bubble House").
+    // Preferred categories are searched first; falls back to all byId locations.
+    const STATUS_TO_LOC_TYPE: Record<string, { locType: string; cats: string[] }> = {
+      'germ':      { locType: 'germination', cats: ['indoor'] },
+      'seedling':  { locType: 'seedling',    cats: ['indoor', 'hoop_house'] },
+      'cult-hoop': { locType: 'veg',         cats: ['hoop_house', 'indoor'] },
     };
 
-    // Build status → best-matching location lookup (first match wins per status)
     const statusToLoc = new Map<string, LocationNode>();
-    for (const [status, cfg] of Object.entries(PRE_FIELD_TERMS)) {
-      for (const cat of cfg.cats) {
-        if (statusToLoc.has(status)) break;
+    for (const [status, cfg] of Object.entries(STATUS_TO_LOC_TYPE)) {
+      // Search preferred categories first
+      outer: for (const cat of cfg.cats) {
         for (const loc of (tree[cat] ?? [])) {
-          const n = (loc['name'] as string ?? '').toLowerCase();
-          if (n.includes('seed') && (n.includes('vault') || n.includes('package'))) continue;
-          if (cfg.terms.some(t => n.includes(t))) {
+          if ((loc['location_type'] as string) === cfg.locType) {
+            statusToLoc.set(status, loc);
+            break outer;
+          }
+        }
+      }
+      // Fallback: any active location with the right location_type
+      if (!statusToLoc.has(status)) {
+        for (const loc of Object.values(byId)) {
+          if ((loc['location_type'] as string) === cfg.locType) {
             statusToLoc.set(status, loc);
             break;
           }
@@ -536,7 +541,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
     // Assign pre-field batches to their matching location (deduplication guard)
     for (const batch of batchRows) {
       const status = batch['status'] as string;
-      if (!PRE_FIELD_TERMS[status]) continue;
+      if (!STATUS_TO_LOC_TYPE[status]) continue;
       const target = statusToLoc.get(status);
       if (!target) continue;
       if (!target.batches.some(b => b['batch_id'] === batch['batch_id'])) {
