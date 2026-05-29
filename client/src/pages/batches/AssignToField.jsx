@@ -48,7 +48,7 @@ function AssignSheet({ zone, maxAssignable, batch, onClose, onAssigned }) {
     <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50" />
       <div
-        className="relative bg-white rounded-t-2xl w-full max-w-lg shadow-2xl pb-8"
+        className="relative bg-white rounded-t-2xl w-full max-w-lg shadow-2xl pb-24"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-5 pt-5 pb-4 border-b border-gray-100">
