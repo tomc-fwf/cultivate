@@ -295,7 +295,19 @@ export const api = {
   getAdditiveCatalog: () => req('GET', '/metrc/csv/additive-templates/catalog'),
   getAdditiveTemplateDocs: (name) => req('GET', '/metrc/csv/additive-templates/docs?name=' + encodeURIComponent(name)),
   createAdditiveTemplates: (body) => req('POST', '/metrc/csv/additive-templates', body),
+  patchAdditiveTemplate: (id, data) => req('PATCH', `/metrc/csv/additive-templates/${id}`, data),
   deleteAdditiveTemplate: (id) => req('DELETE', `/metrc/csv/additive-templates/${id}`),
+  uploadAdditiveTemplateDoc: (id, type, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const token = localStorage.getItem('cv_token');
+    return fetch(`/api/metrc/csv/additive-templates/${id}/documents/${type}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: fd,
+    }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(new Error(e.error ?? 'Upload failed'))));
+  },
+  deleteAdditiveTemplateDoc: (id, type) => req('DELETE', `/metrc/csv/additive-templates/${id}/documents/${type}`),
 
   // METRC CSV — plants waste (#21)
   getPendingPlantsWaste: () => req('GET', '/metrc/csv/plants-waste/pending'),

@@ -2,8 +2,10 @@ import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 import { getDB } from '../../db/index.js';
 import { requireAuth, requireRole } from '../middleware/auth.middleware.js';
+import { ensureDocsDir, getDocPath, docExists } from '../../lib/product-docs.js';
 import {
   writeCsv,
   generateAdditiveTemplateCsv,
@@ -89,6 +91,7 @@ const AdditiveTemplateSchema = z.object({
   sds_url: z.string().max(500).optional().nullable(),
   label_url: z.string().max(500).optional().nullable(),
   label_file_name: z.string().max(200).optional().nullable(),
+  sds_file_name: z.string().max(200).optional().nullable(),
 }).refine(
   (t) => t.additive_type !== 'Pesticide' || (!!t.epa_registration_number && t.epa_registration_number.trim().length > 0),
   { message: 'epa_registration_number is required when additive_type is Pesticide', path: ['epa_registration_number'] },
@@ -517,9 +520,9 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
              active_ingredients,
              category, unit, manufacturer, phi_days, phi_days_operational, phi_notes,
              rei_hours, omri_listed, restricted_use, signal_word, target_organisms, sds_url,
-             label_url, label_file_name,
+             label_url, label_file_name, sds_file_name,
              created_by, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           t.name,
           t.additive_type,
@@ -545,6 +548,7 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
           t.sds_url ?? null,
           t.label_url ?? null,
           t.label_file_name ?? null,
+          t.sds_file_name ?? null,
           userId,
           now,
           now,
@@ -645,6 +649,221 @@ const metrcCsvRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     return reply.code(200).send({ deleted: true });
+  });
+
+  // PATCH /api/metrc/csv/additive-templates/:id
+  fastify.patch('/additive-templates/:id', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const templateId = Number(id);
+    const db = getDB();
+
+    const template = db
+      .prepare('SELECT template_id FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(templateId);
+    if (!template) {
+      return reply.code(404).send({ error: 'Additive template not found' });
+    }
+
+    const PatchAdditiveTemplateSchema = z.object({
+      name: z.string().min(1).max(100).regex(/^[^,'"\n\r]+$/, 'Name must not contain commas, quotes, or newlines').optional(),
+      additive_type: z.enum(['Fertilizer', 'Pesticide', 'Other']).optional(),
+      product_trade_name: z.string().max(200).optional().nullable(),
+      epa_registration_number: z.string().max(50).optional().nullable(),
+      note: z.string().optional().nullable(),
+      rei_quantity: z.string().max(10).optional().nullable(),
+      rei_time_unit: z.string().max(50).optional().nullable(),
+      product_supplier: z.string().max(200).optional().nullable(),
+      application_device: z.string().max(200).optional().nullable(),
+      active_ingredients: z.array(z.object({ name: z.string().min(1), percentage: z.number().min(0).max(100) })).min(1).optional(),
+      category: z.enum(['Fertilizer', 'Pesticide', 'Fungicide', 'Biocontrol', 'Amendment', 'FoliarNutrient', 'Other']).optional().nullable(),
+      unit: z.string().max(50).optional().nullable(),
+      manufacturer: z.string().max(200).optional().nullable(),
+      phi_days: z.number().min(0).optional().nullable(),
+      phi_days_operational: z.number().min(0).optional().nullable(),
+      phi_notes: z.string().optional().nullable(),
+      rei_hours: z.number().min(0).optional().nullable(),
+      omri_listed: z.number().int().min(0).max(1).optional().nullable(),
+      restricted_use: z.number().int().min(0).max(1).optional().nullable(),
+      signal_word: z.enum(['CAUTION', 'WARNING', 'DANGER']).optional().nullable(),
+      target_organisms: z.string().optional().nullable(),
+      sds_url: z.string().max(500).optional().nullable(),
+      label_url: z.string().max(500).optional().nullable(),
+      label_file_name: z.string().max(200).optional().nullable(),
+      sds_file_name: z.string().max(200).optional().nullable(),
+    }).refine((d) => Object.keys(d).length > 0, { message: 'At least one field required' });
+
+    const parse = PatchAdditiveTemplateSchema.safeParse(req.body);
+    if (!parse.success) {
+      return reply.code(400).send({ error: 'Validation failed', issues: parse.error.issues });
+    }
+    const body = parse.data;
+
+    const COLUMN_MAP: Record<string, string> = {
+      name: 'name',
+      additive_type: 'additive_type',
+      product_trade_name: 'product_trade_name',
+      epa_registration_number: 'epa_registration_number',
+      note: 'note',
+      rei_quantity: 'rei_quantity',
+      rei_time_unit: 'rei_time_unit',
+      product_supplier: 'product_supplier',
+      application_device: 'application_device',
+      active_ingredients: 'active_ingredients',
+      category: 'category',
+      unit: 'unit',
+      manufacturer: 'manufacturer',
+      phi_days: 'phi_days',
+      phi_days_operational: 'phi_days_operational',
+      phi_notes: 'phi_notes',
+      rei_hours: 'rei_hours',
+      omri_listed: 'omri_listed',
+      restricted_use: 'restricted_use',
+      signal_word: 'signal_word',
+      target_organisms: 'target_organisms',
+      sds_url: 'sds_url',
+      label_url: 'label_url',
+      label_file_name: 'label_file_name',
+      sds_file_name: 'sds_file_name',
+    };
+
+    const setClauses: string[] = [];
+    const values: unknown[] = [];
+    for (const [key, col] of Object.entries(COLUMN_MAP)) {
+      if (!(key in body)) continue;
+      const raw = (body as Record<string, unknown>)[key];
+      setClauses.push(`${col} = ?`);
+      values.push(key === 'active_ingredients' ? JSON.stringify(raw) : (raw ?? null));
+    }
+    if (setClauses.length === 0) {
+      return reply.code(400).send({ error: 'No updatable fields provided' });
+    }
+
+    const now = new Date().toISOString();
+    setClauses.push('updated_at = ?');
+    values.push(now);
+    values.push(templateId);
+
+    db.prepare(`UPDATE cv_metrc_additive_templates SET ${setClauses.join(', ')} WHERE template_id = ?`).run(...values);
+
+    const updated = db
+      .prepare('SELECT * FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(templateId) as Record<string, unknown>;
+    return reply.send({
+      ...updated,
+      active_ingredients: JSON.parse(updated['active_ingredients'] as string),
+      omri_listed: Number(updated['omri_listed'] ?? 0),
+      restricted_use: Number(updated['restricted_use'] ?? 0),
+    });
+  });
+
+  // POST /api/metrc/csv/additive-templates/:id/documents/:type
+  fastify.post('/additive-templates/:id/documents/:type', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, type } = req.params as { id: string; type: string };
+    if (type !== 'label' && type !== 'sds') {
+      return reply.code(400).send({ error: 'type must be "label" or "sds"' });
+    }
+    const templateId = Number(id);
+    const db = getDB();
+
+    const template = db
+      .prepare('SELECT template_id FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(templateId);
+    if (!template) {
+      return reply.code(404).send({ error: 'Additive template not found' });
+    }
+
+    const file = await req.file();
+    if (!file) {
+      return reply.code(400).send({ error: 'No file uploaded' });
+    }
+    if (file.mimetype !== 'application/pdf') {
+      // drain stream to prevent memory leak
+      file.file.resume();
+      return reply.code(400).send({ error: 'Only PDF files are accepted' });
+    }
+
+    ensureDocsDir(templateId);
+    const destPath = getDocPath(templateId, type as 'label' | 'sds');
+    const filename = file.filename;
+
+    try {
+      await pipeline(file.file, fs.createWriteStream(destPath));
+    } catch {
+      try { fs.unlinkSync(destPath); } catch { /* ignore */ }
+      return reply.code(500).send({ error: 'Failed to save uploaded file' });
+    }
+
+    const now = new Date().toISOString();
+    if (type === 'label') {
+      db.prepare('UPDATE cv_metrc_additive_templates SET label_file_name = ?, label_url = NULL, updated_at = ? WHERE template_id = ?')
+        .run(filename, now, templateId);
+    } else {
+      db.prepare('UPDATE cv_metrc_additive_templates SET sds_file_name = ?, sds_url = NULL, updated_at = ? WHERE template_id = ?')
+        .run(filename, now, templateId);
+    }
+
+    return reply.code(201).send({ success: true, file_name: filename });
+  });
+
+  // GET /api/metrc/csv/additive-templates/:id/documents/:type
+  fastify.get('/additive-templates/:id/documents/:type', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, type } = req.params as { id: string; type: string };
+    if (type !== 'label' && type !== 'sds') {
+      return reply.code(400).send({ error: 'type must be "label" or "sds"' });
+    }
+    const templateId = Number(id);
+    const db = getDB();
+
+    const template = db
+      .prepare('SELECT label_file_name, sds_file_name FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(templateId) as { label_file_name: string | null; sds_file_name: string | null } | undefined;
+    if (!template) {
+      return reply.code(404).send({ error: 'Additive template not found' });
+    }
+
+    if (!docExists(templateId, type as 'label' | 'sds')) {
+      return reply.code(404).send({ error: 'Document not found' });
+    }
+
+    const storedName = type === 'label' ? template.label_file_name : template.sds_file_name;
+    const fileName = storedName ?? `${type}.pdf`;
+
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `inline; filename="${fileName}"`)
+      .send(fs.createReadStream(getDocPath(templateId, type as 'label' | 'sds')));
+  });
+
+  // DELETE /api/metrc/csv/additive-templates/:id/documents/:type
+  fastify.delete('/additive-templates/:id/documents/:type', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id, type } = req.params as { id: string; type: string };
+    if (type !== 'label' && type !== 'sds') {
+      return reply.code(400).send({ error: 'type must be "label" or "sds"' });
+    }
+    const templateId = Number(id);
+    const db = getDB();
+
+    const template = db
+      .prepare('SELECT template_id FROM cv_metrc_additive_templates WHERE template_id = ?')
+      .get(templateId);
+    if (!template) {
+      return reply.code(404).send({ error: 'Additive template not found' });
+    }
+
+    if (docExists(templateId, type as 'label' | 'sds')) {
+      try { fs.unlinkSync(getDocPath(templateId, type as 'label' | 'sds')); } catch { /* ignore */ }
+    }
+
+    const now = new Date().toISOString();
+    if (type === 'label') {
+      db.prepare('UPDATE cv_metrc_additive_templates SET label_file_name = NULL, updated_at = ? WHERE template_id = ?')
+        .run(now, templateId);
+    } else {
+      db.prepare('UPDATE cv_metrc_additive_templates SET sds_file_name = NULL, updated_at = ? WHERE template_id = ?')
+        .run(now, templateId);
+    }
+
+    return reply.send({ success: true });
   });
 
   // GET /api/metrc/csv/uploads — list all generated CSV uploads
