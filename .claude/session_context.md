@@ -4205,3 +4205,63 @@ All 10 CRITICAL (P0) items from docs/backlog.md resolved and committed:
 ### Notes for Next Tasks
 - All slide-up sheets now use pb-24 minimum; the confirmed-correct files (AssignToField, ContainerDashboard bulk sheet, SubZoneFieldMap bulk sheet) already had pb-24
 - BatchDetail.jsx has 3 sheets at pb-20 (80px) — technically at the threshold; could be upgraded to pb-24 for full consistency if desired
+
+## Task: Sweep remaining strain_name primary displays, use batch name
+**Completed:** 2026-05-29
+
+### What Was Done
+- Fixed 7 frontend files to use `batch_name || strain_name` as the primary label wherever a batch identifier is displayed as the main identifier (not explicitly labeled 'Strain:')
+- Added `b.name AS batch_name` to `ASSIGNMENT_SELECT` in `tag-assignments.ts` backend so tag-assignment query results (used by AuditMode discrepancy list and TagAssignmentWalkthrough conflict dialog) include batch_name
+
+### Key Decisions
+- `getContainer()` and `getContainers()` already returned `batch_name` — no backend changes needed for those
+- `getBatches()` returns `b.*` so `b.name` is the batch name field; frontend uses `b.name || b.strain_name` (not `b.batch_name`) for those callers
+- Line 163 in PlantReplacementForm.jsx (explicitly labeled 'Strain:') and line 190 in AuditMode.jsx (explicitly labeled 'Strain') left as `strain_name` — the label is accurate
+- CSV export column in AuditMode.jsx ('Strain') also left as `c.strain_name`
+
+### Files Modified/Created
+- `src/api/routes/tag-assignments.ts` — added `b.name AS batch_name` to ASSIGNMENT_SELECT
+- `client/src/pages/containers/InspectionMode.jsx` — primary batch label: batch_name || strain_name
+- `client/src/pages/containers/PlantLossForm.jsx` — context breadcrumb: batch_name || strain_name
+- `client/src/pages/containers/PlantReplacementForm.jsx` — context breadcrumb: batch_name || strain_name
+- `client/src/pages/containers/TeardownForm.jsx` — context breadcrumb: batch_name || strain_name
+- `client/src/pages/containers/AuditMode.jsx` — batch dropdown + discrepancy list secondary row
+- `client/src/pages/containers/TagAssignmentWalkthrough.jsx` — conflict dialog + batch dropdown
+- `client/src/pages/containers/AmendmentNew.jsx` — container context line
+
+### Notes for Next Tasks
+- The batch name sweep is now complete across all identified surfaces
+- ContainerDetail, ContainerQuickSheet, SubZoneFieldMap were already fixed in a prior task
+
+---
+
+## Task: 054 cascade container ID format migration
+**Completed:** 2026-05-29
+
+### What Was Done
+- Created migration `054_container_id_new_format.ts`: cascades new ID format to all FK tables (15 container FK tables + 5 row FK tables) before updating PKs. Uses PRAGMA foreign_keys = OFF / try-finally pattern. Joins cv_sub_zones to get actual pot_size_gal — does not assume A=30/B=10 universally.
+- Updated `002_infrastructure.ts` seed: row_ids now `Z1-30-R01` format, container_ids now `Z1-30-R01-C001` format.
+- Updated `052_zone5_zone6_infrastructure.ts` seed: Zone 5 rows/containers use `Z5-10-R01` format (10-gal), Zone 6 uses `Z6-30-R01` format (30-gal).
+- Removed `normalizeContainerId()` from `ContainerScanner.jsx` and `containers.ts` — the DB format IS now the label format, no translation needed.
+- Updated `CONTAINER_PATTERN` in ContainerScanner.jsx to `/^Z\d+-(10|30)-R\d{1,3}-C\d{1,4}$/i`.
+- Updated manual entry placeholder to `Z1-30-R05-C001`.
+- Updated ContainerLabels.jsx search placeholder to `e.g. Z1-30-R03 or Z1-30-R03-C012`.
+- Updated all test files (9 files): replaced every old-format container/row ID with new format. Updated `CONTAINER_ID_RE` regex in domain-utils.test.ts.
+
+### Key Decisions
+- Used PRAGMA foreign_keys = OFF + try/finally (not knex.transaction) because the PRAGMA must persist across the entire migration, not just a single transaction block.
+- Joined cv_sub_zones for pot_size_gal in both up() and down() rather than hardcoding A=30/B=10, to handle Zone 5 (A=10) and Zone 6 (A=30) correctly.
+- Skipped updates where old === new (no-op guard) to avoid unnecessary writes.
+
+### Files Modified/Created
+- `src/db/migrations/054_container_id_new_format.ts` (new)
+- `src/db/migrations/002_infrastructure.ts`
+- `src/db/migrations/052_zone5_zone6_infrastructure.ts`
+- `src/api/routes/containers.ts`
+- `client/src/pages/containers/ContainerScanner.jsx`
+- `client/src/pages/admin/ContainerLabels.jsx`
+- `src/tests/domain-utils.test.ts` + 8 integration test files
+
+### Notes for Next Tasks
+- The database now uses Z1-30-R05-C001 format everywhere. Any hardcoded container IDs in other code (not in tests) should be checked if new work touches them.
+- The down() migration reconstructs old format from designation column in cv_sub_zones — that column still exists and is the source of truth for reversal.
