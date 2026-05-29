@@ -3,6 +3,99 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
+function HowItWorksModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div
+        className="relative bg-white rounded-t-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+          <h2 className="font-bold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
+            How Planting Plans Work
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-4 pb-8 space-y-5 text-sm text-gray-700">
+
+          <Step n={1} title="Start from a Batch">
+            Planting Plans are created from the Batch detail page — not from here.
+            Open a batch that is in <strong>Cult-Hoop</strong> (or later), then tap <em>"New Planting Plan."</em>
+          </Step>
+
+          <Step n={2} title="Choose a sub-zone and plant count">
+            Pick which sub-zone the plants will go into (e.g. Z1A, Z2B). Each sub-zone shows how
+            many containers are currently <strong>Ready</strong> (available). Set the plant count
+            to how many containers you want to fill — it defaults to the batch's current plant count.
+          </Step>
+
+          <Step n={3} title="Stage containers in the grid">
+            On the plan detail screen you'll see every container in the sub-zone as a colored cell:
+            <div className="mt-2 space-y-1.5">
+              <LegendRow color="bg-green-100 border border-green-300" label="Ready" desc="Tap to stage for planting" />
+              <LegendRow color="bg-blue-500" label="Draft" desc="Staged — tap to select for partial commit" />
+              <LegendRow color="bg-amber-400" label="Committed" desc="Locked in — plant is here" />
+              <LegendRow color="bg-gray-100 border border-gray-200" label="N/A" desc="Not in Ready state (in use, startup, etc.)" />
+            </div>
+            Tap green containers to add them to the draft. They turn blue. Tap blue to select
+            them for partial commit, or use the list below the grid to remove them.
+          </Step>
+
+          <Step n={4} title="Commit containers">
+            When your draft looks right, tap <strong>Commit All</strong> or <strong>Commit Selected</strong>.
+            For each committed container, the system:
+            <ul className="list-disc pl-5 mt-1.5 space-y-1">
+              <li>Changes the container state from <strong>Ready → Active</strong></li>
+              <li>Creates a plant assignment linking the batch to that container</li>
+              <li>If the batch is in Cult-Hoop, automatically advances it to <strong>Field-Veg</strong> and records the location move to Field</li>
+            </ul>
+          </Step>
+
+          <Step n={5} title="Assign METRC tags (separate step)">
+            Committing does <em>not</em> assign METRC tags. After committing, go to the
+            <strong> Field Map</strong> for the sub-zone → tap a container → long-press → View Detail →
+            Assign METRC Tag. Or use the <strong>Tag Assignment Walkthrough</strong> on the batch
+            to tag all containers in one flow.
+          </Step>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-xs text-gray-600">
+            <strong className="text-gray-800">Versioning:</strong> If you need to revise a committed plan,
+            tap <em>"New Version"</em> on the plan detail screen. A new draft is created and the old version
+            is preserved in the audit trail. Uncommitted containers on the old version are freed for re-use.
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Step({ n, title, children }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-700 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+        {n}
+      </div>
+      <div>
+        <div className="font-semibold text-gray-900 mb-1">{title}</div>
+        <div className="text-gray-600 leading-relaxed">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function LegendRow({ color, label, desc }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className={`w-5 h-5 rounded flex-shrink-0 ${color}`} />
+      <span className="font-semibold text-gray-800 w-20">{label}</span>
+      <span className="text-gray-500">{desc}</span>
+    </div>
+  );
+}
+
 const FILTER_TABS = [
   { key: 'draft',      label: 'Draft' },
   { key: 'active',     label: 'Active' },
@@ -24,6 +117,7 @@ export default function PlantingPlanList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [filter, setFilter] = useState('active');
+  const [showGuide, setShowGuide] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -36,10 +130,21 @@ export default function PlantingPlanList() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-6 pb-28">
+      {showGuide && <HowItWorksModal onClose={() => setShowGuide(false)} />}
+
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
-          Planting Plans
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Fraunces, serif' }}>
+            Planting Plans
+          </h1>
+          <button
+            onClick={() => setShowGuide(true)}
+            className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-bold hover:bg-gray-200 hover:text-gray-700 flex items-center justify-center flex-shrink-0"
+            title="How it works"
+          >
+            ?
+          </button>
+        </div>
         {user?.role !== 'grower' && (
           <button
             onClick={() => navigate('/planting-plans/new')}

@@ -3,6 +3,74 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../App';
 import { api } from '../../api';
 
+function HowItWorksModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50" />
+      <div
+        className="relative bg-white rounded-t-2xl w-full max-w-lg max-h-[88vh] flex flex-col shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+          <h2 className="font-bold text-gray-900 text-lg" style={{ fontFamily: 'Fraunces, serif' }}>
+            How to Use This Plan
+          </h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4 pb-8 space-y-5 text-sm text-gray-700">
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-800 leading-relaxed">
+            <strong>Where you are:</strong> This grid shows every container in the sub-zone.
+            Tap containers to stage them, then commit to place plants.
+          </div>
+
+          <Step n={1} title="Tap green containers to stage them">
+            <strong>Green (Ready)</strong> containers are available. Tap one and it turns
+            <strong> blue (Draft)</strong> — it's staged but not yet locked in.
+            Tap it again in the draft list to select it, or tap Remove to un-stage it.
+          </Step>
+
+          <Step n={2} title="Commit when ready">
+            Tap <strong>Commit All</strong> to lock all staged containers, or select specific
+            ones and tap <strong>Commit Selected</strong>. When committed:
+            <ul className="list-disc pl-5 mt-1.5 space-y-1">
+              <li>Container state: <strong>Ready → Active</strong></li>
+              <li>A plant assignment is created for each container</li>
+              <li>If the batch is in Cult-Hoop, it advances to <strong>Field-Veg</strong> automatically</li>
+            </ul>
+          </Step>
+
+          <Step n={3} title="Assign METRC tags after committing">
+            Committing creates the plant-to-container link but does <em>not</em> assign METRC tags.
+            Use the <strong>Tag Assignment Walkthrough</strong> on the batch page, or go to
+            each container's detail and assign tags individually.
+          </Step>
+
+          <Step n={4} title="Need to change the plan?">
+            Tap <strong>New Version</strong> to create a revised draft. The previous version
+            is archived but not deleted — the audit trail is preserved.
+          </Step>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Step({ n, title, children }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-green-700 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+        {n}
+      </div>
+      <div>
+        <div className="font-semibold text-gray-900 mb-1">{title}</div>
+        <div className="text-gray-600 leading-relaxed">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 const STATUS_CHIP = {
   draft:      'bg-amber-100 text-amber-700',
   active:     'bg-green-100 text-green-800',
@@ -84,6 +152,7 @@ export default function PlantingPlanDetail() {
   const [toast, setToast] = useState(null);
   const [busy, setBusy] = useState(false);
   const [selectedItems, setSelectedItems] = useState(new Set());
+  const [showGuide, setShowGuide] = useState(false);
 
   async function loadPlan() {
     try {
@@ -215,6 +284,7 @@ export default function PlantingPlanDetail() {
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 pb-36">
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
+      {showGuide && <HowItWorksModal onClose={() => setShowGuide(false)} />}
 
       <button
         onClick={() => navigate('/planting-plans')}
@@ -271,7 +341,14 @@ export default function PlantingPlanDetail() {
         <span className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-blue-500" />Draft</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-amber-400" />Committed</span>
         <span className="flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gray-100" />N/A</span>
-        {canEdit && <span className="text-gray-400 ml-auto">Tap green to add · Tap blue to select</span>}
+        {canEdit && <span className="text-gray-400">Tap green to add · Tap blue to select</span>}
+        <button
+          onClick={() => setShowGuide(true)}
+          className="ml-auto flex items-center gap-1 text-xs text-green-700 font-semibold hover:text-green-900"
+        >
+          <span className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center font-bold">?</span>
+          How to use
+        </button>
       </div>
 
       {/* Container grid */}
