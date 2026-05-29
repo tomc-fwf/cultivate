@@ -30,7 +30,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
                       ELSE b.sow_date END
                )) AS INTEGER) AS days_in_stage
         FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
         LEFT JOIN cv_batch_location_history lh ON lh.batch_id = b.batch_id
           AND lh.move_id = (
             SELECT MAX(move_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
@@ -322,7 +322,7 @@ const locationsRoutes: FastifyPluginAsync = async (app) => {
                       ELSE b.sow_date END
                )) AS INTEGER) AS days_in_stage
         FROM cv_batches b
-        JOIN cv_strains s ON s.strain_id = b.strain_id
+        LEFT JOIN cv_strains s ON s.strain_id = b.strain_id
         LEFT JOIN cv_batch_location_history lh ON lh.batch_id = b.batch_id
           AND lh.move_id = (
             SELECT MAX(move_id) FROM cv_batch_location_history WHERE batch_id = b.batch_id
