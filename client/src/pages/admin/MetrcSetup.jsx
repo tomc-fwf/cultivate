@@ -1007,7 +1007,7 @@ function emptyAdditiveForm() {
     category: '', unit: '', manufacturer: '',
     phi_days: '', phi_days_operational: '', phi_notes: '',
     rei_hours: '', omri_listed: false, restricted_use: false,
-    signal_word: '', target_organisms: '', sds_url: '', label_url: '', label_file_name: '',
+    signal_word: '', target_organisms: '', sds_url: '', label_url: '',
   };
 }
 
@@ -1192,6 +1192,7 @@ function AdditiveTemplatesTab() {
   const [lastResult, setLastResult] = useState(null);
   const [actionSheet, setActionSheet] = useState(null);
   const [editingTemplateId, setEditingTemplateId] = useState(null);
+  const [docsExpanded, setDocsExpanded] = useState(false);
   const longPressTimer = useRef(null);
   const formRef = useCallback((node) => { if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, []); // ref callback — called when form mounts/unmounts
 
@@ -1254,7 +1255,6 @@ function AdditiveTemplatesTab() {
       target_organisms: form.target_organisms.trim() || null,
       sds_url: form.sds_url.trim() || null,
       label_url: form.label_url.trim() || null,
-      label_file_name: form.label_file_name.trim() || null,
     };
     try {
       if (editingTemplateId) {
@@ -1339,9 +1339,9 @@ function AdditiveTemplatesTab() {
       target_organisms: t.target_organisms ?? '',
       sds_url: t.sds_url ?? '',
       label_url: t.label_url ?? '',
-      label_file_name: t.label_file_name ?? '',
     });
     setEditingTemplateId(t.template_id);
+    setDocsExpanded(false);
     setSaveError(null);
     setLastResult(null);
     setShowProductDetails(!!(t.category || t.manufacturer || t.phi_days != null));
@@ -1582,37 +1582,39 @@ function AdditiveTemplatesTab() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Label File Name <span className="text-gray-400 font-normal">(optional)</span></label>
-                    <input type="text" value={form.label_file_name} onChange={(e) => updateField('label_file_name', e.target.value)}
-                      placeholder="e.g. ZeroTol 2.0 Label.pdf"
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500" style={{ minHeight: '44px' }} />
-                  </div>
                 </div>
               )}
             </div>
 
             {editingTemplateId ? (
               <div className="border border-gray-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setDocsExpanded((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors"
+                  style={{ minHeight: '48px' }}
+                >
                   <span className="text-sm font-semibold text-gray-700">Documents</span>
-                </div>
-                <div className="p-4 grid grid-cols-1 gap-4">
-                  <DocUploadField
-                    label="Product Label"
-                    docType="label"
-                    templateId={editingTemplateId}
-                    currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.label_file_name ?? null}
-                    onUploaded={load}
-                  />
-                  <DocUploadField
-                    label="Safety Data Sheet (SDS)"
-                    docType="sds"
-                    templateId={editingTemplateId}
-                    currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.sds_file_name ?? null}
-                    onUploaded={load}
-                  />
-                </div>
+                  <span className="text-gray-400 text-sm">{docsExpanded ? '▲' : '▼'}</span>
+                </button>
+                {docsExpanded && (
+                  <div className="p-4 grid grid-cols-1 gap-4">
+                    <DocUploadField
+                      label="Product Label"
+                      docType="label"
+                      templateId={editingTemplateId}
+                      currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.label_file_name ?? null}
+                      onUploaded={load}
+                    />
+                    <DocUploadField
+                      label="Safety Data Sheet (SDS)"
+                      docType="sds"
+                      templateId={editingTemplateId}
+                      currentFileName={templates.find((t) => t.template_id === editingTemplateId)?.sds_file_name ?? null}
+                      onUploaded={load}
+                    />
+                  </div>
+                )}
               </div>
             ) : (
               <div className="text-xs text-gray-400 px-1">Save the template first to attach documents.</div>
